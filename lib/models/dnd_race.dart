@@ -1,11 +1,13 @@
 import 'dnd_subrace.dart';
 
 class DndRace {
-  final String index;
+  final String id;
   final String name;
+  final String source;
   final int speed;
 
   final List<Map<String, dynamic>> abilityBonuses;
+  final Map<String, dynamic>? abilityBonusOptions;
 
   final String alignment;
   final String age;
@@ -15,68 +17,65 @@ class DndRace {
 
   final List<String> languages;
   final String languageDesc;
+  final Map<String, dynamic>? languageOptions;
 
-  final List<String> traits;
+  final List<Map<String, String>> traits;
 
-  /// 🔥 Ahora subrazas completas
   final List<DndSubrace> subraces;
 
-  // Campos opcionales
-  final String? description;
-  final String? book;
-  final String? category;
+  final String description;
 
   DndRace({
-    required this.index,
+    required this.id,
     required this.name,
+    required this.source,
     required this.speed,
     required this.abilityBonuses,
+    required this.abilityBonusOptions,
     required this.alignment,
     required this.age,
     required this.size,
     required this.sizeDescription,
     required this.languages,
     required this.languageDesc,
+    required this.languageOptions,
     required this.traits,
     required this.subraces,
-    this.description,
-    this.book,
-    this.category,
+    required this.description,
   });
 
   factory DndRace.fromJson(Map<String, dynamic> json) {
     return DndRace(
-      index: json["index"],
-      name: json["name"],
-      speed: json["speed"],
-
-      abilityBonuses: (json["ability_bonuses"] as List? ?? [])
+      id: (json['id'] ?? '').toString(),
+      name: (json['name'] ?? '').toString(),
+      source: (json['source'] ?? '').toString(),
+      speed: (json['speed'] ?? 30) as int,
+      abilityBonuses: (json['abilityBonuses'] as List? ?? [])
           .map((e) => Map<String, dynamic>.from(e))
           .toList(),
-
-      alignment: json["alignment"] ?? "",
-      age: json["age"] ?? "",
-
-      size: json["size"] ?? "",
-      sizeDescription: json["size_description"] ?? "",
-
-      languages: (json["languages"] as List? ?? [])
-          .map((e) => e["name"] as String)
+      abilityBonusOptions: json['abilityBonusOptions'] is Map
+          ? Map<String, dynamic>.from(json['abilityBonusOptions'])
+          : null,
+      alignment: (json['alignment'] ?? '').toString(),
+      age: (json['age'] ?? '').toString(),
+      size: (json['size'] ?? '').toString(),
+      sizeDescription: (json['sizeDescription'] ?? '').toString(),
+      languages:
+          (json['languages'] as List? ?? []).map((e) => e.toString()).toList(),
+      languageDesc: (json['languageDesc'] ?? '').toString(),
+      languageOptions: json['languageOptions'] is Map
+          ? Map<String, dynamic>.from(json['languageOptions'])
+          : null,
+      traits: (json['traits'] as List? ?? [])
+          .map((e) => {
+                'name': (e['name'] ?? '').toString(),
+                'description': (e['description'] ?? '').toString(),
+              })
           .toList(),
-
-      languageDesc: json["language_desc"] ?? "",
-
-      traits: (json["traits"] as List? ?? [])
-          .map((e) => e["name"] as String)
+      subraces: (json['subraces'] as List? ?? [])
+          .map((e) => DndSubrace.fromJson(Map<String, dynamic>.from(e)))
           .toList(),
-
-      /// SRD subraces → strings (para compatibilidad)
-      /// Tools subraces → reemplazadas luego por DataMerger
-      subraces: [],
-
-      description: json["description"],
-      book: json["book"],
-      category: json["category"],
+      description: (json['description'] ?? '').toString(),
     );
   }
 }

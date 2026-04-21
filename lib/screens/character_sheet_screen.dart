@@ -39,31 +39,12 @@ import '../models/character_selected_option_group.dart';
 import '../services/character_infusion_service.dart';
 import '../models/feat_data.dart';
 import '../services/feat_data_service.dart';
+import '../features/characters/models/resolved_inventory_item.dart';
 
 enum _SpellChoiceSaveMode {
   known,
   prepared,
   innate,
-}
-
-class _ResolvedInventoryItem {
-  final CharacterInventoryItem originalItem;
-  final CharacterInventoryItem effectiveItem;
-  final EquipmentCompendiumItem? equipmentItem;
-  final CompendiumEntry? campaignEntry;
-  final String sourceLabel;
-  final String? resolvedDescription;
-  final String? resolvedImagePath;
-
-  const _ResolvedInventoryItem({
-    required this.originalItem,
-    required this.effectiveItem,
-    required this.equipmentItem,
-    required this.campaignEntry,
-    required this.sourceLabel,
-    required this.resolvedDescription,
-    required this.resolvedImagePath,
-  });
 }
 
 class CharacterSheetScreen extends StatefulWidget {
@@ -4182,7 +4163,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     );
   }
 
-  _ResolvedInventoryItem _resolveInventoryItem(
+  ResolvedInventoryItem _resolveInventoryItem(
     CharacterInventoryItem inventoryItem,
     EquipmentProvider equipmentProvider,
     CompendiumProvider compendiumProvider,
@@ -4219,7 +4200,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 ? inventoryItem.imagePath
                 : null;
 
-    return _ResolvedInventoryItem(
+    return ResolvedInventoryItem(
       originalItem: inventoryItem,
       effectiveItem: effectiveItem,
       equipmentItem: equipmentItem,
@@ -4365,14 +4346,14 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
   }
 
   String? _buildEquipmentDescription(
-    _ResolvedInventoryItem resolvedItem,
+    ResolvedInventoryItem resolvedItem,
   ) {
     final description = resolvedItem.resolvedDescription?.trim();
     if (description == null || description.isEmpty) return null;
     return description;
   }
 
-  _ResolvedInventoryItem? _resolveEquippedMainHandItem(
+  ResolvedInventoryItem? _resolveEquippedMainHandItem(
     Character char,
     EquipmentProvider equipmentProvider,
     CompendiumProvider compendiumProvider,
@@ -4398,13 +4379,13 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
   }
 
   bool _isMainHandWeapon(
-    _ResolvedInventoryItem? item,
+    ResolvedInventoryItem? item,
   ) {
     return item?.effectiveItem.itemType == EquipItemType.weapon;
   }
 
   bool _isMainHandFocus(
-    _ResolvedInventoryItem? item,
+    ResolvedInventoryItem? item,
   ) {
     return item?.equipmentItem != null &&
         _isHandHeldFocus(item!.equipmentItem!);
@@ -6244,7 +6225,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
     Widget buildSlotCard({
       required String label,
-      required _ResolvedInventoryItem? item,
+      required ResolvedInventoryItem? item,
       VoidCallback? onUnequip,
     }) {
       final metaLabel = item == null

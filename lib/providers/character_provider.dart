@@ -15,6 +15,7 @@ import '../services/character_infusion_service.dart';
 import '../models/character_option_definition.dart';
 import '../services/feat_data_service.dart';
 import '../services/feat_sync_service.dart';
+import '../services/race_sync_service.dart';
 
 class CharacterProvider extends ChangeNotifier {
   Character? _character;
@@ -158,10 +159,7 @@ class CharacterProvider extends ChangeNotifier {
     _character!.subrace = subrace.name;
 
     for (final bonus in subrace.abilityBonuses) {
-      final raw = bonus["ability_score"];
-      if (raw is! Map) continue;
-
-      final ability = raw["name"]?.toString();
+      final ability = bonus["ability"]?.toString();
       final value = bonus["bonus"] is int ? bonus["bonus"] as int : null;
 
       if (ability == null || value == null) continue;
@@ -559,8 +557,10 @@ class CharacterProvider extends ChangeNotifier {
     final character = getCharacterById(characterId);
     if (character == null) return;
 
-    final syncedFeatures =
+    final classAndSubclassFeatures =
         await CharacterFeatureSyncService.buildFeaturesForCharacter(character);
+
+    final raceSync = await RaceSyncService.buildForCharacter(character);
 
     final generatedResources =
         CharacterResourceFactory.buildResources(character);
@@ -588,12 +588,17 @@ class CharacterProvider extends ChangeNotifier {
     final selectedFeats = await FeatDataService.getFeatsByIds(
       character.selectedFeatIds,
     );
+
     FeatSyncService.applyFeatsToCharacter(
       character: character,
       feats: selectedFeats,
     );
 
-    character.features = syncedFeatures;
+    character.features = [
+      ...classAndSubclassFeatures,
+      ...raceSync.features,
+    ];
+
     character.resources = mergedResources;
 
     await CharacterStorage.updateCharacterById(character.id, character);

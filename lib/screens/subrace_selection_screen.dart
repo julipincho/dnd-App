@@ -32,8 +32,10 @@ class SubraceSelectionScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text("Subrace of ${race.name}",
-                style: const TextStyle(color: Colors.white70)),
+            Text(
+              "Subrace of ${race.name}",
+              style: const TextStyle(color: Colors.white70),
+            ),
             const SizedBox(height: 20),
             const Text(
               "Description",
@@ -62,9 +64,11 @@ class SubraceSelectionScreen extends StatelessWidget {
             const SizedBox(height: 6),
             Wrap(
               spacing: 8,
+              runSpacing: 8,
               children: subrace.abilityBonuses.map((b) {
-                final ability = b["ability_score"]["name"];
+                final ability = b["ability"];
                 final bonus = b["bonus"];
+
                 return Chip(
                   label: Text(
                     "$ability +$bonus",
@@ -84,10 +88,36 @@ class SubraceSelectionScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 6),
-            ...subrace.traits.map((t) => Text(
-                  "• $t",
-                  style: const TextStyle(color: Colors.white70),
-                )),
+            ...subrace.traits.map((t) {
+              final name = t["name"] ?? "";
+              final desc = t["description"] ?? "";
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "• $name",
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    if (desc.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        desc,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            }),
             const Spacer(),
             SizedBox(
               width: double.infinity,

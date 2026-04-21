@@ -99,8 +99,9 @@ class _RaceSelectionScreenState extends State<RaceSelectionScreen> {
                   itemCount: filtered.length,
                   itemBuilder: (_, i) {
                     final race = filtered[i];
-                    final desc = race.description ?? race.alignment ?? "";
-
+                    final desc = race.description.isNotEmpty
+                        ? race.description
+                        : race.alignment;
                     return InkWell(
                       borderRadius: BorderRadius.circular(12),
                       onTap: () {

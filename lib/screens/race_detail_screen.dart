@@ -22,8 +22,8 @@ class _RaceDetailScreenState extends State<RaceDetailScreen> {
   Widget build(BuildContext context) {
     final race = widget.race;
 
-    final fullDescription = race.description?.isNotEmpty == true
-        ? race.description!
+    final fullDescription = race.description.isNotEmpty
+        ? race.description
         : race.languageDesc.isNotEmpty
             ? race.languageDesc
             : "No detailed description available.";
@@ -111,8 +111,7 @@ class _RaceDetailScreenState extends State<RaceDetailScreen> {
 
                   final bonuses = {
                     for (var b in race.abilityBonuses)
-                      (b["ability_score"]["name"] as String):
-                          (b["bonus"] as int),
+                      (b["ability"] as String): (b["bonus"] as int),
                   };
 
                   provider.setRace(race.name, bonuses);
@@ -150,8 +149,9 @@ class _RaceDetailScreenState extends State<RaceDetailScreen> {
       spacing: 8,
       runSpacing: 8,
       children: race.abilityBonuses.map((b) {
-        final ability = b["ability_score"]["name"];
+        final ability = b["ability"];
         final bonus = b["bonus"];
+
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
@@ -186,13 +186,25 @@ class _RaceDetailScreenState extends State<RaceDetailScreen> {
   Widget _traitsList(DndRace race) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: race.traits
-          .map((trait) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Text("• $trait",
-                    style: const TextStyle(color: Colors.white)),
-              ))
-          .toList(),
+      children: race.traits.map((trait) {
+        final name = trait["name"] ?? "";
+        final desc = trait["description"] ?? "";
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text("• $name",
+                  style: const TextStyle(
+                      color: Colors.white, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 2),
+              Text(desc,
+                  style: const TextStyle(color: Colors.white70, fontSize: 13)),
+            ],
+          ),
+        );
+      }).toList(),
     );
   }
 

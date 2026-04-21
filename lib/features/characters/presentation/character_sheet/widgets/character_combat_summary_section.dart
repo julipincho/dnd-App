@@ -4,6 +4,7 @@ import '../../../../../models/character.dart';
 import '../../../../../models/character_inventory_item.dart';
 import '../../../../../providers/compendium_provider.dart';
 import '../../../../../providers/equipment_provider.dart';
+import '../../../models/resolved_inventory_item.dart';
 
 class CharacterCombatSummarySection extends StatelessWidget {
   final Character char;
@@ -12,19 +13,19 @@ class CharacterCombatSummarySection extends StatelessWidget {
   final bool isTablet;
   final bool isLargeTablet;
 
-  final dynamic Function(
+  final ResolvedInventoryItem? Function(
     Character char,
     EquipmentProvider equipmentProvider,
     CompendiumProvider compendiumProvider,
   ) resolveEquippedMainHandItem;
 
-  final bool Function(dynamic item) isMainHandWeapon;
-  final bool Function(dynamic item) isMainHandFocus;
+  final bool Function(ResolvedInventoryItem? item) isMainHandWeapon;
+  final bool Function(ResolvedInventoryItem? item) isMainHandFocus;
 
   final CharacterInventoryItem? Function(Character char, String? itemId)
       findInventoryItemById;
 
-  final dynamic Function(
+  final ResolvedInventoryItem Function(
     CharacterInventoryItem item,
     EquipmentProvider equipmentProvider,
     CompendiumProvider compendiumProvider,
@@ -105,6 +106,7 @@ class CharacterCombatSummarySection extends StatelessWidget {
         resolvedMainHand != null && isMainHandWeapon(resolvedMainHand);
     final isFocus =
         resolvedMainHand != null && isMainHandFocus(resolvedMainHand);
+
     final rawArmor = findInventoryItemById(char, char.equippedArmorItemId);
     final rawShield = findInventoryItemById(char, char.equippedShieldItemId);
 
@@ -299,7 +301,7 @@ class CharacterCombatSummarySection extends StatelessWidget {
                     ? (computedSpellAttackBonus == null
                         ? '—'
                         : formatSigned(computedSpellAttackBonus))
-                    : (attackBonus == null ? '—' : formatSigned(attackBonus!)),
+                    : (attackBonus == null ? '—' : formatSigned(attackBonus)),
                 icon: isFocus
                     ? Icons.bolt_outlined
                     : Icons.track_changes_outlined,

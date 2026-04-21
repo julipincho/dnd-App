@@ -5,6 +5,7 @@ import '../../../../../models/character_inventory_item.dart';
 import '../../../../../providers/compendium_provider.dart';
 import '../../../../../providers/equipment_provider.dart';
 import 'character_combat_summary_section.dart';
+import '../../../models/resolved_inventory_item.dart';
 
 class CharacterOverviewTab extends StatelessWidget {
   final Character char;
@@ -113,19 +114,19 @@ class CharacterOverviewTab extends StatelessWidget {
   ) getSpellcastingAbilityModifier;
   final String Function(int value) formatSigned;
 
-  final dynamic Function(
+  final ResolvedInventoryItem? Function(
     Character char,
     EquipmentProvider equipmentProvider,
     CompendiumProvider compendiumProvider,
   ) resolveEquippedMainHandItem;
 
-  final bool Function(dynamic item) isMainHandWeapon;
-  final bool Function(dynamic item) isMainHandFocus;
+  final bool Function(ResolvedInventoryItem? item) isMainHandWeapon;
+  final bool Function(ResolvedInventoryItem? item) isMainHandFocus;
 
   final CharacterInventoryItem? Function(Character char, String? itemId)
       findInventoryItemById;
 
-  final dynamic Function(
+  final ResolvedInventoryItem Function(
     CharacterInventoryItem item,
     EquipmentProvider equipmentProvider,
     CompendiumProvider compendiumProvider,
