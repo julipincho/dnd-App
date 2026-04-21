@@ -5095,7 +5095,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 isLargeTablet: isLargeTablet,
                 onTap: onTap,
               ),
-              buildCombatSummarySection: _buildCombatSummarySection,
               buildAbilityCard: _ability,
               buildRecentDiceRolls: ({
                 required isTablet,
@@ -5139,6 +5138,18 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               getNormalizedSpellcastingAbility: _normalizedSpellcastingAbility,
               getSpellcastingAbilityModifier: _spellcastingAbilityModifier,
               formatSigned: _formatSigned,
+              resolveEquippedMainHandItem: _resolveEquippedMainHandItem,
+              isMainHandWeapon: (item) => _isMainHandWeapon(item),
+              isMainHandFocus: (item) => _isMainHandFocus(item),
+              findInventoryItemById: _findInventoryItemById,
+              resolveInventoryItem: _resolveInventoryItem,
+              calculateMainHandAttackBonus: _calculateMainHandAttackBonus,
+              buildMainHandDamageText: _buildMainHandDamageText,
+              getWeaponAttackAbilityLabel: _getWeaponAttackAbilityLabel,
+              computeSpellAttackBonus: _spellAttackBonus,
+              normalizedSpellcastingAbility: _normalizedSpellcastingAbility,
+              rollMainHandAttack: _rollMainHandAttack,
+              rollMainHandDamage: _rollMainHandDamage,
             ),
             _buildInventoryTab(
               context,
@@ -6457,273 +6468,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
           },
         ),
       ],
-    );
-  }
-
-  Widget _buildCombatSummarySection(
-    BuildContext context,
-    Character char,
-    EquipmentProvider equipmentProvider,
-    CompendiumProvider compendiumProvider, {
-    required bool isTablet,
-    required bool isLargeTablet,
-  }) {
-    final resolvedMainHand = _resolveEquippedMainHandItem(
-      char,
-      equipmentProvider,
-      compendiumProvider,
-    );
-
-    final isWeapon = _isMainHandWeapon(resolvedMainHand);
-    final isFocus = _isMainHandFocus(resolvedMainHand);
-
-    final rawArmor = _findInventoryItemById(char, char.equippedArmorItemId);
-    final rawShield = _findInventoryItemById(char, char.equippedShieldItemId);
-
-    final resolvedArmor = rawArmor == null
-        ? null
-        : _resolveInventoryItem(
-            rawArmor,
-            equipmentProvider,
-            compendiumProvider,
-          );
-
-    final resolvedShield = rawShield == null
-        ? null
-        : _resolveInventoryItem(
-            rawShield,
-            equipmentProvider,
-            compendiumProvider,
-          );
-
-    final int? attackBonus = isWeapon
-        ? _calculateMainHandAttackBonus(
-            char,
-            equipmentProvider,
-            compendiumProvider,
-          )
-        : null;
-
-    final String damageText = isWeapon
-        ? _buildMainHandDamageText(
-            char,
-            equipmentProvider,
-            compendiumProvider,
-          )
-        : '—';
-
-    final String attackAbilityLabel = isWeapon && resolvedMainHand != null
-        ? _getWeaponAttackAbilityLabel(
-            char,
-            resolvedMainHand.effectiveItem,
-            equipmentProvider,
-            compendiumProvider,
-          )
-        : '—';
-
-    final int? spellAttackBonus = isFocus
-        ? _spellAttackBonus(
-            char,
-            equipmentProvider,
-            compendiumProvider,
-          )
-        : null;
-
-    final String spellAbility =
-        isFocus ? (_normalizedSpellcastingAbility(char) ?? '—') : '—';
-
-    String armorText = 'Unarmored';
-    if (resolvedArmor != null) {
-      final armor = resolvedArmor.effectiveItem;
-      if (armor.baseArmorClass != null) {
-        armorText =
-            '${resolvedArmor.effectiveItem.name} • AC ${armor.baseArmorClass}';
-      } else {
-        armorText = resolvedArmor.effectiveItem.name;
-      }
-    }
-
-    String shieldText = 'None';
-    if (resolvedShield != null) {
-      final shieldBonus = resolvedShield.effectiveItem.armorClassBonus ?? 0;
-      shieldText = shieldBonus > 0
-          ? '${resolvedShield.effectiveItem.name} • +$shieldBonus AC'
-          : resolvedShield.effectiveItem.name;
-    }
-
-    String mainHandLabel = 'None equipped';
-    if (resolvedMainHand != null) {
-      mainHandLabel = resolvedMainHand.effectiveItem.name;
-    }
-
-    String mainHandTypeText = '—';
-    if (resolvedMainHand != null) {
-      if (isFocus) {
-        final displayCategory =
-            resolvedMainHand.equipmentItem?.displayCategory.trim();
-        mainHandTypeText =
-            (displayCategory != null && displayCategory.isNotEmpty)
-                ? displayCategory
-                : 'Arcane Focus';
-      } else if (isWeapon) {
-        final displayCategory =
-            resolvedMainHand.equipmentItem?.displayCategory.trim();
-        mainHandTypeText =
-            (displayCategory != null && displayCategory.isNotEmpty)
-                ? displayCategory
-                : 'Weapon';
-      }
-    }
-
-    Widget statTile({
-      required String label,
-      required String value,
-      IconData? icon,
-    }) {
-      return Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: const Color(0xFF262632),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: Colors.deepPurpleAccent.withOpacity(0.22),
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (icon != null) ...[
-              Icon(icon, color: Colors.white70, size: 18),
-              const SizedBox(height: 10),
-            ],
-            Text(
-              label,
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.65),
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              value,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: isTablet ? 15 : 14,
-                fontWeight: FontWeight.w700,
-                height: 1.25,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.28),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Combat Summary',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: isLargeTablet ? 18 : 16,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 14),
-          GridView.count(
-            crossAxisCount: isLargeTablet ? 3 : (isTablet ? 2 : 1),
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: isLargeTablet ? 2.2 : 2.5,
-            children: [
-              statTile(
-                label: 'Main Hand',
-                value: mainHandLabel,
-                icon: isFocus ? Icons.auto_awesome : Icons.gavel_outlined,
-              ),
-              statTile(
-                label: 'Type',
-                value: mainHandTypeText,
-                icon: isFocus
-                    ? Icons.menu_book_outlined
-                    : Icons.category_outlined,
-              ),
-              statTile(
-                label: isFocus ? 'Spell Attack' : 'Attack Bonus',
-                value: isFocus
-                    ? (spellAttackBonus == null
-                        ? '—'
-                        : _formatSigned(spellAttackBonus))
-                    : (attackBonus == null ? '—' : _formatSigned(attackBonus)),
-                icon: isFocus
-                    ? Icons.bolt_outlined
-                    : Icons.track_changes_outlined,
-              ),
-              statTile(
-                label: isFocus ? 'Spellcasting Stat' : 'Attack Stat',
-                value: isFocus ? spellAbility : attackAbilityLabel,
-                icon: Icons.fitness_center_outlined,
-              ),
-              statTile(
-                label: isFocus ? 'Weapon Damage' : 'Damage',
-                value: isFocus ? '—' : damageText,
-                icon: Icons.auto_fix_high_outlined,
-              ),
-              statTile(
-                label: 'Armor',
-                value: armorText,
-                icon: Icons.shield_outlined,
-              ),
-              statTile(
-                label: 'Shield',
-                value: shieldText,
-                icon: Icons.security_outlined,
-              ),
-            ],
-          ),
-          if (isWeapon && resolvedMainHand != null) ...[
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                FilledButton.icon(
-                  onPressed: () => _rollMainHandAttack(
-                    char,
-                    equipmentProvider,
-                    compendiumProvider,
-                  ),
-                  icon: const Icon(Icons.casino_outlined),
-                  label: const Text('Roll Attack'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: () => _rollMainHandDamage(
-                    char,
-                    equipmentProvider,
-                    compendiumProvider,
-                  ),
-                  icon: const Icon(Icons.auto_fix_high_outlined),
-                  label: const Text('Roll Damage'),
-                ),
-              ],
-            ),
-          ],
-        ],
-      ),
     );
   }
 

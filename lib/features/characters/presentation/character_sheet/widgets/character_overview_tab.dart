@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../../../../../models/character.dart';
+import '../../../../../models/character_inventory_item.dart';
 import '../../../../../providers/compendium_provider.dart';
 import '../../../../../providers/equipment_provider.dart';
+import 'character_combat_summary_section.dart';
 
 class CharacterOverviewTab extends StatelessWidget {
   final Character char;
@@ -36,15 +38,6 @@ class CharacterOverviewTab extends StatelessWidget {
     required bool isLargeTablet,
     required VoidCallback onTap,
   }) buildInteractiveSummaryCard;
-
-  final Widget Function(
-    BuildContext context,
-    Character char,
-    EquipmentProvider equipmentProvider,
-    CompendiumProvider compendiumProvider, {
-    required bool isTablet,
-    required bool isLargeTablet,
-  }) buildCombatSummarySection;
 
   final Widget Function(
     Character char,
@@ -84,6 +77,7 @@ class CharacterOverviewTab extends StatelessWidget {
     required String title,
     required String content,
   }) buildNarrativeCard;
+
   final Future<void> Function() onOpenDiceRoller;
   final Future<void> Function() onLevelUp;
   final VoidCallback onGoToCampaign;
@@ -119,6 +113,63 @@ class CharacterOverviewTab extends StatelessWidget {
   ) getSpellcastingAbilityModifier;
   final String Function(int value) formatSigned;
 
+  final dynamic Function(
+    Character char,
+    EquipmentProvider equipmentProvider,
+    CompendiumProvider compendiumProvider,
+  ) resolveEquippedMainHandItem;
+
+  final bool Function(dynamic item) isMainHandWeapon;
+  final bool Function(dynamic item) isMainHandFocus;
+
+  final CharacterInventoryItem? Function(Character char, String? itemId)
+      findInventoryItemById;
+
+  final dynamic Function(
+    CharacterInventoryItem item,
+    EquipmentProvider equipmentProvider,
+    CompendiumProvider compendiumProvider,
+  ) resolveInventoryItem;
+
+  final int? Function(
+    Character char,
+    EquipmentProvider equipmentProvider,
+    CompendiumProvider compendiumProvider,
+  ) calculateMainHandAttackBonus;
+
+  final String Function(
+    Character char,
+    EquipmentProvider equipmentProvider,
+    CompendiumProvider compendiumProvider,
+  ) buildMainHandDamageText;
+
+  final String Function(
+    Character char,
+    CharacterInventoryItem weaponItem,
+    EquipmentProvider equipmentProvider,
+    CompendiumProvider compendiumProvider,
+  ) getWeaponAttackAbilityLabel;
+
+  final int Function(
+    Character char,
+    EquipmentProvider equipmentProvider,
+    CompendiumProvider compendiumProvider,
+  ) computeSpellAttackBonus;
+
+  final String? Function(Character char) normalizedSpellcastingAbility;
+
+  final Future<void> Function(
+    Character char,
+    EquipmentProvider equipmentProvider,
+    CompendiumProvider compendiumProvider,
+  ) rollMainHandAttack;
+
+  final Future<void> Function(
+    Character char,
+    EquipmentProvider equipmentProvider,
+    CompendiumProvider compendiumProvider,
+  ) rollMainHandDamage;
+
   const CharacterOverviewTab({
     super.key,
     required this.header,
@@ -129,7 +180,6 @@ class CharacterOverviewTab extends StatelessWidget {
     required this.buildHpQuickActionsCard,
     required this.buildSummaryCard,
     required this.buildInteractiveSummaryCard,
-    required this.buildCombatSummarySection,
     required this.buildAbilityCard,
     required this.buildRecentDiceRolls,
     required this.buildSavingThrowsSection,
@@ -150,6 +200,18 @@ class CharacterOverviewTab extends StatelessWidget {
     required this.getNormalizedSpellcastingAbility,
     required this.getSpellcastingAbilityModifier,
     required this.formatSigned,
+    required this.resolveEquippedMainHandItem,
+    required this.isMainHandWeapon,
+    required this.isMainHandFocus,
+    required this.findInventoryItemById,
+    required this.resolveInventoryItem,
+    required this.calculateMainHandAttackBonus,
+    required this.buildMainHandDamageText,
+    required this.getWeaponAttackAbilityLabel,
+    required this.computeSpellAttackBonus,
+    required this.normalizedSpellcastingAbility,
+    required this.rollMainHandAttack,
+    required this.rollMainHandDamage,
   });
 
   @override
@@ -197,7 +259,7 @@ class CharacterOverviewTab extends StatelessWidget {
       equipmentProvider,
       compendiumProvider,
     );
-    final spellAttackBonus = getSpellAttackBonus(
+    final currentSpellAttackBonus = getSpellAttackBonus(
       char,
       equipmentProvider,
       compendiumProvider,
@@ -259,7 +321,9 @@ class CharacterOverviewTab extends StatelessWidget {
       ),
       buildSummaryCard(
         label: 'Spell Attack',
-        value: spellAbilityKey == null ? '—' : formatSigned(spellAttackBonus),
+        value: spellAbilityKey == null
+            ? '—'
+            : formatSigned(currentSpellAttackBonus),
         icon: Icons.bolt_outlined,
         isTablet: isTablet,
         isLargeTablet: isLargeTablet,
@@ -354,13 +418,25 @@ class CharacterOverviewTab extends StatelessWidget {
                 itemBuilder: (_, index) => summaryCards[index],
               ),
               const SizedBox(height: 24),
-              buildCombatSummarySection(
-                context,
-                char,
-                equipmentProvider,
-                compendiumProvider,
+              CharacterCombatSummarySection(
+                char: char,
+                equipmentProvider: equipmentProvider,
+                compendiumProvider: compendiumProvider,
                 isTablet: isTablet,
                 isLargeTablet: isLargeTablet,
+                resolveEquippedMainHandItem: resolveEquippedMainHandItem,
+                isMainHandWeapon: isMainHandWeapon,
+                isMainHandFocus: isMainHandFocus,
+                findInventoryItemById: findInventoryItemById,
+                resolveInventoryItem: resolveInventoryItem,
+                calculateMainHandAttackBonus: calculateMainHandAttackBonus,
+                buildMainHandDamageText: buildMainHandDamageText,
+                getWeaponAttackAbilityLabel: getWeaponAttackAbilityLabel,
+                computeSpellAttackBonus: computeSpellAttackBonus,
+                normalizedSpellcastingAbility: normalizedSpellcastingAbility,
+                rollMainHandAttack: rollMainHandAttack,
+                rollMainHandDamage: rollMainHandDamage,
+                formatSigned: formatSigned,
               ),
               const SizedBox(height: 24),
               Text(
@@ -380,18 +456,48 @@ class CharacterOverviewTab extends StatelessWidget {
                 mainAxisSpacing: 12,
                 childAspectRatio: statAspectRatio,
                 children: [
-                  buildAbilityCard(char, "STR", str,
-                      isTablet: isTablet, isLargeTablet: isLargeTablet),
-                  buildAbilityCard(char, "DEX", dex,
-                      isTablet: isTablet, isLargeTablet: isLargeTablet),
-                  buildAbilityCard(char, "CON", con,
-                      isTablet: isTablet, isLargeTablet: isLargeTablet),
-                  buildAbilityCard(char, "INT", intScore,
-                      isTablet: isTablet, isLargeTablet: isLargeTablet),
-                  buildAbilityCard(char, "WIS", wis,
-                      isTablet: isTablet, isLargeTablet: isLargeTablet),
-                  buildAbilityCard(char, "CHA", cha,
-                      isTablet: isTablet, isLargeTablet: isLargeTablet),
+                  buildAbilityCard(
+                    char,
+                    "STR",
+                    str,
+                    isTablet: isTablet,
+                    isLargeTablet: isLargeTablet,
+                  ),
+                  buildAbilityCard(
+                    char,
+                    "DEX",
+                    dex,
+                    isTablet: isTablet,
+                    isLargeTablet: isLargeTablet,
+                  ),
+                  buildAbilityCard(
+                    char,
+                    "CON",
+                    con,
+                    isTablet: isTablet,
+                    isLargeTablet: isLargeTablet,
+                  ),
+                  buildAbilityCard(
+                    char,
+                    "INT",
+                    intScore,
+                    isTablet: isTablet,
+                    isLargeTablet: isLargeTablet,
+                  ),
+                  buildAbilityCard(
+                    char,
+                    "WIS",
+                    wis,
+                    isTablet: isTablet,
+                    isLargeTablet: isLargeTablet,
+                  ),
+                  buildAbilityCard(
+                    char,
+                    "CHA",
+                    cha,
+                    isTablet: isTablet,
+                    isLargeTablet: isLargeTablet,
+                  ),
                 ],
               ),
               const SizedBox(height: 24),
