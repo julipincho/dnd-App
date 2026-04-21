@@ -17,21 +17,7 @@ class RaceSyncService {
   static const String _subraceSource = 'subrace';
 
   static Future<RaceSyncResult> buildForCharacter(Character character) async {
-    final races = await DndDataService.getRaces();
-
-    final raceName = character.race.trim().toLowerCase();
-    if (raceName.isEmpty) {
-      return const RaceSyncResult(features: []);
-    }
-
-    DndRace? race;
-    try {
-      race = races.firstWhere(
-        (r) => r.name.trim().toLowerCase() == raceName,
-      );
-    } catch (_) {
-      race = null;
-    }
+    final race = await getRaceForCharacter(character);
 
     if (race == null) {
       return const RaceSyncResult(features: []);
@@ -51,40 +37,62 @@ class RaceSyncService {
       ),
     ];
 
-    final subraceName = character.subrace?.trim().toLowerCase();
-    if (subraceName != null && subraceName.isNotEmpty) {
-      DndSubrace? subrace;
-      try {
-        subrace = race.subraces.firstWhere(
-          (s) => s.name.trim().toLowerCase() == subraceName,
-        );
-      } catch (_) {
-        subrace = null;
-      }
+    final subrace = getSubraceForCharacter(character, race);
+    if (subrace != null) {
+      final subraceOwnerId = _safeId(subrace.id, subrace.name);
 
-      if (subrace != null) {
-        final subraceOwnerId = _safeId(subrace.id, subrace.name);
+      features.add(
+        _buildSubraceOverviewFeature(subrace, subraceOwnerId),
+      );
 
-        features.add(
-          _buildSubraceOverviewFeature(subrace, subraceOwnerId),
-        );
-
-        features.addAll(
-          subrace.traits.map(
-            (trait) => _buildTraitFeature(
-              traitName: _traitName(trait),
-              traitDescription: _traitDescription(trait),
-              source: _subraceSource,
-              ownerId: subraceOwnerId,
-            ),
+      features.addAll(
+        subrace.traits.map(
+          (trait) => _buildTraitFeature(
+            traitName: _traitName(trait),
+            traitDescription: _traitDescription(trait),
+            source: _subraceSource,
+            ownerId: subraceOwnerId,
           ),
-        );
-      }
+        ),
+      );
     }
 
     return RaceSyncResult(
       features: _dedupeFeatures(features),
     );
+  }
+
+  static Future<DndRace?> getRaceForCharacter(Character character) async {
+    final raceName = character.race.trim().toLowerCase();
+    if (raceName.isEmpty) return null;
+
+    final races = await DndDataService.getRaces();
+
+    try {
+      return races.firstWhere(
+        (r) => r.name.trim().toLowerCase() == raceName,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static DndSubrace? getSubraceForCharacter(
+    Character character,
+    DndRace race,
+  ) {
+    final subraceName = character.subrace?.trim().toLowerCase();
+    if (subraceName == null || subraceName.isEmpty) {
+      return null;
+    }
+
+    try {
+      return race.subraces.firstWhere(
+        (s) => s.name.trim().toLowerCase() == subraceName,
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   static CharacterFeature _buildRaceOverviewFeature(
@@ -151,6 +159,31 @@ class RaceSyncService {
       source: source,
       unlockedAtLevel: 1,
     );
+  }
+
+  static int? getSubraceSpeedOverride(DndSubrace? subrace) {
+    if (subrace == null) return null;
+
+    for (final trait in subrace.traits) {
+      final name = (trait['name'] ?? '').trim().toLowerCase();
+      final description = (trait['description'] ?? '').trim().toLowerCase();
+
+      if (name == 'fleet of foot') {
+        final match = RegExp(r'(\d+)\s*feet').firstMatch(description);
+        if (match != null) {
+          return int.tryParse(match.group(1)!);
+        }
+      }
+
+      if (description.contains('base walking speed increases to')) {
+        final match = RegExp(r'(\d+)\s*feet').firstMatch(description);
+        if (match != null) {
+          return int.tryParse(match.group(1)!);
+        }
+      }
+    }
+
+    return null;
   }
 
   static List<CharacterFeature> _dedupeFeatures(

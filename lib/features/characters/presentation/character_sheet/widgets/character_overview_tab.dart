@@ -131,6 +131,7 @@ class CharacterOverviewTab extends StatelessWidget {
     EquipmentProvider equipmentProvider,
     CompendiumProvider compendiumProvider,
   ) resolveInventoryItem;
+  final Future<int> Function(Character char) getEffectiveSpeed;
 
   final int? Function(
     Character char,
@@ -174,6 +175,7 @@ class CharacterOverviewTab extends StatelessWidget {
   const CharacterOverviewTab({
     super.key,
     required this.header,
+    required this.getEffectiveSpeed,
     required this.char,
     required this.equipmentProvider,
     required this.compendiumProvider,
@@ -248,7 +250,7 @@ class CharacterOverviewTab extends StatelessWidget {
       compendiumProvider,
     );
 
-    final speedText = char.speed != null ? '${char.speed} ft' : '—';
+    late final Future<int> speedFuture = getEffectiveSpeed(char);
     final spellAbilityKey = getNormalizedSpellcastingAbility(char);
     final spellAbilityModifier = getSpellcastingAbilityModifier(
       char,
@@ -280,13 +282,20 @@ class CharacterOverviewTab extends StatelessWidget {
         isTablet: isTablet,
         isLargeTablet: isLargeTablet,
       ),
-      buildInteractiveSummaryCard(
-        label: 'Speed',
-        value: speedText,
-        icon: Icons.directions_run_outlined,
-        isTablet: isTablet,
-        isLargeTablet: isLargeTablet,
-        onTap: () => onEditSpeed(),
+      FutureBuilder<int>(
+        future: speedFuture,
+        builder: (context, snapshot) {
+          final value = snapshot.hasData ? '${snapshot.data} ft' : '—';
+
+          return buildInteractiveSummaryCard(
+            label: 'Speed',
+            value: value,
+            icon: Icons.directions_run_outlined,
+            isTablet: isTablet,
+            isLargeTablet: isLargeTablet,
+            onTap: () => onEditSpeed(),
+          );
+        },
       ),
       buildSummaryCard(
         label: 'Prof.',

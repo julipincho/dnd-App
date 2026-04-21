@@ -40,6 +40,7 @@ import '../services/character_infusion_service.dart';
 import '../models/feat_data.dart';
 import '../services/feat_data_service.dart';
 import '../features/characters/models/resolved_inventory_item.dart';
+import '../services/race_sync_service.dart';
 
 enum _SpellChoiceSaveMode {
   known,
@@ -3620,11 +3621,23 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     BuildContext context,
     Character char,
   ) async {
+    final race = await RaceSyncService.getRaceForCharacter(char);
+    final subrace = race != null
+        ? RaceSyncService.getSubraceForCharacter(char, race)
+        : null;
+
+    final effectiveSpeed = RuleEngine.getEffectiveSpeed(
+      manualSpeed: char.speed,
+      raceSpeed: race?.speed,
+      subraceSpeed: subrace?.speed,
+      featSpeedBonus: char.featSpeedBonus,
+    );
+
     await _editQuickStatDialog(
       context: context,
       char: char,
       title: 'Edit Speed',
-      initialValue: char.speed ?? 0,
+      initialValue: effectiveSpeed,
       suffix: 'ft',
       onSave: (value) async {
         final safeValue = value < 0 ? 0 : value;
@@ -5110,6 +5123,22 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 label: label,
                 modifier: modifier,
               ),
+              getEffectiveSpeed: (char) async {
+                final race = await RaceSyncService.getRaceForCharacter(char);
+                final subrace = race != null
+                    ? RaceSyncService.getSubraceForCharacter(char, race)
+                    : null;
+
+                final subraceSpeedOverride =
+                    RaceSyncService.getSubraceSpeedOverride(subrace);
+
+                return RuleEngine.getEffectiveSpeed(
+                  manualSpeed: char.speed,
+                  raceSpeed: race?.speed,
+                  subraceSpeed: subraceSpeedOverride,
+                  featSpeedBonus: char.featSpeedBonus,
+                );
+              },
               getProficiencyBonus: _getProficiencyBonusFromEngine,
               getInitiative: _initiative,
               getPassivePerception: _passivePerception,

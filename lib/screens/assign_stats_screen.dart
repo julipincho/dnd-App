@@ -78,17 +78,8 @@ class _AssignStatsScreenState extends State<AssignStatsScreen> {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
           context.read<CharacterProvider>().update((c) {
+            // Guardar SOLO stats base.
             c.stats = Map<String, int>.from(stats);
-
-            // ⭐ APLICAR BONIFICADORES RACIALES + SUBRACE
-            final bonuses = c.racialBonuses;
-            final updated = <String, int>{};
-
-            stats.forEach((key, base) {
-              updated[key] = base + (bonuses[key] ?? 0);
-            });
-
-            c.stats = updated;
           });
 
           context.go('/select-level');
@@ -114,6 +105,10 @@ class _AssignStatsScreenState extends State<AssignStatsScreen> {
                   final value = stats[stat]!;
                   final mod = modifier(value);
 
+                  final racialBonus = character.racialBonuses[stat] ?? 0;
+                  final total = value + racialBonus;
+                  final totalMod = modifier(total);
+
                   return Container(
                     padding: const EdgeInsets.symmetric(
                       vertical: 16,
@@ -125,13 +120,16 @@ class _AssignStatsScreenState extends State<AssignStatsScreen> {
                       color: Colors.deepPurple.shade300.withOpacity(0.2),
                     ),
                     child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         SizedBox(
                           width: 110,
                           child: Text(
                             stat,
                             style: const TextStyle(
-                                fontSize: 18, fontWeight: FontWeight.w500),
+                              fontSize: 18,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                         ),
                         IconButton(
@@ -142,7 +140,9 @@ class _AssignStatsScreenState extends State<AssignStatsScreen> {
                         Text(
                           "$value",
                           style: const TextStyle(
-                              fontSize: 20, fontWeight: FontWeight.bold),
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                         IconButton(
                           onPressed: () => increase(stat),
@@ -150,13 +150,26 @@ class _AssignStatsScreenState extends State<AssignStatsScreen> {
                           color: Colors.greenAccent,
                         ),
                         const Spacer(),
-                        Text(
-                          mod >= 0 ? "+$mod" : "$mod",
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white70,
-                          ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              mod >= 0 ? "+$mod" : "$mod",
+                              style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white70,
+                              ),
+                            ),
+                            if (racialBonus > 0)
+                              Text(
+                                "Racial +$racialBonus • Total $total (${totalMod >= 0 ? "+$totalMod" : "$totalMod"})",
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.white54,
+                                ),
+                              ),
+                          ],
                         ),
                       ],
                     ),

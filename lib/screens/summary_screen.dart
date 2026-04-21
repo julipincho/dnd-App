@@ -96,6 +96,24 @@ class _SummaryScreenState extends State<SummaryScreen> {
     }
   }
 
+  int _getEffectiveAbilityScore(Character character, String ability) {
+    final base = character.stats[ability] ?? 0;
+    final racialBonus = character.racialBonuses[ability] ?? 0;
+    final featBonus = character.featAbilityBonuses[ability] ?? 0;
+    return base + racialBonus + featBonus;
+  }
+
+  Map<String, int> _buildEffectiveStats(Character character) {
+    return {
+      'STR': _getEffectiveAbilityScore(character, 'STR'),
+      'DEX': _getEffectiveAbilityScore(character, 'DEX'),
+      'CON': _getEffectiveAbilityScore(character, 'CON'),
+      'INT': _getEffectiveAbilityScore(character, 'INT'),
+      'WIS': _getEffectiveAbilityScore(character, 'WIS'),
+      'CHA': _getEffectiveAbilityScore(character, 'CHA'),
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final character = context.watch<CharacterProvider>().character;
@@ -108,9 +126,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
     }
 
     final portraitPath = character.portraitPath;
-    final base = character.stats;
-
-    final effectiveStats = Map<String, int>.from(base);
+    final effectiveStats = _buildEffectiveStats(character);
 
     final savingThrows =
         character.savingThrows.map((e) => e.toUpperCase()).toList();
@@ -146,25 +162,20 @@ class _SummaryScreenState extends State<SummaryScreen> {
                 characterProvider.update((character) {
                   character.campaignId = activeCampaign?.id;
 
-                  // -----------------------------
-                  // 🔥 STATS BASE
-                  // -----------------------------
-                  final conMod =
-                      _getAbilityModifier(character.stats['CON'] ?? 10);
-                  final dexMod =
-                      _getAbilityModifier(character.stats['DEX'] ?? 10);
+                  final effectiveCon =
+                      _getEffectiveAbilityScore(character, 'CON');
+                  final effectiveDex =
+                      _getEffectiveAbilityScore(character, 'DEX');
+
+                  final conMod = _getAbilityModifier(effectiveCon);
+                  final dexMod = _getAbilityModifier(effectiveDex);
 
                   final hitDice = _getHitDice(character.charClass);
 
-                  // -----------------------------
-// 🔥 HP CORRECTO POR NIVEL
-// -----------------------------
                   final level = character.level;
 
-// nivel 1 → hit die completo
                   int totalHp = hitDice + conMod;
 
-// niveles siguientes → promedio
                   final avgPerLevel = (hitDice ~/ 2) + 1 + conMod;
 
                   for (int i = 2; i <= level; i++) {
@@ -174,13 +185,8 @@ class _SummaryScreenState extends State<SummaryScreen> {
                   character.maxHp = totalHp;
                   character.currentHp = totalHp;
 
-                  // AC básica
                   character.armorClass = 10 + dexMod;
 
-                  // Speed base
-                  character.speed = character.speed ?? 30;
-
-                  // Spellcasting
                   character.spellcastingAbility =
                       _getSpellcastingAbility(character.charClass);
                 });
