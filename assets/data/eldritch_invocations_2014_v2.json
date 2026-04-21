@@ -1,0 +1,1938 @@
+[
+  {
+    "id": "agonizing_blast_invocation_2014",
+    "name": "Agonizing Blast",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": null,
+    "description": "When you cast Eldritch Blast , add your Charisma modifier to the damage it deals on a hit.",
+    "modifiers": {
+      "specialRules": {
+        "addCharismaModifierToEldritchBlastDamage": true
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": null,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": null
+    },
+    "prerequisites": []
+  },
+  {
+    "id": "armor_of_shadows_invocation_2014",
+    "name": "Armor of Shadows",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": null,
+    "description": "You can cast Mage Armor on yourself at will, without expending a spell slot or material components.",
+    "modifiers": {
+      "grantedSpells": [
+        {
+          "spell": "Mage Armor",
+          "castingMode": "at_will",
+          "usesSpellSlot": false,
+          "usesMaterialComponents": false,
+          "target": "self"
+        }
+      ],
+      "grantedSpellsV2": [
+        {
+          "spellName": "Mage Armor",
+          "castingMode": "at_will",
+          "usesSpellSlot": false,
+          "usesMaterialComponents": false,
+          "target": "self"
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": null,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": null
+    },
+    "prerequisites": []
+  },
+  {
+    "id": "ascendant_step_invocation_2014",
+    "name": "Ascendant Step",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "9th level",
+    "description": "You can cast Levitate on yourself at will, without expending a spell slot or material components.",
+    "modifiers": {
+      "grantedSpells": [
+        {
+          "spell": "Levitate",
+          "castingMode": "at_will",
+          "usesSpellSlot": false,
+          "usesMaterialComponents": false,
+          "target": "self"
+        }
+      ],
+      "grantedSpellsV2": [
+        {
+          "spellName": "Levitate",
+          "castingMode": "at_will",
+          "usesSpellSlot": false,
+          "usesMaterialComponents": false,
+          "target": "self"
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": 9,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "9th level"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 9
+        }
+      }
+    ]
+  },
+  {
+    "id": "aspect_of_the_moon_invocation_2014",
+    "name": "Aspect of the Moon",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "Pact of the Tome feature",
+    "description": "You no longer need to sleep and can't be forced to sleep by any means. To gain the benefits of a long rest, you can spend all 8 hours doing light activity, such as reading your Book of Shadows and keeping watch.",
+    "modifiers": {
+      "specialRules": {
+        "noLongerNeedSleep": true,
+        "cannotBeForcedToSleep": true,
+        "longRestCanBeLightActivity": true
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": null,
+      "requiresPact": "tome",
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "Pact of the Tome feature"
+    },
+    "prerequisites": [
+      {
+        "type": "pactBoon",
+        "data": {
+          "pact": "tome"
+        }
+      }
+    ]
+  },
+  {
+    "id": "beast_speech_invocation_2014",
+    "name": "Beast Speech",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": null,
+    "description": "You can cast Speak with Animals at will, without expending a spell slot.",
+    "modifiers": {
+      "grantedSpells": [
+        {
+          "spell": "Speak with Animals",
+          "castingMode": "at_will",
+          "usesSpellSlot": false
+        }
+      ],
+      "grantedSpellsV2": [
+        {
+          "spellName": "Speak with Animals",
+          "castingMode": "at_will",
+          "usesSpellSlot": false
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": null,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": null
+    },
+    "prerequisites": []
+  },
+  {
+    "id": "beguiling_influence_invocation_2014",
+    "name": "Beguiling Influence",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": null,
+    "description": "You gain proficiency in the Deception and Persuasion skills.",
+    "modifiers": {
+      "skillProficienciesGranted": [
+        "Deception",
+        "Persuasion"
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": null,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": null
+    },
+    "prerequisites": []
+  },
+  {
+    "id": "bewitching_whispers_invocation_2014",
+    "name": "Bewitching Whispers",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "7th level",
+    "description": "You can cast Compulsion once using a warlock spell slot. You can't do so again until you finish a long rest.",
+    "modifiers": {
+      "grantedSpells": [
+        {
+          "spell": "Compulsion",
+          "castingMode": "once_per_long_rest",
+          "usesWarlockSpellSlot": true
+        }
+      ],
+      "grantedSpellsV2": [
+        {
+          "spellName": "Compulsion",
+          "castingMode": "once_per_long_rest",
+          "usesSpellSlot": null,
+          "usesWarlockSpellSlot": true
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": 7,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "7th level"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 7
+        }
+      }
+    ]
+  },
+  {
+    "id": "book_of_ancient_secrets_invocation_2014",
+    "name": "Book of Ancient Secrets",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "Pact of the Tome feature",
+    "description": "You can now inscribe magical rituals in your Book of Shadows. Choose two 1st-level spells that have the ritual tag from any class's spell list ; these rituals needn't be from the same spell list. The spells appear in the book and don't count against the number of spells you know. With your Book of Shadows in hand, you can cast the chosen spells as rituals. You can't cast the spells except as rituals, unless you've learned them by some other means. You can also cast a warlock spell you know as a ritual if it has the ritual tag. On your adventures, you can add other ritual spells to your Book of Shadows. When you find such a spell, you can add it to the book if the spell's level is equal to or less than half your warlock level (rounded up) and if you can spare the time to transcribe the spell. For each level of the spell, the transcription process takes 2 hours and costs 50 gp for the rare inks needed to inscribe it.",
+    "modifiers": {
+      "specialRules": {
+        "grantsTwoRitualSpellsFromAnyClassList": true,
+        "canCastChosenSpellsAsRitualsFromBookOfShadows": true,
+        "canAddRitualSpellsToBookOfShadows": true,
+        "maxAddedRitualLevel": "half_warlock_level_rounded_up",
+        "ritualTranscriptionTimePerSpellLevelHours": 2,
+        "ritualTranscriptionCostPerSpellLevelGp": 50
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": null,
+      "requiresPact": "tome",
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "Pact of the Tome feature"
+    },
+    "prerequisites": [
+      {
+        "type": "pactBoon",
+        "data": {
+          "pact": "tome"
+        }
+      }
+    ]
+  },
+  {
+    "id": "chains_of_carceri_invocation_2014",
+    "name": "Chains of Carceri",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "15th level, Pact of the Chain feature",
+    "description": "You can cast Hold Monster at will – targeting a celestial, fiend, or elemental – without expending a spell slot or material components. You must finish a long rest before you can use this invocation on the same creature again.",
+    "modifiers": {
+      "grantedSpells": [
+        {
+          "spell": "Hold Monster",
+          "castingMode": "at_will_with_target_restriction",
+          "usesSpellSlot": false,
+          "usesMaterialComponents": false,
+          "targetRestrictions": [
+            "celestial",
+            "fiend",
+            "elemental"
+          ],
+          "sameCreatureReuse": "after_long_rest"
+        }
+      ],
+      "grantedSpellsV2": [
+        {
+          "spellName": "Hold Monster",
+          "castingMode": "at_will_with_target_restriction",
+          "usesSpellSlot": false,
+          "usesMaterialComponents": false,
+          "targetRestrictions": [
+            "celestial",
+            "fiend",
+            "elemental"
+          ]
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": 15,
+      "requiresPact": "chain",
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "15th level, Pact of the Chain feature"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 15
+        }
+      },
+      {
+        "type": "pactBoon",
+        "data": {
+          "pact": "chain"
+        }
+      }
+    ]
+  },
+  {
+    "id": "cloak_of_flies_invocation_2014",
+    "name": "Cloak of Flies",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "5th level",
+    "description": "As a bonus action, you can surround yourself with a magical aura that looks like buzzing flies. The aura extends 5 feet from you in every direction, but not through total cover. It lasts until you're incapacitated or you dismiss it as a bonus action. The aura grants you advantage on Charisma (Intimidation) checks but disadvantage on all other Charisma checks. Any other creature that starts its turn in the aura takes poison damage equal to your Charisma modifier (minimum of 0 damage). Once you use this invocation, you can't use it again until you finish a short or long rest.",
+    "modifiers": {
+      "actionEconomy": {
+        "usesBonusAction": true
+      },
+      "specialRules": {
+        "createsFlyAura": true,
+        "auraRadiusFeet": 5,
+        "lastsUntilIncapacitatedOrDismissed": true,
+        "advantageOnCharismaIntimidation": true,
+        "disadvantageOnOtherCharismaChecks": true,
+        "auraPoisonDamageEqualsCharismaModifierMin0": true,
+        "recharge": "short_or_long_rest"
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": 5,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "5th level"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 5
+        }
+      }
+    ]
+  },
+  {
+    "id": "devil_s_sight_invocation_2014",
+    "name": "Devil's Sight",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": null,
+    "description": "You can see normally in darkness, both magical and nonmagical, to a distance of 120 feet.",
+    "modifiers": {
+      "senses": [
+        {
+          "kind": "see_in_magical_and_nonmagical_darkness",
+          "rangeFeet": 120
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": null,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": null
+    },
+    "prerequisites": []
+  },
+  {
+    "id": "dreadful_word_invocation_2014",
+    "name": "Dreadful Word",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "7th level",
+    "description": "You can cast Confusion once using a warlock spell slot. You can't do so again until you finish a long rest.",
+    "modifiers": {
+      "grantedSpells": [
+        {
+          "spell": "Confusion",
+          "castingMode": "once_per_long_rest",
+          "usesWarlockSpellSlot": true
+        }
+      ],
+      "grantedSpellsV2": [
+        {
+          "spellName": "Confusion",
+          "castingMode": "once_per_long_rest",
+          "usesSpellSlot": null,
+          "usesWarlockSpellSlot": true
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": 7,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "7th level"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 7
+        }
+      }
+    ]
+  },
+  {
+    "id": "eldritch_sight_invocation_2014",
+    "name": "Eldritch Sight",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": null,
+    "description": "You can cast Detect Magic at will, without expending a spell slot or material components.",
+    "modifiers": {
+      "grantedSpells": [
+        {
+          "spell": "Detect Magic",
+          "castingMode": "at_will",
+          "usesSpellSlot": false,
+          "usesMaterialComponents": false
+        }
+      ],
+      "grantedSpellsV2": [
+        {
+          "spellName": "Detect Magic",
+          "castingMode": "at_will",
+          "usesSpellSlot": false,
+          "usesMaterialComponents": false
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": null,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": null
+    },
+    "prerequisites": []
+  },
+  {
+    "id": "eldritch_smite_invocation_2014",
+    "name": "Eldritch Smite",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "5th level, Pact of the Blade feature",
+    "description": "Once per turn when you hit a creature with your pact weapon, you can expend a warlock spell slot to deal an extra 1d8 force damage to the target, plus another 1d8 per level of the spell slot, and you can knock the target prone if it is Huge or smaller.",
+    "modifiers": {
+      "specialRules": {
+        "whenYouHitWithPactWeaponCanExpendWarlockSpellSlot": true,
+        "extraDamageFormula": "1d8 + 1d8_per_spell_slot_level",
+        "extraDamageType": "force",
+        "canKnockProneHugeOrSmaller": true
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": 5,
+      "requiresPact": "blade",
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "5th level, Pact of the Blade feature"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 5
+        }
+      },
+      {
+        "type": "pactBoon",
+        "data": {
+          "pact": "blade"
+        }
+      }
+    ]
+  },
+  {
+    "id": "eldritch_spear_invocation_2014",
+    "name": "Eldritch Spear",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": null,
+    "description": "When you cast Eldritch Blast , its range is 300 feet.",
+    "modifiers": {
+      "specialRules": {
+        "setEldritchBlastRangeFeet": 300
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": null,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": null
+    },
+    "prerequisites": []
+  },
+  {
+    "id": "eyes_of_the_rune_keeper_invocation_2014",
+    "name": "Eyes of the Rune Keeper",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": null,
+    "description": "You can read all writing.",
+    "modifiers": {
+      "specialRules": {
+        "canReadAllWriting": true
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": null,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": null
+    },
+    "prerequisites": []
+  },
+  {
+    "id": "fiendish_vigor_invocation_2014",
+    "name": "Fiendish Vigor",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": null,
+    "description": "You can cast False Life on yourself at will as a 1st-level spell, without expending a spell slot or material components.",
+    "modifiers": {
+      "grantedSpells": [
+        {
+          "spell": "False Life",
+          "castingMode": "at_will",
+          "usesSpellSlot": false,
+          "usesMaterialComponents": false,
+          "castAsSpellLevel": 1,
+          "target": "self"
+        }
+      ],
+      "grantedSpellsV2": [
+        {
+          "spellName": "False Life",
+          "castingMode": "at_will",
+          "usesSpellSlot": false,
+          "usesMaterialComponents": false,
+          "target": "self",
+          "castAsSpellLevel": 1
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": null,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": null
+    },
+    "prerequisites": []
+  },
+  {
+    "id": "gaze_of_two_minds_invocation_2014",
+    "name": "Gaze of Two Minds",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": null,
+    "description": "You can use your action to touch a willing humanoid and perceive through its senses until the end of your next turn. As long as the creature is on the same plane of existence as you, you can use your action on subsequent turns to maintain this connection, extending the duration until the end of your next turn. While perceiving through the other creature's senses, you benefit from any special senses possessed by that creature, and you are blinded and deafened to your own surroundings.",
+    "modifiers": {
+      "actionEconomy": {
+        "usesAction": true
+      },
+      "specialRules": {
+        "perceiveThroughTouchedWillingHumanoidSenses": true,
+        "maintainWithActionEachTurn": true,
+        "mustBeOnSamePlane": true,
+        "gainSpecialSensesOfTarget": true,
+        "blindedAndDeafenedToOwnSurroundingsWhileUsing": true
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": null,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": null
+    },
+    "prerequisites": []
+  },
+  {
+    "id": "ghostly_gaze_invocation_2014",
+    "name": "Ghostly Gaze",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "7th level",
+    "description": "As an action, you gain the ability to see through solid objects to a range of 30 feet. Within that range, you have darkvision if you don't already have it. This special sight lasts for 1 minute or until your concentration ends (as if you were concentrating on a spell). During that time, you perceive objects as ghostly, transparent images. Once you use this invocation, you can't use it again until you finish a short or long rest.",
+    "modifiers": {
+      "actionEconomy": {
+        "usesAction": true
+      },
+      "specialRules": {
+        "seeThroughSolidObjects": true,
+        "rangeFeet": 30,
+        "gainDarkvisionWithinRangeIfAbsent": true,
+        "duration": "1 minute concentration",
+        "recharge": "short_or_long_rest"
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": 7,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "7th level"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 7
+        }
+      }
+    ]
+  },
+  {
+    "id": "gift_of_the_depths_invocation_2014",
+    "name": "Gift of the Depths",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "5th level",
+    "description": "You can breathe underwater, and you gain a swimming speed equal to your walking speed. You can also cast Water Breathing without expending a spell slot. You regain the ability to do so when you finish a long rest.",
+    "modifiers": {
+      "movementModes": [
+        {
+          "kind": "swim",
+          "speedEquals": "walking_speed"
+        }
+      ],
+      "specialRules": {
+        "canBreatheUnderwater": true
+      },
+      "grantedSpells": [
+        {
+          "spell": "Water Breathing",
+          "castingMode": "once_per_long_rest",
+          "usesSpellSlot": false
+        }
+      ],
+      "grantedSpellsV2": [
+        {
+          "spellName": "Water Breathing",
+          "castingMode": "once_per_long_rest",
+          "usesSpellSlot": false
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": 5,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "5th level"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 5
+        }
+      }
+    ]
+  },
+  {
+    "id": "gift_of_the_ever_living_ones_invocation_2014",
+    "name": "Gift of the Ever-Living Ones",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "Pact of the Chain feature",
+    "description": "Whenever you regain hit points while your familiar is within 100 feet of you, treat any dice rolled to determine the hit points you regain as having rolled their maximum value for you.",
+    "modifiers": {
+      "specialRules": {
+        "maximizeHealingDiceWhileFamiliarWithin100Feet": true
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": null,
+      "requiresPact": "chain",
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "Pact of the Chain feature"
+    },
+    "prerequisites": [
+      {
+        "type": "pactBoon",
+        "data": {
+          "pact": "chain"
+        }
+      }
+    ]
+  },
+  {
+    "id": "grasp_of_hadar_invocation_2014",
+    "name": "Grasp of Hadar",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": null,
+    "description": "Once on each of your turns when you hit a creature with your Eldritch Blast , you can move that creature in a straight line 10 feet closer to yourself.",
+    "modifiers": {
+      "specialRules": {
+        "oncePerTurnOnEldritchBlastHitPullTarget10FeetCloser": true
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": null,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": null
+    },
+    "prerequisites": []
+  },
+  {
+    "id": "improved_pact_weapon_invocation_2014",
+    "name": "Improved Pact Weapon",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "Pact of the Blade feature",
+    "description": "You can use any weapon you summon with your Pact of the Blade feature as a spellcasting focus for your warlock spells. In addition, the weapon gains a +1 bonus to its attack and damage rolls, unless it is a magic weapon that already has a bonus to those rolls. Finally, the weapon you conjure can be a shortbow, longbow, light crossbow, or heavy crossbow.",
+    "modifiers": {
+      "attackBonuses": [
+        {
+          "amount": 1,
+          "appliesTo": "weapon_attack_rolls",
+          "condition": {
+            "isPactWeapon": true,
+            "notAlreadyBonusedMagicWeapon": true
+          }
+        }
+      ],
+      "damageBonuses": [
+        {
+          "amount": 1,
+          "appliesTo": "weapon_damage_rolls",
+          "condition": {
+            "isPactWeapon": true,
+            "notAlreadyBonusedMagicWeapon": true
+          }
+        }
+      ],
+      "specialRules": {
+        "pactWeaponCanBeSpellcastingFocus": true,
+        "pactWeaponCanBe": [
+          "shortbow",
+          "longbow",
+          "light crossbow",
+          "heavy crossbow"
+        ]
+      },
+      "damageBonusesV2": [
+        {
+          "amount": 1,
+          "appliesTo": "weapon_damage_rolls",
+          "condition": {
+            "isPactWeapon": true,
+            "notAlreadyBonusedMagicWeapon": true
+          }
+        }
+      ],
+      "attackBonusesV2": [
+        {
+          "amount": 1,
+          "appliesTo": "weapon_attack_rolls",
+          "condition": {
+            "isPactWeapon": true,
+            "notAlreadyBonusedMagicWeapon": true
+          }
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": null,
+      "requiresPact": "blade",
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "Pact of the Blade feature"
+    },
+    "prerequisites": [
+      {
+        "type": "pactBoon",
+        "data": {
+          "pact": "blade"
+        }
+      }
+    ]
+  },
+  {
+    "id": "lance_of_lethargy_invocation_2014",
+    "name": "Lance of Lethargy",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": null,
+    "description": "Once on each of your turns when you hit a creature with your Eldritch Blast , you can reduce that creature's speed by 10 feet until the end of your next turn.",
+    "modifiers": {
+      "specialRules": {
+        "oncePerTurnOnEldritchBlastHitReduceTargetSpeed10FeetUntilEndOfNextTurn": true
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": null,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": null
+    },
+    "prerequisites": []
+  },
+  {
+    "id": "lifedrinker_invocation_2014",
+    "name": "Lifedrinker",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "12th level, Pact of the Blade feature",
+    "description": "When you hit a creature with your pact weapon, the creature takes extra necrotic damage equal to your Charisma modifier (minimum 1).",
+    "modifiers": {
+      "damageBonuses": [
+        {
+          "amountSource": "charisma_modifier",
+          "damageType": "necrotic",
+          "condition": {
+            "isPactWeaponHit": true
+          },
+          "minimum": 1
+        }
+      ],
+      "damageBonusesV2": [
+        {
+          "damageType": "necrotic",
+          "condition": {
+            "isPactWeaponHit": true
+          },
+          "minimum": 1,
+          "amount": {
+            "type": "abilityModifier",
+            "ability": "charisma"
+          }
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": 12,
+      "requiresPact": "blade",
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "12th level, Pact of the Blade feature"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 12
+        }
+      },
+      {
+        "type": "pactBoon",
+        "data": {
+          "pact": "blade"
+        }
+      }
+    ]
+  },
+  {
+    "id": "maddening_hex_invocation_2014",
+    "name": "Maddening Hex",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "5th level,",
+    "description": "Hex spell or a warlock feature that curses As a bonus action, you cause a psychic disturbance around the target cursed by your Hex spell or by a warlock feature of yours, such as Hexblade's Curse and",
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "modifiers": {},
+    "metadata": {
+      "requiredLevel": 5,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "5th level,"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 5
+        }
+      }
+    ]
+  },
+  {
+    "id": "mask_of_many_faces_invocation_2014",
+    "name": "Mask of Many Faces",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": null,
+    "description": "You can cast Disguise Self at will, without expending a spell slot.",
+    "modifiers": {
+      "grantedSpells": [
+        {
+          "spell": "Disguise Self",
+          "castingMode": "at_will",
+          "usesSpellSlot": false
+        }
+      ],
+      "grantedSpellsV2": [
+        {
+          "spellName": "Disguise Self",
+          "castingMode": "at_will",
+          "usesSpellSlot": false
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": null,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": null
+    },
+    "prerequisites": []
+  },
+  {
+    "id": "master_of_myriad_forms_invocation_2014",
+    "name": "Master of Myriad Forms",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "15th level",
+    "description": "You can cast Alter Self at will, without expending a spell slot.",
+    "modifiers": {
+      "grantedSpells": [
+        {
+          "spell": "Alter Self",
+          "castingMode": "at_will",
+          "usesSpellSlot": false
+        }
+      ],
+      "grantedSpellsV2": [
+        {
+          "spellName": "Alter Self",
+          "castingMode": "at_will",
+          "usesSpellSlot": false
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": 15,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "15th level"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 15
+        }
+      }
+    ]
+  },
+  {
+    "id": "minions_of_chaos_invocation_2014",
+    "name": "Minions of Chaos",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "9th level",
+    "description": "You can cast Conjure Elemental once using a warlock spell slot. You can't do so again until you finish a long rest.",
+    "modifiers": {
+      "grantedSpells": [
+        {
+          "spell": "Conjure Elemental",
+          "castingMode": "once_per_long_rest",
+          "usesWarlockSpellSlot": true
+        }
+      ],
+      "grantedSpellsV2": [
+        {
+          "spellName": "Conjure Elemental",
+          "castingMode": "once_per_long_rest",
+          "usesSpellSlot": null,
+          "usesWarlockSpellSlot": true
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": 9,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "9th level"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 9
+        }
+      }
+    ]
+  },
+  {
+    "id": "mire_the_mind_invocation_2014",
+    "name": "Mire the Mind",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "5th level",
+    "description": "You can cast Slow once using a warlock spell slot. You can't do so again until you finish a long rest.",
+    "modifiers": {
+      "grantedSpells": [
+        {
+          "spell": "Slow",
+          "castingMode": "once_per_long_rest",
+          "usesWarlockSpellSlot": true
+        }
+      ],
+      "grantedSpellsV2": [
+        {
+          "spellName": "Slow",
+          "castingMode": "once_per_long_rest",
+          "usesSpellSlot": null,
+          "usesWarlockSpellSlot": true
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": 5,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "5th level"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 5
+        }
+      }
+    ]
+  },
+  {
+    "id": "misty_visions_invocation_2014",
+    "name": "Misty Visions",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": null,
+    "description": "You can cast Silent Image at will, without expending a spell slot or material components.",
+    "modifiers": {
+      "grantedSpells": [
+        {
+          "spell": "Silent Image",
+          "castingMode": "at_will",
+          "usesSpellSlot": false,
+          "usesMaterialComponents": false
+        }
+      ],
+      "grantedSpellsV2": [
+        {
+          "spellName": "Silent Image",
+          "castingMode": "at_will",
+          "usesSpellSlot": false,
+          "usesMaterialComponents": false
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": null,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": null
+    },
+    "prerequisites": []
+  },
+  {
+    "id": "one_with_shadows_invocation_2014",
+    "name": "One with Shadows",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "5th level",
+    "description": "When you are in an area of dim light or darkness, you can use your action to become invisible until you move or take an action or a reaction.",
+    "modifiers": {
+      "actionEconomy": {
+        "usesAction": true
+      },
+      "specialRules": {
+        "becomeInvisibleInDimLightOrDarknessUntilMoveActionOrReaction": true
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": 5,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "5th level"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 5
+        }
+      }
+    ]
+  },
+  {
+    "id": "otherworldly_leap_invocation_2014",
+    "name": "Otherworldly Leap",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "9th level",
+    "description": "You can cast Jump at will, without expending a spell slot.",
+    "modifiers": {
+      "grantedSpells": [
+        {
+          "spell": "Jump",
+          "castingMode": "at_will",
+          "usesSpellSlot": false
+        }
+      ],
+      "grantedSpellsV2": [
+        {
+          "spellName": "Jump",
+          "castingMode": "at_will",
+          "usesSpellSlot": false
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": 9,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "9th level"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 9
+        }
+      }
+    ]
+  },
+  {
+    "id": "relentless_hex_invocation_2014",
+    "name": "Relentless Hex",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "7th level,",
+    "description": "Hex spell or a warlock feature that curses Your curse creates a temporary bond between you and your target. As a bonus action, you can magically teleport up to 30 feet to an unoccupied space you can see within 5 feet of the target cursed by your Hex spell or by a warlock feature of yours, such as Hexblade's Curse and",
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "modifiers": {},
+    "metadata": {
+      "requiredLevel": 7,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "7th level,"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 7
+        }
+      }
+    ]
+  },
+  {
+    "id": "repelling_blast_invocation_2014",
+    "name": "Repelling Blast",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": null,
+    "description": "When you hit a creature with Eldritch Blast , you can push the creature up to 10 feet away from you in a straight line.",
+    "modifiers": {
+      "specialRules": {
+        "onEldritchBlastHitPushTarget10FeetAway": true
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": null,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": null
+    },
+    "prerequisites": []
+  },
+  {
+    "id": "sculptor_of_flesh_invocation_2014",
+    "name": "Sculptor of Flesh",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "7th level",
+    "description": "You can cast Polymorph once using a warlock spell slot. You can't do so again until you finish a long rest.",
+    "modifiers": {
+      "grantedSpells": [
+        {
+          "spell": "Polymorph",
+          "castingMode": "once_per_long_rest",
+          "usesWarlockSpellSlot": true
+        }
+      ],
+      "grantedSpellsV2": [
+        {
+          "spellName": "Polymorph",
+          "castingMode": "once_per_long_rest",
+          "usesSpellSlot": null,
+          "usesWarlockSpellSlot": true
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": 7,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "7th level"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 7
+        }
+      }
+    ]
+  },
+  {
+    "id": "shroud_of_shadow_invocation_2014",
+    "name": "Shroud of Shadow",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "15th level",
+    "description": "You can cast Invisibility at will, without expending a spell slot.",
+    "modifiers": {
+      "grantedSpells": [
+        {
+          "spell": "Invisibility",
+          "castingMode": "at_will",
+          "usesSpellSlot": false
+        }
+      ],
+      "grantedSpellsV2": [
+        {
+          "spellName": "Invisibility",
+          "castingMode": "at_will",
+          "usesSpellSlot": false
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": 15,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "15th level"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 15
+        }
+      }
+    ]
+  },
+  {
+    "id": "sign_of_ill_omen_invocation_2014",
+    "name": "Sign of Ill Omen",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "5th level",
+    "description": "You can cast Bestow Curse once using a warlock spell slot. You can't do so again until you finish a long rest.",
+    "modifiers": {
+      "grantedSpells": [
+        {
+          "spell": "Bestow Curse",
+          "castingMode": "once_per_long_rest",
+          "usesWarlockSpellSlot": true
+        }
+      ],
+      "grantedSpellsV2": [
+        {
+          "spellName": "Bestow Curse",
+          "castingMode": "once_per_long_rest",
+          "usesSpellSlot": null,
+          "usesWarlockSpellSlot": true
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": 5,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "5th level"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 5
+        }
+      }
+    ]
+  },
+  {
+    "id": "superior_pact_weapon_ua_invocation_2014",
+    "name": "Superior Pact Weapon (UA)",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "9th level, Pact of the Blade feature",
+    "description": "You can use any weapon you summon with your Pact of the Blade feature as a spellcasting focus for your warlock spells. In addition, the weapon counts as a magic weapon with a +2 bonus to its attack and damage rolls, unless it is already a magic weapon that you transformed into your pact weapon.",
+    "modifiers": {
+      "attackBonuses": [
+        {
+          "amount": 2,
+          "appliesTo": "weapon_attack_rolls",
+          "condition": {
+            "isPactWeapon": true
+          }
+        }
+      ],
+      "damageBonuses": [
+        {
+          "amount": 2,
+          "appliesTo": "weapon_damage_rolls",
+          "condition": {
+            "isPactWeapon": true
+          }
+        }
+      ],
+      "specialRules": {
+        "pactWeaponCanBeSpellcastingFocus": true
+      },
+      "damageBonusesV2": [
+        {
+          "amount": 2,
+          "appliesTo": "weapon_damage_rolls",
+          "condition": {
+            "isPactWeapon": true
+          }
+        }
+      ],
+      "attackBonusesV2": [
+        {
+          "amount": 2,
+          "appliesTo": "weapon_attack_rolls",
+          "condition": {
+            "isPactWeapon": true
+          }
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": 9,
+      "requiresPact": "blade",
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "9th level, Pact of the Blade feature"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 9
+        }
+      },
+      {
+        "type": "pactBoon",
+        "data": {
+          "pact": "blade"
+        }
+      }
+    ]
+  },
+  {
+    "id": "thief_of_five_fates_invocation_2014",
+    "name": "Thief of Five Fates",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": null,
+    "description": "You can cast Bane once using a warlock spell slot. You can't do so again until you finish a long rest.",
+    "modifiers": {
+      "grantedSpells": [
+        {
+          "spell": "Bane",
+          "castingMode": "once_per_long_rest",
+          "usesWarlockSpellSlot": true
+        }
+      ],
+      "grantedSpellsV2": [
+        {
+          "spellName": "Bane",
+          "castingMode": "once_per_long_rest",
+          "usesSpellSlot": null,
+          "usesWarlockSpellSlot": true
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": null,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": null
+    },
+    "prerequisites": []
+  },
+  {
+    "id": "thirsting_blade_invocation_2014",
+    "name": "Thirsting Blade",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "5th level, Pact of the Blade feature",
+    "description": "You can attack with your pact weapon twice, instead of once, whenever you take the Attack action on your turn.",
+    "modifiers": {
+      "specialRules": {
+        "extraAttackWithPactWeaponOnAttackAction": true
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": 5,
+      "requiresPact": "blade",
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "5th level, Pact of the Blade feature"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 5
+        }
+      },
+      {
+        "type": "pactBoon",
+        "data": {
+          "pact": "blade"
+        }
+      }
+    ]
+  },
+  {
+    "id": "tomb_of_levistus_invocation_2014",
+    "name": "Tomb of Levistus",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "5th level",
+    "description": "As a reaction when you take damage, you can entomb yourself in ice, which melts away at the end of your next turn. You gain 10 temporary hit points per warlock level, which take as much of the triggering damage as possible. Immediately after you take the damage, you gain vulnerability to fire damage, your speed is reduced to 0, and you are incapacitated. These effects, including any remaining temporary hit points, all end when the ice melts. Once you use this invocation, you can't use it again until you finish a short or long rest.",
+    "modifiers": {
+      "actionEconomy": {
+        "usesReaction": true
+      },
+      "specialRules": {
+        "gainTemporaryHitPointsFormula": "10_per_warlock_level",
+        "trigger": "when_you_take_damage",
+        "gainVulnerabilityToFire": true,
+        "speedBecomes0": true,
+        "becomeIncapacitated": true,
+        "effectEndsAtEndOfNextTurn": true,
+        "recharge": "short_or_long_rest"
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": 5,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "5th level"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 5
+        }
+      }
+    ]
+  },
+  {
+    "id": "trickster_s_escape_invocation_2014",
+    "name": "Trickster's Escape",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "7th level",
+    "description": "You can cast Freedom of Movement once on yourself without expending a spell slot. You regain the ability to do so when you finish a long rest.",
+    "modifiers": {
+      "grantedSpells": [
+        {
+          "spell": "Freedom of Movement",
+          "castingMode": "once_per_long_rest",
+          "usesSpellSlot": false,
+          "target": "self"
+        }
+      ],
+      "grantedSpellsV2": [
+        {
+          "spellName": "Freedom of Movement",
+          "castingMode": "once_per_long_rest",
+          "usesSpellSlot": false,
+          "target": "self"
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": 7,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "7th level"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 7
+        }
+      }
+    ]
+  },
+  {
+    "id": "ultimate_pact_weapon_ua_invocation_2014",
+    "name": "Ultimate Pact Weapon (UA)",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "15th level, Pact of the Blade feature",
+    "description": "You can use any weapon you summon with your Pact of the Blade feature as a spellcasting focus for your warlock spells. In addition, the weapon counts as a magic weapon with a +3 bonus to its attack and damage rolls, unless it is already a magic weapon that you transformed into your pact weapon.",
+    "modifiers": {
+      "attackBonuses": [
+        {
+          "amount": 3,
+          "appliesTo": "weapon_attack_rolls",
+          "condition": {
+            "isPactWeapon": true
+          }
+        }
+      ],
+      "damageBonuses": [
+        {
+          "amount": 3,
+          "appliesTo": "weapon_damage_rolls",
+          "condition": {
+            "isPactWeapon": true
+          }
+        }
+      ],
+      "specialRules": {
+        "pactWeaponCanBeSpellcastingFocus": true
+      },
+      "damageBonusesV2": [
+        {
+          "amount": 3,
+          "appliesTo": "weapon_damage_rolls",
+          "condition": {
+            "isPactWeapon": true
+          }
+        }
+      ],
+      "attackBonusesV2": [
+        {
+          "amount": 3,
+          "appliesTo": "weapon_attack_rolls",
+          "condition": {
+            "isPactWeapon": true
+          }
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": 15,
+      "requiresPact": "blade",
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "15th level, Pact of the Blade feature"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 15
+        }
+      },
+      {
+        "type": "pactBoon",
+        "data": {
+          "pact": "blade"
+        }
+      }
+    ]
+  },
+  {
+    "id": "visions_of_distant_realms_invocation_2014",
+    "name": "Visions of Distant Realms",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "15th level",
+    "description": "You can cast Arcane Eye at will, without expending a spell slot.",
+    "modifiers": {
+      "grantedSpells": [
+        {
+          "spell": "Arcane Eye",
+          "castingMode": "at_will",
+          "usesSpellSlot": false
+        }
+      ],
+      "grantedSpellsV2": [
+        {
+          "spellName": "Arcane Eye",
+          "castingMode": "at_will",
+          "usesSpellSlot": false
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": 15,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "15th level"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 15
+        }
+      }
+    ]
+  },
+  {
+    "id": "voice_of_the_chain_master_invocation_2014",
+    "name": "Voice of the Chain Master",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "Pact of the Chain feature",
+    "description": "You can communicate telepathically with your familiar and perceive through your familiar's senses as long as you are on the same plane of existence. Additionally, while perceiving through your familiar's senses, you can also speak through your familiar in your own voice, even if your familiar is normally incapable of speech.",
+    "modifiers": {
+      "specialRules": {
+        "telepathicallyCommunicateWithFamiliar": true,
+        "perceiveThroughFamiliarSensesOnSamePlane": true,
+        "canSpeakThroughFamiliarInOwnVoice": true
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": null,
+      "requiresPact": "chain",
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "Pact of the Chain feature"
+    },
+    "prerequisites": [
+      {
+        "type": "pactBoon",
+        "data": {
+          "pact": "chain"
+        }
+      }
+    ]
+  },
+  {
+    "id": "whispers_of_the_grave_invocation_2014",
+    "name": "Whispers of the Grave",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "9th level",
+    "description": "You can cast Speak with Dead at will, without expending a spell slot.",
+    "modifiers": {
+      "grantedSpells": [
+        {
+          "spell": "Speak with Dead",
+          "castingMode": "at_will",
+          "usesSpellSlot": false
+        }
+      ],
+      "grantedSpellsV2": [
+        {
+          "spellName": "Speak with Dead",
+          "castingMode": "at_will",
+          "usesSpellSlot": false
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": 9,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "9th level"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 9
+        }
+      }
+    ]
+  },
+  {
+    "id": "rebuke_of_the_talisman_invocation_tce",
+    "name": "Rebuke of the Talisman",
+    "source": "TCE 2020",
+    "type": "eldritch_invocation",
+    "prerequisite": "Pact of the Talisman feature",
+    "description": "When the wearer of your talisman is hit by an attacker you can see within 30 feet of you, you can use your reaction to deal psychic damage to the attacker and push it up to 10 feet away from the talisman’s wearer.",
+    "modifiers": {
+      "actionEconomy": {
+        "usesReaction": true
+      },
+      "specialRules": {
+        "rebukeOfTheTalisman": true,
+        "rangeFeet": 30,
+        "damageType": "psychic",
+        "pushDistanceFeet": 10
+      }
+    },
+    "normalizedBy": "manual_patch_tce",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": null,
+      "requiresPact": "talisman",
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "Pact of the Talisman feature"
+    },
+    "prerequisites": [
+      {
+        "type": "pactBoon",
+        "data": {
+          "pact": "talisman"
+        }
+      }
+    ]
+  },
+  {
+    "id": "protection_of_the_talisman_invocation_tce",
+    "name": "Protection of the Talisman",
+    "source": "TCE 2020",
+    "type": "eldritch_invocation",
+    "prerequisite": "7th level, Pact of the Talisman feature",
+    "description": "When the wearer of your talisman fails a saving throw, they can add a d4 to the roll, potentially turning the failure into a success. This benefit can be used a number of times equal to your proficiency bonus, and all expended uses are restored when you finish a long rest.",
+    "modifiers": {
+      "specialRules": {
+        "protectionOfTheTalisman": true,
+        "addsD4ToFailedSavingThrow": true,
+        "usesEqualsProficiencyBonus": true,
+        "recharge": "long_rest"
+      }
+    },
+    "normalizedBy": "manual_patch_tce",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": 7,
+      "requiresPact": "talisman",
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "7th level, Pact of the Talisman feature"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 7
+        }
+      },
+      {
+        "type": "pactBoon",
+        "data": {
+          "pact": "talisman"
+        }
+      }
+    ]
+  },
+  {
+    "id": "bond_of_the_talisman_invocation_tce",
+    "name": "Bond of the Talisman",
+    "source": "TCE 2020",
+    "type": "eldritch_invocation",
+    "prerequisite": "12th level, Pact of the Talisman feature",
+    "description": "While someone else is wearing your talisman, you can use an action to teleport to an unoccupied space within 5 feet of the wearer, provided you are on the same plane of existence. The wearer can do the same thing, using their action to teleport to you.",
+    "modifiers": {
+      "actionEconomy": {
+        "usesAction": true
+      },
+      "specialRules": {
+        "bondOfTheTalisman": true,
+        "teleportToTalismanWearer": true,
+        "wearerCanTeleportToWarlock": true,
+        "samePlaneRequired": true,
+        "rangeToArrivalFeet": 5
+      }
+    },
+    "normalizedBy": "manual_patch_tce",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": 12,
+      "requiresPact": "talisman",
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "12th level, Pact of the Talisman feature"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 12
+        }
+      },
+      {
+        "type": "pactBoon",
+        "data": {
+          "pact": "talisman"
+        }
+      }
+    ]
+  },
+  {
+    "id": "witch_sight_invocation_2014",
+    "name": "Witch Sight",
+    "source": "PHB 2014",
+    "type": "eldritch_invocation",
+    "prerequisite": "15th level",
+    "description": "You can see the true form of any shapechanger or creature concealed by illusion or transmutation magic while the creature is within 30 feet of you and within line of sight.",
+    "modifiers": {
+      "senses": [
+        {
+          "kind": "see_true_form_of_shapechanger_or_illusioned_or_transmuted_creature",
+          "rangeFeet": 30,
+          "requiresLineOfSight": true
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2,
+    "metadata": {
+      "requiredLevel": 15,
+      "requiresPact": null,
+      "requiresHexOrCurse": false,
+      "rawPrerequisite": "15th level"
+    },
+    "prerequisites": [
+      {
+        "type": "classLevel",
+        "data": {
+          "class": "warlock",
+          "minLevel": 15
+        }
+      }
+    ]
+  }
+]

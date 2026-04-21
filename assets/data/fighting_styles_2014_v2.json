@@ -1,0 +1,366 @@
+[
+  {
+    "id": "archery_fighting_style_2014",
+    "name": "Archery",
+    "source": "PHB 2014",
+    "type": "fighting_style",
+    "description": "You gain a +2 bonus to attack rolls you make with ranged weapons.",
+    "modifiers": {
+      "attackBonuses": [
+        {
+          "amount": 2,
+          "appliesTo": "weapon_attack_rolls",
+          "weaponConstraint": {
+            "isRangedWeapon": true
+          }
+        }
+      ],
+      "attackBonusesV2": [
+        {
+          "amount": 2,
+          "appliesTo": "weapon_attack_rolls",
+          "weaponConstraint": {
+            "isRangedWeapon": true
+          }
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "defense_fighting_style_2014",
+    "name": "Defense",
+    "source": "PHB 2014",
+    "type": "fighting_style",
+    "description": "While you are wearing armor, you gain a +1 bonus to AC.",
+    "modifiers": {
+      "armorClassBonuses": [
+        {
+          "amount": 1,
+          "condition": {
+            "wearingArmor": true
+          }
+        }
+      ],
+      "armorClassBonusesV2": [
+        {
+          "amount": 1,
+          "condition": {
+            "wearingArmor": true
+          }
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "dueling_fighting_style_2014",
+    "name": "Dueling",
+    "source": "PHB 2014",
+    "type": "fighting_style",
+    "description": "When you are wielding a melee weapon in one hand and no other weapons, you gain a +2 bonus to damage rolls with that weapon.",
+    "modifiers": {
+      "damageBonuses": [
+        {
+          "amount": 2,
+          "appliesTo": "weapon_damage_rolls",
+          "condition": {
+            "wieldingMeleeWeaponInOneHand": true,
+            "wieldingNoOtherWeapons": true
+          }
+        }
+      ],
+      "damageBonusesV2": [
+        {
+          "amount": 2,
+          "appliesTo": "weapon_damage_rolls",
+          "condition": {
+            "wieldingMeleeWeaponInOneHand": true,
+            "wieldingNoOtherWeapons": true
+          }
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "great_weapon_fighting_fighting_style_2014",
+    "name": "Great Weapon Fighting",
+    "source": "PHB 2014",
+    "type": "fighting_style",
+    "description": "When you roll a 1 or 2 on a damage die for an attack you make with a melee weapon that you are wielding with two hands, you can reroll the die and must use the new roll, even if the new roll is a 1 or a 2. The weapon must have the two-handed or versatile property for you to gain this benefit.",
+    "modifiers": {
+      "damageDieRerolls": [
+        {
+          "rerollResults": [
+            1,
+            2
+          ],
+          "mustUseNewRoll": true,
+          "condition": {
+            "weaponIsMelee": true,
+            "weaponHeldWithTwoHands": true,
+            "weaponPropertyOneOf": [
+              "two-handed",
+              "versatile"
+            ]
+          }
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "protection_fighting_style_2014",
+    "name": "Protection",
+    "source": "PHB 2014",
+    "type": "fighting_style",
+    "description": "When a creature you can see attacks a target other than you that is within 5 feet of you, you can use your reaction to impose disadvantage on the attack roll. You must be wielding a shield.",
+    "modifiers": {
+      "reactions": [
+        {
+          "trigger": "creature_attacks_ally_within_5_feet",
+          "effect": "impose_disadvantage_on_attack_roll",
+          "condition": {
+            "wieldingShield": true
+          }
+        }
+      ],
+      "reactionsV2": [
+        {
+          "trigger": "creature_attacks_ally_within_5_feet",
+          "effect": "impose_disadvantage_on_attack_roll",
+          "condition": {
+            "wieldingShield": true
+          }
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "two_weapon_fighting_fighting_style_2014",
+    "name": "Two-Weapon Fighting",
+    "source": "PHB 2014",
+    "type": "fighting_style",
+    "description": "When you engage in two-weapon fighting, you can add your ability modifier to the damage of the second attack.",
+    "modifiers": {
+      "damageBonuses": [
+        {
+          "amountSource": "ability_modifier",
+          "appliesTo": "offhand_damage",
+          "condition": {
+            "usingTwoWeaponFighting": true
+          }
+        }
+      ],
+      "damageBonusesV2": [
+        {
+          "appliesTo": "offhand_damage",
+          "condition": {
+            "usingTwoWeaponFighting": true
+          },
+          "amount": {
+            "type": "abilityModifier",
+            "ability": "unspecified"
+          }
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "blind_fighting_fighting_style_tce",
+    "name": "Blind Fighting",
+    "source": "TCE",
+    "type": "fighting_style",
+    "description": "You have blindsight with a range of 10 feet. Within that range, you can effectively see anything that isn't behind total cover, even if you're blinded or in darkness. Moreover, you can see an invisible creature within that range, unless the creature successfully hides from you.",
+    "modifiers": {
+      "senses": [
+        {
+          "kind": "blindsight",
+          "rangeFeet": 10
+        }
+      ],
+      "specialRules": {
+        "canPerceiveInvisibleWithinBlindsightUnlessHidden": true
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "interception_fighting_style_tce",
+    "name": "Interception",
+    "source": "TCE",
+    "type": "fighting_style",
+    "description": "When a creature you can see hits a target, other than you, within 5 feet of you with an attack, you can use your reaction to reduce the damage the target takes by 1d10 + your proficiency bonus. You must be wielding a shield or a simple or martial weapon to use this reaction.",
+    "modifiers": {
+      "reactions": [
+        {
+          "trigger": "creature_hits_ally_within_5_feet",
+          "effect": "reduce_damage",
+          "reductionFormula": "1d10 + proficiency_bonus",
+          "condition": {
+            "wieldingShieldOrSimpleOrMartialWeapon": true
+          }
+        }
+      ],
+      "reactionsV2": [
+        {
+          "trigger": "creature_hits_ally_within_5_feet",
+          "effect": "reduce_damage",
+          "reductionFormula": "1d10 + proficiency_bonus",
+          "condition": {
+            "wieldingShieldOrSimpleOrMartialWeapon": true
+          },
+          "reductionFormulaV2": {
+            "roll": {
+              "diceCount": 1,
+              "diceSize": 10
+            },
+            "addProficiencyBonus": true
+          }
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "thrown_weapon_fighting_fighting_style_tce",
+    "name": "Thrown Weapon Fighting",
+    "source": "TCE",
+    "type": "fighting_style",
+    "description": "You can draw a weapon that has the thrown property as part of the attack you make with the weapon. In addition, when you hit with a ranged attack using a thrown weapon, you gain a +2 bonus to the damage roll.",
+    "modifiers": {
+      "specialRules": {
+        "canDrawThrownWeaponAsPartOfAttack": true
+      },
+      "damageBonuses": [
+        {
+          "amount": 2,
+          "appliesTo": "ranged_attack_damage_rolls",
+          "weaponConstraint": {
+            "hasThrownProperty": true
+          }
+        }
+      ],
+      "damageBonusesV2": [
+        {
+          "amount": 2,
+          "appliesTo": "ranged_attack_damage_rolls",
+          "weaponConstraint": {
+            "hasThrownProperty": true
+          }
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "superior_technique_fighting_style_tce",
+    "name": "Superior Technique",
+    "source": "TCE",
+    "type": "fighting_style",
+    "description": "You learn one maneuver of your choice from among those available to the Battle Master archetype in the fighter class. If a maneuver you use requires your target to make a saving throw to resist the maneuver's effects, the saving throw DC equals 8 + your proficiency bonus + your Strength or Dexterity modifier (your choice). You gain one superiority die, which is a d6. This die is used to fuel your maneuver. A superiority die is expended when you use it. You regain your expended superiority dice when you finish a short or long rest.",
+    "modifiers": {
+      "resourcesGranted": [
+        {
+          "resource": "superiority_die",
+          "amount": 1,
+          "dieSize": 6,
+          "recovery": "short_or_long_rest"
+        }
+      ],
+      "grantsChoice": {
+        "kind": "battle_master_maneuver",
+        "count": 1
+      },
+      "specialRules": {
+        "maneuverSaveDcFormula": "8 + proficiency_bonus + chosen(strength_modifier,dexterity_modifier)",
+        "maneuverSaveDcFormulaV2": {
+          "base": 8,
+          "addProficiencyBonus": true,
+          "addChosenAbilityModifier": [
+            "strength",
+            "dexterity"
+          ]
+        }
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "unarmed_fighting_fighting_style_tce",
+    "name": "Unarmed Fighting",
+    "source": "TCE",
+    "type": "fighting_style",
+    "description": "Your unarmed strikes can deal bludgeoning damage equal to 1d6 + your Strength modifier on a hit. If you aren't wielding any weapons or a shield when you make the attack roll, the d6 becomes a d8. At the start of each of your turns, you can deal 1d4 bludgeoning damage to one creature grappled by you.",
+    "modifiers": {
+      "unarmedStrike": {
+        "damage": {
+          "default": "1d6 + strength_modifier",
+          "ifNoWeaponsOrShield": "1d8 + strength_modifier"
+        }
+      },
+      "startOfTurnEffects": [
+        {
+          "effect": "deal_damage_to_grappled_creature",
+          "damage": "1d4 bludgeoning",
+          "targetConstraint": "one_creature_grappled_by_you"
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "blessed_warrior_fighting_style_tce",
+    "name": "Blessed Warrior",
+    "source": "TCE",
+    "type": "fighting_style",
+    "description": "You learn two cantrips of your choice from the cleric spell list. They count as paladin spells for you, and Charisma is your spellcasting ability for them. Whenever you gain a level in a class that grants this feature, you can replace one of these cantrips with another cantrip from the cleric spell list.",
+    "modifiers": {
+      "grantsChoice": {
+        "kind": "cleric_cantrip",
+        "count": 2
+      },
+      "specialRules": {
+        "countAsPaladinSpells": true,
+        "spellcastingAbility": "charisma",
+        "canReplaceOnLevelGrantingFeature": true
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "druidic_warrior_fighting_style_tce",
+    "name": "Druidic Warrior",
+    "source": "TCE",
+    "type": "fighting_style",
+    "description": "You learn two cantrips of your choice from the druid spell list. They count as ranger spells for you, and Wisdom is your spellcasting ability for them. Whenever you gain a level in a class that grants this feature, you can replace one of these cantrips with another cantrip from the druid spell list.",
+    "modifiers": {
+      "grantsChoice": {
+        "kind": "druid_cantrip",
+        "count": 2
+      },
+      "specialRules": {
+        "countAsRangerSpells": true,
+        "spellcastingAbility": "wisdom",
+        "canReplaceOnLevelGrantingFeature": true
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  }
+]

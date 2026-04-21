@@ -1,0 +1,894 @@
+[
+  {
+    "id": "ambush_maneuver_2014",
+    "name": "Ambush",
+    "source": "PHB 2014",
+    "type": "maneuver",
+    "description": "When you make a Dexterity (Stealth) check or an initiative roll, you can expend one superiority die and add the die to the roll, provided you aren't incapacitated.",
+    "modifiers": {
+      "resourcesRequired": [
+        {
+          "resource": "superiority_die",
+          "amount": 1
+        }
+      ],
+      "featureFamily": "battle_master_maneuver",
+      "trigger": "on_stealth_check_or_initiative_roll",
+      "checkBonuses": [
+        {
+          "amountSource": "superiority_die_roll",
+          "appliesTo": [
+            "dexterity_stealth_check",
+            "initiative"
+          ]
+        }
+      ],
+      "condition": {
+        "notIncapacitated": true
+      },
+      "checkBonusesV2": [
+        {
+          "appliesTo": [
+            "dexterity_stealth_check",
+            "initiative"
+          ],
+          "amount": {
+            "type": "roll",
+            "roll": {
+              "resource": "superiority_die"
+            }
+          }
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "bait_and_switch_maneuver_2014",
+    "name": "Bait and Switch",
+    "source": "PHB 2014",
+    "type": "maneuver",
+    "description": "When you're within 5 feet of a creature on your turn, you can expend one superiority die and switch places with that creature, provided you spend at least 5 feet of movement and the creature is willing and isn't incapacitated. This movement doesn't provoke opportunity attacks.\nRoll the superiority die. Until the start of your next turn, you or the other creature (your choice) gains a bonus to AC equal to the number rolled.",
+    "modifiers": {
+      "resourcesRequired": [
+        {
+          "resource": "superiority_die",
+          "amount": 1
+        }
+      ],
+      "featureFamily": "battle_master_maneuver",
+      "trigger": "on_your_turn_near_willing_creature",
+      "actionEconomy": {
+        "uses": "special",
+        "requiresMovementFeetAtLeast": 5
+      },
+      "effects": [
+        {
+          "kind": "switch_positions_with_willing_creature"
+        },
+        {
+          "kind": "no_opportunity_attacks_from_this_movement"
+        },
+        {
+          "kind": "ac_bonus_until_start_of_next_turn",
+          "amountSource": "superiority_die_roll",
+          "targetChoice": "you_or_other_creature"
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "brace_maneuver_2014",
+    "name": "Brace",
+    "source": "PHB 2014",
+    "type": "maneuver",
+    "description": "When a creature you can see moves into the reach you have with the melee weapon you're wielding, you can use your reaction to expend one superiority die and make one attack against the creature, using that weapon. If the attack hits, add the superiority die to the weapon's damage roll.",
+    "modifiers": {
+      "resourcesRequired": [
+        {
+          "resource": "superiority_die",
+          "amount": 1
+        }
+      ],
+      "featureFamily": "battle_master_maneuver",
+      "trigger": "creature_enters_your_melee_reach",
+      "actionEconomy": {
+        "usesReaction": true
+      },
+      "grantsAttack": {
+        "kind": "one_melee_weapon_attack",
+        "weaponUsed": "current_melee_weapon"
+      },
+      "damageBonuses": [
+        {
+          "amountSource": "superiority_die_roll"
+        }
+      ],
+      "damageBonusesV2": [
+        {
+          "amount": {
+            "type": "roll",
+            "roll": {
+              "resource": "superiority_die"
+            }
+          }
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "commander_s_strike_maneuver_2014",
+    "name": "Commander's Strike",
+    "source": "PHB 2014",
+    "type": "maneuver",
+    "description": "When you take the Attack action on your turn, you can forgo one of your attacks and use a bonus action to direct one of your companions to strike. When you do so, choose a friendly creature who can see or hear you and expend one superiority die. That creature can immediately use its reaction to make one weapon attack, adding the superiority die to the attack's damage roll.",
+    "modifiers": {
+      "resourcesRequired": [
+        {
+          "resource": "superiority_die",
+          "amount": 1
+        }
+      ],
+      "featureFamily": "battle_master_maneuver",
+      "trigger": "when_you_take_attack_action",
+      "actionEconomy": {
+        "usesBonusAction": true,
+        "forgoesOneAttack": true
+      },
+      "allyEffect": {
+        "friendlyCreatureUsesReactionToMakeWeaponAttack": true,
+        "allyDamageBonus": {
+          "amountSource": "superiority_die_roll"
+        }
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "commanding_presence_maneuver_2014",
+    "name": "Commanding Presence",
+    "source": "PHB 2014",
+    "type": "maneuver",
+    "description": "When you make a Charisma (Intimidation), a Charisma (Performance), or a Charisma (Persuasion) check, you can expend one superiority die and add the superiority die to the ability check.",
+    "modifiers": {
+      "resourcesRequired": [
+        {
+          "resource": "superiority_die",
+          "amount": 1
+        }
+      ],
+      "featureFamily": "battle_master_maneuver",
+      "trigger": "on_charisma_check",
+      "checkBonuses": [
+        {
+          "amountSource": "superiority_die_roll",
+          "appliesTo": [
+            "charisma_intimidation_check",
+            "charisma_performance_check",
+            "charisma_persuasion_check"
+          ]
+        }
+      ],
+      "checkBonusesV2": [
+        {
+          "appliesTo": [
+            "charisma_intimidation_check",
+            "charisma_performance_check",
+            "charisma_persuasion_check"
+          ],
+          "amount": {
+            "type": "roll",
+            "roll": {
+              "resource": "superiority_die"
+            }
+          }
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "disarming_attack_maneuver_2014",
+    "name": "Disarming Attack",
+    "source": "PHB 2014",
+    "type": "maneuver",
+    "description": "When you hit a creature with a weapon attack, you can expend one superiority die to attempt to disarm the target, forcing it to drop one item of your choice that it's holding. You add the superiority die to the attack's damage roll, and the target must make a Strength saving throw. On a failed save, it drops the object you choose. The object lands at its feet.",
+    "modifiers": {
+      "resourcesRequired": [
+        {
+          "resource": "superiority_die",
+          "amount": 1
+        }
+      ],
+      "featureFamily": "battle_master_maneuver",
+      "trigger": "on_weapon_hit",
+      "damageBonuses": [
+        {
+          "amountSource": "superiority_die_roll"
+        }
+      ],
+      "savingThrow": {
+        "ability": "strength"
+      },
+      "onFailedSave": {
+        "effect": "drop_held_item_of_your_choice"
+      },
+      "damageBonusesV2": [
+        {
+          "amount": {
+            "type": "roll",
+            "roll": {
+              "resource": "superiority_die"
+            }
+          }
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "distracting_strike_maneuver_2014",
+    "name": "Distracting Strike",
+    "source": "PHB 2014",
+    "type": "maneuver",
+    "description": "When you hit a creature with a weapon attack, you can expend one superiority die to distract the creature, giving your allies an opening. You add the superiority die to the attack's damage roll. The next attack roll against the target by an attacker other than you has advantage if the attack is made before the start of your next turn.",
+    "modifiers": {
+      "resourcesRequired": [
+        {
+          "resource": "superiority_die",
+          "amount": 1
+        }
+      ],
+      "featureFamily": "battle_master_maneuver",
+      "trigger": "on_weapon_hit",
+      "damageBonuses": [
+        {
+          "amountSource": "superiority_die_roll"
+        }
+      ],
+      "onHitEffect": {
+        "nextAttackByAnotherAttackerBeforeStartOfYourNextTurnHasAdvantage": true
+      },
+      "damageBonusesV2": [
+        {
+          "amount": {
+            "type": "roll",
+            "roll": {
+              "resource": "superiority_die"
+            }
+          }
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "evasive_footwork_maneuver_2014",
+    "name": "Evasive Footwork",
+    "source": "PHB 2014",
+    "type": "maneuver",
+    "description": "When you move, you can expend one superiority die, rolling the die and adding the number rolled to your AC until you stop moving.",
+    "modifiers": {
+      "resourcesRequired": [
+        {
+          "resource": "superiority_die",
+          "amount": 1
+        }
+      ],
+      "featureFamily": "battle_master_maneuver",
+      "trigger": "when_you_move",
+      "armorClassBonuses": [
+        {
+          "amountSource": "superiority_die_roll",
+          "duration": "until_you_stop_moving"
+        }
+      ],
+      "armorClassBonusesV2": [
+        {
+          "duration": "until_you_stop_moving",
+          "amount": {
+            "type": "roll",
+            "roll": {
+              "resource": "superiority_die"
+            }
+          }
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "feinting_attack_maneuver_2014",
+    "name": "Feinting Attack",
+    "source": "PHB 2014",
+    "type": "maneuver",
+    "description": "You can expend one superiority die and use a bonus action on your turn to feint, choosing one creature within 5 feet of you as your target. You have advantage on your next attack roll against that creature this turn. If that attack hits, add the superiority die to the attack's damage roll.",
+    "modifiers": {
+      "resourcesRequired": [
+        {
+          "resource": "superiority_die",
+          "amount": 1
+        }
+      ],
+      "featureFamily": "battle_master_maneuver",
+      "trigger": "on_your_turn",
+      "actionEconomy": {
+        "usesBonusAction": true
+      },
+      "targetConstraint": {
+        "withinFeet": 5
+      },
+      "grantsAdvantage": {
+        "appliesTo": "next_attack_roll_this_turn_against_target"
+      },
+      "onHitDamageBonus": {
+        "amountSource": "superiority_die_roll"
+      },
+      "onHitDamageBonusV2": {
+        "amount": {
+          "type": "roll",
+          "roll": {
+            "resource": "superiority_die"
+          }
+        }
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "goading_attack_maneuver_2014",
+    "name": "Goading Attack",
+    "source": "PHB 2014",
+    "type": "maneuver",
+    "description": "When you hit a creature with a weapon attack, you can expend one superiority die to attempt to goad the target into attacking you. You add the superiority die to the attack's damage roll, and the target must make a Wisdom saving throw. On a failed save, the target has disadvantage on all attack rolls against targets other than you until the end of your next turn.",
+    "modifiers": {
+      "resourcesRequired": [
+        {
+          "resource": "superiority_die",
+          "amount": 1
+        }
+      ],
+      "featureFamily": "battle_master_maneuver",
+      "trigger": "on_weapon_hit",
+      "damageBonuses": [
+        {
+          "amountSource": "superiority_die_roll"
+        }
+      ],
+      "savingThrow": {
+        "ability": "wisdom"
+      },
+      "onFailedSave": {
+        "effect": "disadvantage_on_attack_rolls_against_targets_other_than_you",
+        "duration": "until_end_of_your_next_turn"
+      },
+      "damageBonusesV2": [
+        {
+          "amount": {
+            "type": "roll",
+            "roll": {
+              "resource": "superiority_die"
+            }
+          }
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "grappling_strike_maneuver_2014",
+    "name": "Grappling Strike",
+    "source": "PHB 2014",
+    "type": "maneuver",
+    "description": "Immediately after you hit a creature with a melee attack on your turn, you can expend one superiority die and then try to grapple the target as a bonus action (see the\nPlayer's Handbook for rules on grappling). Add the superiority die to your Strength (Athletics) check.",
+    "modifiers": {
+      "resourcesRequired": [
+        {
+          "resource": "superiority_die",
+          "amount": 1
+        }
+      ],
+      "featureFamily": "battle_master_maneuver",
+      "trigger": "after_melee_hit_on_your_turn",
+      "actionEconomy": {
+        "usesBonusAction": true
+      },
+      "grantsAttempt": {
+        "kind": "grapple_target"
+      },
+      "checkBonuses": [
+        {
+          "amountSource": "superiority_die_roll",
+          "appliesTo": [
+            "strength_athletics_check"
+          ]
+        }
+      ],
+      "checkBonusesV2": [
+        {
+          "appliesTo": [
+            "strength_athletics_check"
+          ],
+          "amount": {
+            "type": "roll",
+            "roll": {
+              "resource": "superiority_die"
+            }
+          }
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "lunging_attack_maneuver_2014",
+    "name": "Lunging Attack",
+    "source": "PHB 2014",
+    "type": "maneuver",
+    "description": "When you make a melee weapon attack on your turn, you can expend one superiority die to increase your reach for that attack by 5 feet. If you hit, you add the superiority die to the attack's damage roll.",
+    "modifiers": {
+      "resourcesRequired": [
+        {
+          "resource": "superiority_die",
+          "amount": 1
+        }
+      ],
+      "featureFamily": "battle_master_maneuver",
+      "trigger": "when_you_make_melee_weapon_attack_on_your_turn",
+      "attackModifications": [
+        {
+          "kind": "increase_reach_for_attack",
+          "amountFeet": 5
+        }
+      ],
+      "onHitDamageBonus": {
+        "amountSource": "superiority_die_roll"
+      },
+      "onHitDamageBonusV2": {
+        "amount": {
+          "type": "roll",
+          "roll": {
+            "resource": "superiority_die"
+          }
+        }
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "maneuvering_attack_maneuver_2014",
+    "name": "Maneuvering Attack",
+    "source": "PHB 2014",
+    "type": "maneuver",
+    "description": "When you hit a creature with a weapon attack, you can expend one superiority die to maneuver one of your comrades into a more advantageous position. You add the superiority die to the attack's damage roll, and you choose a friendly creature who can see or hear you. That creature can use its reaction to move up to half its speed without provoking opportunity attacks from the target of your attack.",
+    "modifiers": {
+      "resourcesRequired": [
+        {
+          "resource": "superiority_die",
+          "amount": 1
+        }
+      ],
+      "featureFamily": "battle_master_maneuver",
+      "trigger": "on_weapon_hit",
+      "damageBonuses": [
+        {
+          "amountSource": "superiority_die_roll"
+        }
+      ],
+      "allyEffect": {
+        "friendlyCreatureUsesReactionToMove": true,
+        "movementAmount": "up_to_half_speed",
+        "noOpportunityAttacksFromTargetOfYourAttack": true
+      },
+      "damageBonusesV2": [
+        {
+          "amount": {
+            "type": "roll",
+            "roll": {
+              "resource": "superiority_die"
+            }
+          }
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "menacing_attack_maneuver_2014",
+    "name": "Menacing Attack",
+    "source": "PHB 2014",
+    "type": "maneuver",
+    "description": "When you hit a creature with a weapon attack, you can expend one superiority die to attempt to frighten the target. You add the superiority die to the attack's damage roll, and the target must make a Wisdom saving throw. On a failed save, it is frightened of you until the end of your next turn.",
+    "modifiers": {
+      "resourcesRequired": [
+        {
+          "resource": "superiority_die",
+          "amount": 1
+        }
+      ],
+      "featureFamily": "battle_master_maneuver",
+      "trigger": "on_weapon_hit",
+      "damageBonuses": [
+        {
+          "amountSource": "superiority_die_roll"
+        }
+      ],
+      "savingThrow": {
+        "ability": "wisdom"
+      },
+      "onFailedSave": {
+        "condition": "frightened",
+        "duration": "until_end_of_your_next_turn"
+      },
+      "damageBonusesV2": [
+        {
+          "amount": {
+            "type": "roll",
+            "roll": {
+              "resource": "superiority_die"
+            }
+          }
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "parry_maneuver_2014",
+    "name": "Parry",
+    "source": "PHB 2014",
+    "type": "maneuver",
+    "description": "When another creature damages you with a melee attack, you can use your reaction and expend one superiority die to reduce the damage by the number you roll on your superiority die + your Dexterity modifier.",
+    "modifiers": {
+      "resourcesRequired": [
+        {
+          "resource": "superiority_die",
+          "amount": 1
+        }
+      ],
+      "featureFamily": "battle_master_maneuver",
+      "trigger": "when_melee_attack_damages_you",
+      "actionEconomy": {
+        "usesReaction": true
+      },
+      "damageReduction": {
+        "formula": "superiority_die_roll + dexterity_modifier"
+      },
+      "damageReductionV2": {
+        "roll": {
+          "resource": "superiority_die"
+        },
+        "addAbilityModifier": "dexterity"
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "precision_attack_maneuver_2014",
+    "name": "Precision Attack",
+    "source": "PHB 2014",
+    "type": "maneuver",
+    "description": "When you make a weapon attack roll against a creature, you can expend one superiority die to add it to the roll. You can use this maneuver before or after making the attack roll, but before any effects of the attack are applied.",
+    "modifiers": {
+      "resourcesRequired": [
+        {
+          "resource": "superiority_die",
+          "amount": 1
+        }
+      ],
+      "featureFamily": "battle_master_maneuver",
+      "trigger": "on_weapon_attack_roll",
+      "attackBonuses": [
+        {
+          "amountSource": "superiority_die_roll"
+        }
+      ],
+      "timing": "before_or_after_attack_roll_but_before_effects",
+      "attackBonusesV2": [
+        {
+          "amount": {
+            "type": "roll",
+            "roll": {
+              "resource": "superiority_die"
+            }
+          }
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "pushing_attack_maneuver_2014",
+    "name": "Pushing Attack",
+    "source": "PHB 2014",
+    "type": "maneuver",
+    "description": "When you hit a creature with a weapon attack, you can expend one superiority die to attempt to drive the target back. You add the superiority die to the attack's damage roll, and if the target is Large or smaller, it must make a Strength saving throw. On a failed save, you push the target up to 15 feet away from you.",
+    "modifiers": {
+      "resourcesRequired": [
+        {
+          "resource": "superiority_die",
+          "amount": 1
+        }
+      ],
+      "featureFamily": "battle_master_maneuver",
+      "trigger": "on_weapon_hit",
+      "damageBonuses": [
+        {
+          "amountSource": "superiority_die_roll"
+        }
+      ],
+      "savingThrow": {
+        "ability": "strength"
+      },
+      "targetConstraint": {
+        "sizeAtMost": "large"
+      },
+      "onFailedSave": {
+        "effect": "push_target",
+        "distanceFeet": 15
+      },
+      "damageBonusesV2": [
+        {
+          "amount": {
+            "type": "roll",
+            "roll": {
+              "resource": "superiority_die"
+            }
+          }
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "quick_toss_maneuver_2014",
+    "name": "Quick Toss",
+    "source": "PHB 2014",
+    "type": "maneuver",
+    "description": "As a bonus action, you can expend one superiority die and make a ranged attack with a weapon that has the thrown property. You can draw the weapon as part of making this attack. If you hit, add the superiority die to the weapon's damage roll.",
+    "modifiers": {
+      "resourcesRequired": [
+        {
+          "resource": "superiority_die",
+          "amount": 1
+        }
+      ],
+      "featureFamily": "battle_master_maneuver",
+      "trigger": "on_your_turn",
+      "actionEconomy": {
+        "usesBonusAction": true
+      },
+      "specialRules": {
+        "canDrawThrownWeaponAsPartOfAttack": true
+      },
+      "grantsAttack": {
+        "kind": "one_ranged_attack_with_thrown_weapon"
+      },
+      "onHitDamageBonus": {
+        "amountSource": "superiority_die_roll"
+      },
+      "onHitDamageBonusV2": {
+        "amount": {
+          "type": "roll",
+          "roll": {
+            "resource": "superiority_die"
+          }
+        }
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "rally_maneuver_2014",
+    "name": "Rally",
+    "source": "PHB 2014",
+    "type": "maneuver",
+    "description": "On your turn, you can use a bonus action and expend one superiority die to bolster the resolve of one of your companions. When you do so, choose a friendly creature who can see or hear you. That creature gains temporary hit points equal to the superiority die roll + your Charisma modifier.",
+    "modifiers": {
+      "resourcesRequired": [
+        {
+          "resource": "superiority_die",
+          "amount": 1
+        }
+      ],
+      "featureFamily": "battle_master_maneuver",
+      "trigger": "on_your_turn",
+      "actionEconomy": {
+        "usesBonusAction": true
+      },
+      "allyEffect": {
+        "target": "friendly_creature_who_can_see_or_hear_you",
+        "temporaryHitPointsFormula": "superiority_die_roll + charisma_modifier",
+        "temporaryHitPointsFormulaV2": {
+          "roll": {
+            "resource": "superiority_die"
+          },
+          "addAbilityModifier": "charisma"
+        }
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "riposte_maneuver_2014",
+    "name": "Riposte",
+    "source": "PHB 2014",
+    "type": "maneuver",
+    "description": "When a creature misses you with a melee attack, you can use your reaction and expend one superiority die to make a melee weapon attack against the creature. If you hit, you add the superiority die to the attack's damage roll.",
+    "modifiers": {
+      "resourcesRequired": [
+        {
+          "resource": "superiority_die",
+          "amount": 1
+        }
+      ],
+      "featureFamily": "battle_master_maneuver",
+      "trigger": "when_creature_misses_you_with_melee_attack",
+      "actionEconomy": {
+        "usesReaction": true
+      },
+      "grantsAttack": {
+        "kind": "one_melee_weapon_attack_against_triggering_creature"
+      },
+      "onHitDamageBonus": {
+        "amountSource": "superiority_die_roll"
+      },
+      "onHitDamageBonusV2": {
+        "amount": {
+          "type": "roll",
+          "roll": {
+            "resource": "superiority_die"
+          }
+        }
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "sweeping_attack_maneuver_2014",
+    "name": "Sweeping Attack",
+    "source": "PHB 2014",
+    "type": "maneuver",
+    "description": "When you hit a creature with a melee weapon attack, you can expend one superiority die to attempt to damage another creature with the same attack. Choose another creature within 5 feet of the original target and within your reach. If the original attack roll would hit the second creature, it takes damage equal to the number you roll on your superiority die. The damage is of the same type dealt by the original attack.",
+    "modifiers": {
+      "resourcesRequired": [
+        {
+          "resource": "superiority_die",
+          "amount": 1
+        }
+      ],
+      "featureFamily": "battle_master_maneuver",
+      "trigger": "on_melee_weapon_hit",
+      "secondaryTarget": {
+        "withinFeetOfOriginalTarget": 5,
+        "withinYourReach": true
+      },
+      "effect": {
+        "ifOriginalAttackRollWouldHitSecondCreature": true,
+        "damageFormula": "superiority_die_roll",
+        "damageType": "same_as_original_attack",
+        "damageFormulaV2": {
+          "type": "roll",
+          "roll": {
+            "resource": "superiority_die"
+          }
+        }
+      },
+      "secondaryTargetV2": {
+        "withinFeetOfOriginalTarget": 5,
+        "withinYourReach": true
+      }
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "tactical_assessment_maneuver_2014",
+    "name": "Tactical Assessment",
+    "source": "PHB 2014",
+    "type": "maneuver",
+    "description": "When you make an Intelligence (Investigation), an Intelligence (History), or a Wisdom (Insight) check, you can expend one superiority die and add the superiority die to the ability check.",
+    "modifiers": {
+      "resourcesRequired": [
+        {
+          "resource": "superiority_die",
+          "amount": 1
+        }
+      ],
+      "featureFamily": "battle_master_maneuver",
+      "trigger": "on_intelligence_or_wisdom_check",
+      "checkBonuses": [
+        {
+          "amountSource": "superiority_die_roll",
+          "appliesTo": [
+            "intelligence_investigation_check",
+            "intelligence_history_check",
+            "wisdom_insight_check"
+          ]
+        }
+      ],
+      "checkBonusesV2": [
+        {
+          "appliesTo": [
+            "intelligence_investigation_check",
+            "intelligence_history_check",
+            "wisdom_insight_check"
+          ],
+          "amount": {
+            "type": "roll",
+            "roll": {
+              "resource": "superiority_die"
+            }
+          }
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "trip_attack_maneuver_2014",
+    "name": "Trip Attack",
+    "source": "PHB 2014",
+    "type": "maneuver",
+    "description": "When you hit a creature with a weapon attack, you can expend one superiority die to attempt to knock the target down. You add the superiority die to the attack's damage roll, and if the target is Large or smaller, it must make a Strength saving throw. On a failed save, you knock the target prone.",
+    "modifiers": {
+      "resourcesRequired": [
+        {
+          "resource": "superiority_die",
+          "amount": 1
+        }
+      ],
+      "featureFamily": "battle_master_maneuver",
+      "trigger": "on_weapon_hit",
+      "damageBonuses": [
+        {
+          "amountSource": "superiority_die_roll"
+        }
+      ],
+      "savingThrow": {
+        "ability": "strength"
+      },
+      "targetConstraint": {
+        "sizeAtMost": "large"
+      },
+      "onFailedSave": {
+        "condition": "prone"
+      },
+      "damageBonusesV2": [
+        {
+          "amount": {
+            "type": "roll",
+            "roll": {
+              "resource": "superiority_die"
+            }
+          }
+        }
+      ]
+    },
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  }
+]

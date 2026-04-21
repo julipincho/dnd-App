@@ -1,0 +1,781 @@
+[
+  {
+    "id": "arcane_propulsion_armor_tce",
+    "name": "Arcane Propulsion Armor",
+    "source": "TCE",
+    "sourceClass": "Artificer",
+    "levelRequirement": 14,
+    "prerequisites": [],
+    "description": "Prerequisite: 14th-level artificer The wearer of this armor gains these benefits: The wearer's walking speed increases by 5 feet. The armor includes gauntlets, each of which is a magic melee weapon that can be wielded only when the hand is holding nothing. The wearer is proficient with the gauntlets, and each one deals 1d8 force damage on a hit and has the thrown property, with a normal range of 20 feet and a long range of 60 feet. When thrown, the gauntlet detaches and flies at the attack's target, then immediately returns to the wearer and reattaches. The armor can't be removed against the wearer's will. If the wearer is missing any limbs, the armor replaces those limbs - hands, arms, feet, legs, or similar appendages. The replacements function identically to the body parts they replace.",
+    "itemType": "A suit of armor (requires attunement)",
+    "requiresAttunement": true,
+    "modifiers": {
+      "arcanePropulsionArmor": true,
+      "movementBonuses": [
+        {
+          "kind": "walking_speed",
+          "amountFeet": 5
+        }
+      ],
+      "specialRules": {
+        "armorCannotBeRemovedAgainstWearersWill": true,
+        "replacesMissingLimbs": true,
+        "replacementLimbsFunctionNormally": true
+      },
+      "grantedWeapons": [
+        {
+          "name": "Arcane Propulsion Gauntlet",
+          "weaponType": "magic_melee_weapon",
+          "damage": "1d8 force",
+          "properties": [
+            "thrown"
+          ],
+          "normalRangeFeet": 20,
+          "longRangeFeet": 60,
+          "returnsImmediatelyAfterThrownAttack": true,
+          "requiresEmptyHand": true,
+          "wearerIsProficient": true
+        }
+      ],
+      "grantedWeaponsV2": [
+        {
+          "name": "Arcane Propulsion Gauntlet",
+          "weaponType": "magic_melee_weapon",
+          "damage": "1d8 force",
+          "properties": [
+            "thrown"
+          ],
+          "normalRangeFeet": 20,
+          "longRangeFeet": 60,
+          "returnsImmediatelyAfterThrownAttack": true,
+          "requiresEmptyHand": true,
+          "wearerIsProficient": true
+        }
+      ]
+    },
+    "is2014Ruleset": true,
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "armor_of_magical_strength_tce",
+    "name": "Armor of Magical Strength",
+    "source": "TCE",
+    "sourceClass": "Artificer",
+    "levelRequirement": 2,
+    "prerequisites": [],
+    "description": "This armor has 6 charges. The wearer can expend the armor's charges in the following ways: When the wearer makes a Strength check or a Strength saving throw, it can expend 1 charge to add a bonus to the roll equal to its Intelligence modifier. If the creature would be knocked prone, it can use its reaction to expend 1 charge to avoid being knocked prone. The armor regains 1d6 expended charges daily at dawn.",
+    "itemType": "A suit of armor (requires attunement)",
+    "requiresAttunement": true,
+    "modifiers": {
+      "armorOfMagicalStrength": true,
+      "charges": {
+        "max": 6,
+        "recovery": "1d6_at_dawn"
+      },
+      "bonuses": [
+        {
+          "appliesTo": [
+            "strength_check",
+            "strength_saving_throw"
+          ],
+          "amountSource": "intelligence_modifier",
+          "cost": {
+            "charges": 1
+          }
+        }
+      ],
+      "reactions": [
+        {
+          "trigger": "would_be_knocked_prone",
+          "cost": {
+            "charges": 1
+          },
+          "effect": "avoid_being_knocked_prone"
+        }
+      ],
+      "reactionsV2": [
+        {
+          "trigger": "would_be_knocked_prone",
+          "cost": {
+            "charges": 1
+          },
+          "effect": "avoid_being_knocked_prone"
+        }
+      ],
+      "chargesV2": {
+        "max": 6,
+        "recovery": "1d6_at_dawn"
+      }
+    },
+    "is2014Ruleset": true,
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "boots_of_the_winding_path_tce",
+    "name": "Boots of the Winding Path",
+    "source": "TCE",
+    "sourceClass": "Artificer",
+    "levelRequirement": 6,
+    "prerequisites": [],
+    "description": "Prerequisite: 6th-level artificer While wearing these boots, a creature can teleport up to 15 feet as a bonus action to an unoccupied space the creature can see. The creature must have occupied that space at some point during the current turn.",
+    "itemType": "A pair of boots (requires attunement)",
+    "requiresAttunement": true,
+    "modifiers": {
+      "bootsOfTheWindingPath": true,
+      "actionEconomy": {
+        "usesBonusAction": true
+      },
+      "specialRules": {
+        "teleportDistanceFeet": 15,
+        "mustTeleportToSpaceOccupiedEarlierThisTurn": true
+      }
+    },
+    "is2014Ruleset": true,
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "enhanced_arcane_focus_tce",
+    "name": "Enhanced Arcane Focus",
+    "source": "TCE",
+    "sourceClass": "Artificer",
+    "levelRequirement": 2,
+    "prerequisites": [],
+    "description": "While holding this item, a creature gains +1 bonus to spell attack rolls. In addition, the creature ignores half cover when making a spell attack. The bonus increases to +2 when you reach 10th level in this class.",
+    "itemType": "A rod, staff or wand (requires attunement)",
+    "requiresAttunement": true,
+    "modifiers": {
+      "enhancedArcaneFocus": true,
+      "spellAttackBonuses": [
+        {
+          "amount": 1,
+          "condition": {
+            "holdingInfusedFocus": true
+          }
+        }
+      ],
+      "scaling": {
+        "atArtificerLevel10": {
+          "spellAttackBonuses": [
+            {
+              "amount": 2,
+              "condition": {
+                "holdingInfusedFocus": true
+              }
+            }
+          ]
+        }
+      },
+      "specialRules": {
+        "ignoreHalfCoverOnSpellAttacks": true
+      },
+      "spellAttackBonusesV2": [
+        {
+          "amount": 1,
+          "condition": {
+            "holdingInfusedFocus": true
+          }
+        }
+      ],
+      "scalingV2": {
+        "atArtificerLevel10": {
+          "spellAttackBonuses": [
+            {
+              "amount": 2,
+              "condition": {
+                "holdingInfusedFocus": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    "is2014Ruleset": true,
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "enhanced_defense_tce",
+    "name": "Enhanced Defense",
+    "source": "TCE",
+    "sourceClass": "Artificer",
+    "levelRequirement": 2,
+    "prerequisites": [],
+    "description": "A creature gains a +1 bonus to Armor Class while wearing (armor) or wielding (shield) the infused item. The bonus increases to +2 when you reach 10th level in this class.",
+    "itemType": "A suit of armor or a shield",
+    "requiresAttunement": false,
+    "modifiers": {
+      "enhancedDefense": true,
+      "armorClassBonuses": [
+        {
+          "amount": 1,
+          "condition": {
+            "wearingInfusedArmorOrWieldingInfusedShield": true
+          }
+        }
+      ],
+      "scaling": {
+        "atArtificerLevel10": {
+          "armorClassBonuses": [
+            {
+              "amount": 2,
+              "condition": {
+                "wearingInfusedArmorOrWieldingInfusedShield": true
+              }
+            }
+          ]
+        }
+      },
+      "armorClassBonusesV2": [
+        {
+          "amount": 1,
+          "condition": {
+            "wearingInfusedArmorOrWieldingInfusedShield": true
+          }
+        }
+      ],
+      "scalingV2": {
+        "atArtificerLevel10": {
+          "armorClassBonuses": [
+            {
+              "amount": 2,
+              "condition": {
+                "wearingInfusedArmorOrWieldingInfusedShield": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    "is2014Ruleset": true,
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "enhanced_weapon_tce",
+    "name": "Enhanced Weapon",
+    "source": "TCE",
+    "sourceClass": "Artificer",
+    "levelRequirement": 2,
+    "prerequisites": [],
+    "description": "This magic weapon grants a +1 bonus to attack and damage rolls made with it. The bonus increases to +2 when you reach 10th level in this class.",
+    "itemType": "A simple or martial weapon",
+    "requiresAttunement": false,
+    "modifiers": {
+      "enhancedWeapon": true,
+      "attackBonuses": [
+        {
+          "amount": 1,
+          "condition": {
+            "usingInfusedWeapon": true
+          }
+        }
+      ],
+      "damageBonuses": [
+        {
+          "amount": 1,
+          "condition": {
+            "usingInfusedWeapon": true
+          }
+        }
+      ],
+      "scaling": {
+        "atArtificerLevel10": {
+          "attackBonuses": [
+            {
+              "amount": 2,
+              "condition": {
+                "usingInfusedWeapon": true
+              }
+            }
+          ],
+          "damageBonuses": [
+            {
+              "amount": 2,
+              "condition": {
+                "usingInfusedWeapon": true
+              }
+            }
+          ]
+        }
+      },
+      "damageBonusesV2": [
+        {
+          "amount": 1,
+          "condition": {
+            "usingInfusedWeapon": true
+          }
+        }
+      ],
+      "attackBonusesV2": [
+        {
+          "amount": 1,
+          "condition": {
+            "usingInfusedWeapon": true
+          }
+        }
+      ],
+      "scalingV2": {
+        "atArtificerLevel10": {
+          "attackBonuses": [
+            {
+              "amount": 2,
+              "condition": {
+                "usingInfusedWeapon": true
+              }
+            }
+          ],
+          "damageBonuses": [
+            {
+              "amount": 2,
+              "condition": {
+                "usingInfusedWeapon": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    "is2014Ruleset": true,
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "helm_of_awareness_tce",
+    "name": "Helm of Awareness",
+    "source": "TCE",
+    "sourceClass": "Artificer",
+    "levelRequirement": 10,
+    "prerequisites": [],
+    "description": "Prerequisite: 10th-level artificer While wearing this helmet, a creature has advantage on initiative rolls. In addition, the wearer can’t be surprised, provided it isn’t incapacitated.",
+    "itemType": "A helmet (requires attunement)",
+    "requiresAttunement": true,
+    "modifiers": {
+      "initiativeAdvantage": true,
+      "cannotBeSurprisedWhileConscious": true,
+      "initiativeAdvantages": [
+        {
+          "condition": {
+            "wearingInfusedHelmet": true
+          }
+        }
+      ],
+      "specialRules": {
+        "cannotBeSurprisedWhileNotIncapacitated": true
+      }
+    },
+    "is2014Ruleset": true,
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "homunculus_servant_tce",
+    "name": "Homunculus Servant",
+    "source": "TCE",
+    "sourceClass": "Artificer",
+    "levelRequirement": 2,
+    "prerequisites": [],
+    "description": "You learn intricate methods for magically creating a special homunculus that serves you. The item you infuse serves as the creature's heart, around which the creature's body instantly forms. You determine the homunculus's appearance. Some artificers prefer mechanical-looking birds, whereas some like winged vials or miniature, animate cauldrons. The homunculus is friendly to you and your companions, and it obeys your commands. See this creature's game statistics in the Homunculus Servant stat block, which uses your proficiency bonus (PB) in several places. In combat, the homunculus shares your initiative count, but it takes its turn immediately after yours. It can move and use its reaction on its own, but the only action it takes on its turn is the Dodge action, unless you take a bonus action on your turn to command it to take another action. That action can be one in its stat block or some other action. If you are incapacitated, the homunculus can take any action of its choice, not just Dodge. The homunculus regains 2d6 hit points if the mending spell is cast on it. If you or the homunculus dies, it vanishes, leaving its heart in its space.",
+    "itemType": "A gem or crystal worth at least 100 gp",
+    "requiresAttunement": false,
+    "modifiers": {
+      "grantsHomunculusServant": true,
+      "grantsCompanion": {
+        "kind": "homunculus_servant",
+        "usesStatBlock": "Homunculus Servant"
+      },
+      "grantsCompanionV2": {
+        "kind": "homunculus_servant",
+        "usesStatBlock": "Homunculus Servant"
+      }
+    },
+    "is2014Ruleset": true,
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "mind_sharpener_tce",
+    "name": "Mind Sharpener",
+    "source": "TCE",
+    "sourceClass": "Artificer",
+    "levelRequirement": 2,
+    "prerequisites": [],
+    "description": "The infused item can send a jolt to the wearer to refocus their mind. The item has 4 charges. When the wearer fails a Constitution saving throw to maintain concentration on a spell, the wearer can use its reaction to expend 1 of the item's charges to succeed instead. The item regains 1d4 expended charges daily at dawn.",
+    "itemType": "A suit of armor or robes",
+    "requiresAttunement": false,
+    "modifiers": {
+      "mindSharpener": true,
+      "charges": {
+        "max": 4,
+        "recovery": "1d4_at_dawn"
+      },
+      "reactions": [
+        {
+          "trigger": "fail_concentration_constitution_save",
+          "effect": "succeed_instead",
+          "cost": {
+            "charges": 1
+          }
+        }
+      ],
+      "reactionsV2": [
+        {
+          "trigger": "fail_concentration_constitution_save",
+          "effect": "succeed_instead",
+          "cost": {
+            "charges": 1
+          }
+        }
+      ],
+      "chargesV2": {
+        "max": 4,
+        "recovery": "1d4_at_dawn"
+      }
+    },
+    "is2014Ruleset": true,
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "radiant_weapon_tce",
+    "name": "Radiant Weapon",
+    "source": "TCE",
+    "sourceClass": "Artificer",
+    "levelRequirement": 6,
+    "prerequisites": [],
+    "description": "Prerequisite: 6th-level artificer This magic weapon grants a +1 bonus to attack and damage rolls made with it. While holding it, the wielder can take a bonus action to cause it to shed bright light in a 30-foot radius and dim light for an additional 30 feet. The wielder can extinguish the light as a bonus action. The weapon has 4 charges. As a reaction immediately after being hit by an attack, the wielder can expend 1 charge and cause the attacker to be blinded until the end of the attacker's next turn, unless the attacker succeeds on a Constitution saving throw against your spell save DC. The weapon regains 1d4 expended charges daily at dawn.",
+    "itemType": "A simple or martial weapon (requires attunement)",
+    "requiresAttunement": true,
+    "modifiers": {
+      "radiantWeapon": true,
+      "attackBonuses": [
+        {
+          "amount": 1,
+          "condition": {
+            "usingInfusedWeapon": true
+          }
+        }
+      ],
+      "damageBonuses": [
+        {
+          "amount": 1,
+          "condition": {
+            "usingInfusedWeapon": true
+          }
+        }
+      ],
+      "charges": {
+        "max": 4,
+        "recovery": "1d4_at_dawn"
+      },
+      "actionEconomy": {
+        "lightOnUsesBonusAction": true,
+        "lightOffUsesBonusAction": true
+      },
+      "light": {
+        "brightFeet": 30,
+        "dimAdditionalFeet": 30
+      },
+      "reactions": [
+        {
+          "trigger": "after_being_hit_by_attack",
+          "cost": {
+            "charges": 1
+          },
+          "effect": "attempt_blind_attacker_until_end_of_attackers_next_turn",
+          "savingThrow": {
+            "ability": "constitution",
+            "dcSource": "your_spell_save_dc"
+          }
+        }
+      ],
+      "damageBonusesV2": [
+        {
+          "amount": 1,
+          "condition": {
+            "usingInfusedWeapon": true
+          }
+        }
+      ],
+      "attackBonusesV2": [
+        {
+          "amount": 1,
+          "condition": {
+            "usingInfusedWeapon": true
+          }
+        }
+      ],
+      "reactionsV2": [
+        {
+          "trigger": "after_being_hit_by_attack",
+          "cost": {
+            "charges": 1
+          },
+          "effect": "attempt_blind_attacker_until_end_of_attackers_next_turn",
+          "savingThrow": {
+            "ability": "constitution",
+            "dcSource": "your_spell_save_dc"
+          }
+        }
+      ],
+      "chargesV2": {
+        "max": 4,
+        "recovery": "1d4_at_dawn"
+      },
+      "lightV2": {
+        "brightFeet": 30,
+        "dimAdditionalFeet": 30
+      }
+    },
+    "is2014Ruleset": true,
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "repeating_shot_tce",
+    "name": "Repeating Shot",
+    "source": "TCE",
+    "sourceClass": "Artificer",
+    "levelRequirement": 2,
+    "prerequisites": [],
+    "description": "This magic weapon grants a +1 bonus to attack and damage rolls made with it when it's used to make a ranged attack, and it ignores the loading property if it has it. If the weapon lacks ammunition, it produces its own, automatically creating one piece of magic ammunition when the wielder makes a ranged attack with it. The ammunition created by the weapon vanishes the instant after it hits or misses a target.",
+    "itemType": "A simple or martial weapon with the ammunition property (requires attunement)",
+    "requiresAttunement": true,
+    "modifiers": {
+      "repeatingShot": true,
+      "attackBonuses": [
+        {
+          "amount": 1,
+          "condition": {
+            "usingInfusedWeaponForRangedAttack": true
+          }
+        }
+      ],
+      "damageBonuses": [
+        {
+          "amount": 1,
+          "condition": {
+            "usingInfusedWeaponForRangedAttack": true
+          }
+        }
+      ],
+      "specialRules": {
+        "ignoresLoadingProperty": true,
+        "createsItsOwnMagicAmmunitionIfNoneLoaded": true
+      },
+      "damageBonusesV2": [
+        {
+          "amount": 1,
+          "condition": {
+            "usingInfusedWeaponForRangedAttack": true
+          }
+        }
+      ],
+      "attackBonusesV2": [
+        {
+          "amount": 1,
+          "condition": {
+            "usingInfusedWeaponForRangedAttack": true
+          }
+        }
+      ]
+    },
+    "is2014Ruleset": true,
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "replicate_magic_item_tce",
+    "name": "Replicate Magic Item",
+    "source": "TCE",
+    "sourceClass": "Artificer",
+    "levelRequirement": 2,
+    "prerequisites": [],
+    "description": "Using this infusion, you replicate a particular magic item. You can learn this infusion multiple times; each time you do so, choose a magic item that you can make with it, picking from the Replicable Items tables. A table's title tells you the level you must be in the class to choose an item from the table. Alternatively, you can choose the magic item from among the common magic items in the game, not including potions or scrolls. In the tables, an item's entry tells you whether the item requires attunement. See the item's description in the Dungeon Master's Guide for more information about it, including the type of object required for its making. If you have Xanathar's Guide to Everything , you can choose from among the common magic items in that book when you pick a magic item you can replicate with this infusion. Replicable Magic Items (2nd-Level Artificer) Magic Item Attunement Alchemy Jug No Bag of Holding No Cap of Water Breathing No Goggles of Night No Rope of Climbing No Sending Stones No Wand of Magic Detection No Wand of Secrets No Replicable Magic Items (6th-Level Artificer) Magic Item Attunement Boots of Elvenkind No Cloak of Elvenkind Yes Cloak of the Manta Ray No Eyes of Charming Yes Gloves of Thievery No Lantern of Revealing No Pipes of Haunting No Ring of Water Walking No Replicable Magic Items (10th-level artificer) Magic Item Attunement Boots of Striding and Springing Yes Boots of the Winterlands Yes Bracers of Archery Yes Brooch of Shielding Yes Cloak of Protection Yes Eyes of the Eagle Yes Gauntlets of Ogre Power Yes Gloves of Missile Snaring Yes Gloves of Swimming and Climbing Yes Hat of Disguise Yes Headband of Intellect Yes Helm of Telepathy Yes Medallion of Thoughts Yes Necklace of Adaptation Yes Periapt of Wound Closure Yes Pipes of the Sewers Yes Quiver of Ehlonna No Ring of Jumping Yes Ring of Mind Shielding Yes Slippers of Spider Climbing Yes Ventilating Lungs (Eberron: Rising from the Last War) Yes Winged Boots Yes Replicable Magic Items (14th-level artificer) Magic Item Attunement Amulet of Health Yes Arcane Propulsion Arm (Eberron: Rising from the Last War) Yes Belt of Hill Giant Strength Yes Boots of Levitation Yes Boots of Speed Yes Bracers of Defense Yes Cloak of the Bat Yes Dimensional Shackles No Gem of Seeing Yes Horn of Blasting No Ring of Free Action Yes Ring of Protection Yes Ring of the Ram Yes",
+    "itemType": null,
+    "requiresAttunement": false,
+    "modifiers": {
+      "replicateMagicItem": true,
+      "specialRules": {
+        "canBeLearnedMultipleTimes": true,
+        "requiresChoiceOfReplicableMagicItem": true,
+        "usesReplicableItemsTables": true
+      }
+    },
+    "is2014Ruleset": true,
+    "replicableItemsRaw": "Using this infusion, you replicate a particular magic item. You can learn this infusion multiple times; each time you do so, choose a magic item that you can make with it, picking from the Replicable Items tables. A table's title tells you the level you must be in the class to choose an item from the table. Alternatively, you can choose the magic item from among the common magic items in the game, not including potions or scrolls. In the tables, an item's entry tells you whether the item requires attunement. See the item's description in the Dungeon Master's Guide for more information about it, including the type of object required for its making. If you have Xanathar's Guide to Everything , you can choose from among the common magic items in that book when you pick a magic item you can replicate with this infusion. Replicable Magic Items (2nd-Level Artificer) Magic Item Attunement Alchemy Jug No Bag of Holding No Cap of Water Breathing No Goggles of Night No Rope of Climbing No Sending Stones No Wand of Magic Detection No Wand of Secrets No Replicable Magic Items (6th-Level Artificer) Magic Item Attunement Boots of Elvenkind No Cloak of Elvenkind Yes Cloak of the Manta Ray No Eyes of Charming Yes Gloves of Thievery No Lantern of Revealing No Pipes of Haunting No Ring of Water Walking No Replicable Magic Items (10th-level artificer) Magic Item Attunement Boots of Striding and Springing Yes Boots of the Winterlands Yes Bracers of Archery Yes Brooch of Shielding Yes Cloak of Protection Yes Eyes of the Eagle Yes Gauntlets of Ogre Power Yes Gloves of Missile Snaring Yes Gloves of Swimming and Climbing Yes Hat of Disguise Yes Headband of Intellect Yes Helm of Telepathy Yes Medallion of Thoughts Yes Necklace of Adaptation Yes Periapt of Wound Closure Yes Pipes of the Sewers Yes Quiver of Ehlonna No Ring of Jumping Yes Ring of Mind Shielding Yes Slippers of Spider Climbing Yes Ventilating Lungs (Eberron: Rising from the Last War) Yes Winged Boots Yes Replicable Magic Items (14th-level artificer) Magic Item Attunement Amulet of Health Yes Arcane Propulsion Arm (Eberron: Rising from the Last War) Yes Belt of Hill Giant Strength Yes Boots of Levitation Yes Boots of Speed Yes Bracers of Defense Yes Cloak of the Bat Yes Dimensional Shackles No Gem of Seeing Yes Horn of Blasting No Ring of Free Action Yes Ring of Protection Yes Ring of the Ram Yes",
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "repulsion_shield_tce",
+    "name": "Repulsion Shield",
+    "source": "TCE",
+    "sourceClass": "Artificer",
+    "levelRequirement": 6,
+    "prerequisites": [],
+    "description": "Prerequisite: 6th-level artificer A creature gains a +1 bonus to Armor Class while wielding this shield. The shield has 4 charges. While holding it, the wielder can use a reaction immediately after being hit by a melee attack to expend 1 of the shield's charges and push the attacker up to 15 feet away. The shield regains 1d4 expended charges daily at dawn.",
+    "itemType": "A shield (requires attunement)",
+    "requiresAttunement": true,
+    "modifiers": {
+      "repulsionShield": true,
+      "armorClassBonuses": [
+        {
+          "amount": 1,
+          "condition": {
+            "wieldingInfusedShield": true
+          }
+        }
+      ],
+      "charges": {
+        "max": 4,
+        "recovery": "1d4_at_dawn"
+      },
+      "reactions": [
+        {
+          "trigger": "after_being_hit_by_melee_attack",
+          "cost": {
+            "charges": 1
+          },
+          "effect": "push_attacker",
+          "distanceFeet": 15
+        }
+      ],
+      "armorClassBonusesV2": [
+        {
+          "amount": 1,
+          "condition": {
+            "wieldingInfusedShield": true
+          }
+        }
+      ],
+      "reactionsV2": [
+        {
+          "trigger": "after_being_hit_by_melee_attack",
+          "cost": {
+            "charges": 1
+          },
+          "effect": "push_attacker",
+          "distanceFeet": 15
+        }
+      ],
+      "chargesV2": {
+        "max": 4,
+        "recovery": "1d4_at_dawn"
+      }
+    },
+    "is2014Ruleset": true,
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "resistant_armor_tce",
+    "name": "Resistant Armor",
+    "source": "TCE",
+    "sourceClass": "Artificer",
+    "levelRequirement": 6,
+    "prerequisites": [],
+    "description": "Prerequisite: 6th-level artificer While wearing this armor, a creature has resistance to one of the following damage types, which you choose when you infuse the item: acid, cold, fire, force, lightning, necrotic, poison, psychic, radiant, or thunder.",
+    "itemType": "A suit of armor (requires attunement)",
+    "requiresAttunement": true,
+    "modifiers": {
+      "resistantArmor": true,
+      "specialRules": {
+        "chooseDamageResistanceOnInfusion": [
+          "acid",
+          "cold",
+          "fire",
+          "force",
+          "lightning",
+          "necrotic",
+          "poison",
+          "psychic",
+          "radiant",
+          "thunder"
+        ]
+      }
+    },
+    "is2014Ruleset": true,
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "returning_weapon_tce",
+    "name": "Returning Weapon",
+    "source": "TCE",
+    "sourceClass": "Artificer",
+    "levelRequirement": 2,
+    "prerequisites": [],
+    "description": "This magic weapon grants a +1 bonus to attack and damage rolls made with it, and it returns to the wielder’s hand immediately after it is used to make a ranged attack.",
+    "itemType": "A simple or martial weapon with the thrown property",
+    "requiresAttunement": false,
+    "modifiers": {
+      "returningWeapon": true,
+      "attackBonuses": [
+        {
+          "amount": 1,
+          "condition": {
+            "usingInfusedWeapon": true
+          }
+        }
+      ],
+      "damageBonuses": [
+        {
+          "amount": 1,
+          "condition": {
+            "usingInfusedWeapon": true
+          }
+        }
+      ],
+      "specialRules": {
+        "returnsToWielderImmediatelyAfterRangedAttack": true
+      },
+      "damageBonusesV2": [
+        {
+          "amount": 1,
+          "condition": {
+            "usingInfusedWeapon": true
+          }
+        }
+      ],
+      "attackBonusesV2": [
+        {
+          "amount": 1,
+          "condition": {
+            "usingInfusedWeapon": true
+          }
+        }
+      ]
+    },
+    "is2014Ruleset": true,
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  },
+  {
+    "id": "spell_refueling_ring_tce",
+    "name": "Spell-Refueling Ring",
+    "source": "TCE",
+    "sourceClass": "Artificer",
+    "levelRequirement": 6,
+    "prerequisites": [],
+    "description": "Prerequisite: 6th-level artificer While wearing this ring, the creature can recover one expended spell slot as an action. The recovered slot can be of 3rd level or lower. Once used, the ring can't be used again until the next dawn.",
+    "itemType": "A ring (requires attunement)",
+    "requiresAttunement": true,
+    "modifiers": {
+      "spellRefuelingRing": true,
+      "actionEconomy": {
+        "usesAction": true
+      },
+      "specialRules": {
+        "recoverOneExpendedSpellSlot": true,
+        "maximumRecoveredSpellSlotLevel": 3,
+        "usesPerDawn": 1
+      }
+    },
+    "is2014Ruleset": true,
+    "normalizedBy": "normalize_class_option_modifiers_v2.py",
+    "normalizationVersion": 2
+  }
+]

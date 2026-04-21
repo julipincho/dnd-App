@@ -1,0 +1,246 @@
+{
+  "subrace": [
+    {
+      "name": "Hill Dwarf",
+      "source": "PHB",
+      "raceName": "Dwarf",
+      "ability": { "WIS": 1 },
+      "entries": [
+        {
+          "name": "Dwarven Toughness",
+          "entries": [
+            "Your hit point maximum increases by 1, and it increases by 1 every time you gain a level."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Mountain Dwarf",
+      "source": "PHB",
+      "raceName": "Dwarf",
+      "ability": { "STR": 2 },
+      "entries": [
+        {
+          "name": "Dwarven Armor Training",
+          "entries": [
+            "You have proficiency with light and medium armor."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "High Elf",
+      "source": "PHB",
+      "raceName": "Elf",
+      "ability": { "INT": 1 },
+      "entries": [
+        {
+          "name": "Elf Weapon Training",
+          "entries": [
+            "You have proficiency with the longsword, shortsword, shortbow, and longbow."
+          ]
+        },
+        {
+          "name": "Cantrip",
+          "entries": [
+            "You know one cantrip of your choice from the wizard spell list. Intelligence is your spellcasting ability for it."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Wood Elf",
+      "source": "PHB",
+      "raceName": "Elf",
+      "ability": { "WIS": 1 },
+      "entries": [
+        {
+          "name": "Elf Weapon Training",
+          "entries": [
+            "You have proficiency with the longsword, shortsword, shortbow, and longbow."
+          ]
+        },
+        {
+          "name": "Fleet of Foot",
+          "entries": [
+            "Your base walking speed increases to 35 feet."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Dark Elf (Drow)",
+      "source": "PHB",
+      "raceName": "Elf",
+      "ability": { "CHA": 1 },
+      "entries": [
+        {
+          "name": "Superior Darkvision",
+          "entries": [
+            "Your darkvision has a radius of 120 feet."
+          ]
+        },
+        {
+          "name": "Sunlight Sensitivity",
+          "entries": [
+            "You have disadvantage on attack rolls and on Wisdom (Perception) checks that rely on sight when you, the target of your attack, or whatever you are trying to perceive is in direct sunlight."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Lightfoot",
+      "source": "PHB",
+      "raceName": "Halfling",
+      "ability": { "CHA": 1 },
+      "entries": [
+        {
+          "name": "Naturally Stealthy",
+          "entries": [
+            "You can attempt to hide even when you are obscured only by a creature that is at least one size larger than you."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Stout",
+      "source": "PHB",
+      "raceName": "Halfling",
+      "ability": { "CON": 1 },
+      "entries": [
+        {
+          "name": "Stout Resilience",
+          "entries": [
+            "You have advantage on saving throws against poison, and you have resistance against poison damage."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Forest Gnome",
+      "source": "PHB",
+      "raceName": "Gnome",
+      "ability": { "DEX": 1 },
+      "entries": [
+        {
+          "name": "Natural Illusionist",
+          "entries": [
+            "You know the minor illusion cantrip. Intelligence is your spellcasting ability for it."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Rock Gnome",
+      "source": "PHB",
+      "raceName": "Gnome",
+      "ability": { "CON": 1 },
+      "entries": [
+        {
+          "name": "Artificer's Lore",
+          "entries": [
+            "Whenever you make an Intelligence (History) check related to magic items, alchemical objects, or technological devices, you can add twice your proficiency bonus."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Air Genasi",
+      "source": "EEPC",
+      "raceName": "Genasi",
+      "ability": { "DEX": 1 },
+      "entries": [
+        {
+          "name": "Unending Breath",
+          "entries": [
+            "You can hold your breath indefinitely while you're not incapacitated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Earth Genasi",
+      "source": "EEPC",
+      "raceName": "Genasi",
+      "ability": { "STR": 1 },
+      "entries": [
+        {
+          "name": "Earth Walk",
+          "entries": [
+            "You can move across difficult terrain made of earth or stone without expending extra movement."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Fire Genasi",
+      "source": "EEPC",
+      "raceName": "Genasi",
+      "ability": { "INT": 1 },
+      "entries": [
+        {
+          "name": "Darkvision",
+          "entries": [
+            "Thanks to your infernal heritage, you have darkvision out to 60 feet."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Water Genasi",
+      "source": "EEPC",
+      "raceName": "Genasi",
+      "ability": { "WIS": 1 },
+      "entries": [
+        {
+          "name": "Acid Resistance",
+          "entries": [
+            "You have resistance to acid damage."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Protector Aasimar",
+      "source": "VGM",
+      "raceName": "Aasimar",
+      "ability": { "WIS": 1 },
+      "entries": [
+        {
+          "name": "Radiant Soul",
+          "entries": [
+            "You can unleash the celestial energy within yourself."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Scourge Aasimar",
+      "source": "VGM",
+      "raceName": "Aasimar",
+      "ability": { "CON": 1 },
+      "entries": [
+        {
+          "name": "Radiant Consumption",
+          "entries": [
+            "You can channel searing light to damage foes and illuminate the darkness."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Fallen Aasimar",
+      "source": "VGM",
+      "raceName": "Aasimar",
+      "ability": { "STR": 1 },
+      "entries": [
+        {
+          "name": "Necrotic Shroud",
+          "entries": [
+            "You can unleash the power of your fallen heritage to terrify others."
+          ]
+        }
+      ]
+    }
+  ]
+}
