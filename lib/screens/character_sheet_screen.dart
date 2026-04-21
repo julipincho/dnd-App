@@ -32,6 +32,7 @@ import '../models/character_option_category.dart';
 import '../core/rules/character_choice_engine.dart';
 import '../models/character_available_options_engine.dart';
 import '../models/character_option_selection_helper.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_overview_tab.dart';
 import '../services/character_pact_service.dart';
 import '../logic/character_option_effects.dart';
 import '../models/character_selected_option_group.dart';
@@ -4952,12 +4953,192 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         ),
         body: TabBarView(
           children: [
-            _buildOverviewTab(
-              context,
-              char,
-              getStat,
-              equipmentProvider,
-              compendiumProvider,
+            CharacterOverviewTab(
+              header: Builder(
+                builder: (context) {
+                  final screenWidth = MediaQuery.of(context).size.width;
+                  final isTablet = screenWidth >= 600;
+                  final isLargeTablet = screenWidth >= 900;
+
+                  final cardPadding =
+                      isLargeTablet ? 24.0 : (isTablet ? 20.0 : 16.0);
+                  final avatarRadius =
+                      isLargeTablet ? 56.0 : (isTablet ? 48.0 : 38.0);
+                  final titleSize =
+                      isLargeTablet ? 30.0 : (isTablet ? 26.0 : 22.0);
+                  final subtitleSize =
+                      isLargeTablet ? 16.0 : (isTablet ? 15.0 : 14.0);
+                  final smallSubtitleSize =
+                      isLargeTablet ? 15.0 : (isTablet ? 14.0 : 13.0);
+
+                  return Container(
+                    padding: EdgeInsets.all(cardPadding),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF2D1B4C), Color(0xFF171821)],
+                      ),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: Colors.deepPurpleAccent.withOpacity(0.6),
+                      ),
+                    ),
+                    child: isTablet
+                        ? Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              CircleAvatar(
+                                radius: avatarRadius,
+                                backgroundColor: Colors.deepPurpleAccent,
+                                backgroundImage: (char.portraitPath != null &&
+                                        char.portraitPath!.isNotEmpty &&
+                                        File(char.portraitPath!).existsSync())
+                                    ? FileImage(File(char.portraitPath!))
+                                    : null,
+                                child: (char.portraitPath == null ||
+                                        char.portraitPath!.isEmpty ||
+                                        !File(char.portraitPath!).existsSync())
+                                    ? const Icon(
+                                        Icons.person,
+                                        size: 42,
+                                        color: Colors.white,
+                                      )
+                                    : null,
+                              ),
+                              const SizedBox(width: 20),
+                              Expanded(
+                                child: _buildHeaderTextBlock(
+                                  char,
+                                  titleSize: titleSize,
+                                  subtitleSize: subtitleSize,
+                                  smallSubtitleSize: smallSubtitleSize,
+                                  isCentered: false,
+                                ),
+                              ),
+                            ],
+                          )
+                        : Column(
+                            children: [
+                              CircleAvatar(
+                                radius: avatarRadius,
+                                backgroundColor: Colors.deepPurpleAccent,
+                                backgroundImage: (char.portraitPath != null &&
+                                        char.portraitPath!.isNotEmpty &&
+                                        File(char.portraitPath!).existsSync())
+                                    ? FileImage(File(char.portraitPath!))
+                                    : null,
+                                child: (char.portraitPath == null ||
+                                        char.portraitPath!.isEmpty ||
+                                        !File(char.portraitPath!).existsSync())
+                                    ? const Icon(
+                                        Icons.person,
+                                        size: 36,
+                                        color: Colors.white,
+                                      )
+                                    : null,
+                              ),
+                              const SizedBox(height: 16),
+                              _buildHeaderTextBlock(
+                                char,
+                                titleSize: titleSize,
+                                subtitleSize: subtitleSize,
+                                smallSubtitleSize: smallSubtitleSize,
+                                isCentered: true,
+                              ),
+                            ],
+                          ),
+                  );
+                },
+              ),
+              char: char,
+              equipmentProvider: equipmentProvider,
+              compendiumProvider: compendiumProvider,
+              getStat: getStat,
+              buildHpQuickActionsCard: ({
+                required context,
+                required char,
+                required isTablet,
+                required isLargeTablet,
+              }) =>
+                  _hpQuickActionsCard(
+                context,
+                char,
+                isTablet: isTablet,
+                isLargeTablet: isLargeTablet,
+              ),
+              buildSummaryCard: ({
+                required label,
+                required value,
+                required icon,
+                required isTablet,
+                required isLargeTablet,
+              }) =>
+                  _summaryCard(
+                label: label,
+                value: value,
+                icon: icon,
+                isTablet: isTablet,
+                isLargeTablet: isLargeTablet,
+              ),
+              buildInteractiveSummaryCard: ({
+                required label,
+                required value,
+                required icon,
+                required isTablet,
+                required isLargeTablet,
+                required onTap,
+              }) =>
+                  _interactiveSummaryCard(
+                label: label,
+                value: value,
+                icon: icon,
+                isTablet: isTablet,
+                isLargeTablet: isLargeTablet,
+                onTap: onTap,
+              ),
+              buildCombatSummarySection: _buildCombatSummarySection,
+              buildAbilityCard: _ability,
+              buildRecentDiceRolls: ({
+                required isTablet,
+                required isLargeTablet,
+              }) =>
+                  _buildRecentDiceRolls(
+                isTablet: isTablet,
+                isLargeTablet: isLargeTablet,
+              ),
+              buildSavingThrowsSection: _buildSavingThrowsSection,
+              buildSkillsSection: _buildSkillsSection,
+              buildDeathSavesSection: _buildDeathSavesSection,
+              buildNarrativeCard: ({
+                required title,
+                required content,
+              }) =>
+                  _narrativeCard(
+                title: title,
+                content: content,
+              ),
+              onOpenDiceRoller: _openDiceRoller,
+              onLevelUp: () => _showLevelUpDialog(context, char),
+              onGoToCampaign: () {
+                context.go('/campaign-detail');
+              },
+              onEditSpeed: () => _editSpeed(context, char),
+              onRollFromSheet: ({
+                required label,
+                required modifier,
+              }) =>
+                  _rollFromSheet(
+                label: label,
+                modifier: modifier,
+              ),
+              getProficiencyBonus: _getProficiencyBonusFromEngine,
+              getInitiative: _initiative,
+              getPassivePerception: _passivePerception,
+              getEffectiveArmorClass: _calculateEffectiveArmorClass,
+              getSpellSaveDc: _spellSaveDc,
+              getSpellAttackBonus: _spellAttackBonus,
+              getNormalizedSpellcastingAbility: _normalizedSpellcastingAbility,
+              getSpellcastingAbilityModifier: _spellcastingAbilityModifier,
+              formatSigned: _formatSigned,
             ),
             _buildInventoryTab(
               context,
@@ -4975,578 +5156,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               campaignSessions,
             ),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildOverviewTab(
-    BuildContext context,
-    Character char,
-    int Function(String) getStat,
-    EquipmentProvider equipmentProvider,
-    CompendiumProvider compendiumProvider,
-  ) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isTablet = screenWidth >= 600;
-    final isLargeTablet = screenWidth >= 900;
-
-    final maxContentWidth = isLargeTablet ? 1100.0 : 900.0;
-    final pagePadding = isLargeTablet ? 28.0 : (isTablet ? 24.0 : 16.0);
-    final cardPadding = isLargeTablet ? 24.0 : (isTablet ? 20.0 : 16.0);
-    final avatarRadius = isLargeTablet ? 56.0 : (isTablet ? 48.0 : 38.0);
-    final titleSize = isLargeTablet ? 30.0 : (isTablet ? 26.0 : 22.0);
-    final subtitleSize = isLargeTablet ? 16.0 : (isTablet ? 15.0 : 14.0);
-    final smallSubtitleSize = isLargeTablet ? 15.0 : (isTablet ? 14.0 : 13.0);
-    final sectionTitleSize = isLargeTablet ? 22.0 : (isTablet ? 20.0 : 18.0);
-
-    final str = getStat("STR");
-    final dex = getStat("DEX");
-    final con = getStat("CON");
-    final intScore = getStat("INT");
-    final wis = getStat("WIS");
-    final cha = getStat("CHA");
-
-    final proficiency = _getProficiencyBonusFromEngine(char);
-    final initiative = _initiative(dex);
-    final passivePerception = _passivePerception(char, wis);
-
-    final hpText = (char.currentHp != null && char.maxHp != null)
-        ? '${char.currentHp}/${char.maxHp}'
-        : (char.maxHp != null ? '${char.maxHp}' : '—');
-
-    final liveArmorClass = _calculateEffectiveArmorClass(
-      char,
-      equipmentProvider,
-      compendiumProvider,
-    );
-    final acText = '$liveArmorClass';
-    final speedText = char.speed != null ? '${char.speed} ft' : '—';
-    final spellAbilityKey = _normalizedSpellcastingAbility(char);
-    final spellAbilityModifier = _spellcastingAbilityModifier(
-      char,
-      equipmentProvider,
-      compendiumProvider,
-    );
-    final spellSaveDc = _spellSaveDc(
-      char,
-      equipmentProvider,
-      compendiumProvider,
-    );
-
-    final spellAttackBonus = _spellAttackBonus(
-      char,
-      equipmentProvider,
-      compendiumProvider,
-    );
-    final passiveArmorBonus =
-        CharacterEquipmentEffects.getPassiveArmorClassBonus(
-      char: char,
-      equipmentItems: equipmentProvider.items,
-      compendiumEntries: compendiumProvider.entries,
-    );
-
-    final passiveSaveBonus =
-        CharacterEquipmentEffects.getPassiveSavingThrowBonus(
-      char: char,
-      equipmentItems: equipmentProvider.items,
-      compendiumEntries: compendiumProvider.entries,
-    );
-
-    final passiveSpellAttackBonus =
-        CharacterEquipmentEffects.getPassiveSpellAttackBonus(
-      char: char,
-      equipmentItems: equipmentProvider.items,
-      compendiumEntries: compendiumProvider.entries,
-    );
-
-    final passiveSpellSaveDcBonus =
-        CharacterEquipmentEffects.getPassiveSpellSaveDcBonus(
-      char: char,
-      equipmentItems: equipmentProvider.items,
-      compendiumEntries: compendiumProvider.entries,
-    );
-    final spellAbilityText = spellAbilityKey == null
-        ? '—'
-        : '$spellAbilityKey (${_formatSigned(spellAbilityModifier)})';
-    final statColumns = isLargeTablet ? 6 : 3;
-    final statAspectRatio = isLargeTablet ? 1.12 : (isTablet ? 0.98 : 0.88);
-
-    final summaryCards = <Widget>[
-      _hpQuickActionsCard(
-        context,
-        char,
-        isTablet: isTablet,
-        isLargeTablet: isLargeTablet,
-      ),
-      _summaryCard(
-        label: 'AC',
-        value: acText,
-        icon: Icons.shield_outlined,
-        isTablet: isTablet,
-        isLargeTablet: isLargeTablet,
-      ),
-      _interactiveSummaryCard(
-        label: 'Speed',
-        value: speedText,
-        icon: Icons.directions_run_outlined,
-        isTablet: isTablet,
-        isLargeTablet: isLargeTablet,
-        onTap: () => _editSpeed(context, char),
-      ),
-      _summaryCard(
-        label: 'Prof.',
-        value: _formatSigned(proficiency),
-        icon: Icons.military_tech_outlined,
-        isTablet: isTablet,
-        isLargeTablet: isLargeTablet,
-      ),
-      _interactiveSummaryCard(
-        label: 'Initiative',
-        value: _formatSigned(initiative),
-        icon: Icons.bolt_outlined,
-        isTablet: isTablet,
-        isLargeTablet: isLargeTablet,
-        onTap: () => _rollFromSheet(
-          label: 'Initiative',
-          modifier: initiative,
-        ),
-      ),
-      _summaryCard(
-        label: 'Passive Perception',
-        value: '$passivePerception',
-        icon: Icons.visibility_outlined,
-        isTablet: isTablet,
-        isLargeTablet: isLargeTablet,
-      ),
-      _summaryCard(
-        label: 'Spell Save DC',
-        value: spellAbilityKey == null ? '—' : '$spellSaveDc',
-        icon: Icons.shield_moon_outlined,
-        isTablet: isTablet,
-        isLargeTablet: isLargeTablet,
-      ),
-      _summaryCard(
-        label: 'Spell Attack',
-        value: spellAbilityKey == null ? '—' : _formatSigned(spellAttackBonus),
-        icon: Icons.bolt_outlined,
-        isTablet: isTablet,
-        isLargeTablet: isLargeTablet,
-      ),
-    ];
-    return SingleChildScrollView(
-      padding: EdgeInsets.all(pagePadding),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: maxContentWidth),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: EdgeInsets.all(cardPadding),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF2D1B4C), Color(0xFF171821)],
-                  ),
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(
-                    color: Colors.deepPurpleAccent.withOpacity(0.6),
-                  ),
-                ),
-                child: isTablet
-                    ? Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          CircleAvatar(
-                            radius: avatarRadius,
-                            backgroundColor: Colors.deepPurpleAccent,
-                            backgroundImage: (char.portraitPath != null &&
-                                    char.portraitPath!.isNotEmpty &&
-                                    File(char.portraitPath!).existsSync())
-                                ? FileImage(File(char.portraitPath!))
-                                : null,
-                            child: (char.portraitPath == null ||
-                                    char.portraitPath!.isEmpty ||
-                                    !File(char.portraitPath!).existsSync())
-                                ? const Icon(
-                                    Icons.person,
-                                    size: 42,
-                                    color: Colors.white,
-                                  )
-                                : null,
-                          ),
-                          const SizedBox(width: 20),
-                          Expanded(
-                            child: _buildHeaderTextBlock(
-                              char,
-                              titleSize: titleSize,
-                              subtitleSize: subtitleSize,
-                              smallSubtitleSize: smallSubtitleSize,
-                              isCentered: false,
-                            ),
-                          ),
-                        ],
-                      )
-                    : Column(
-                        children: [
-                          CircleAvatar(
-                            radius: avatarRadius,
-                            backgroundColor: Colors.deepPurpleAccent,
-                            backgroundImage: (char.portraitPath != null &&
-                                    char.portraitPath!.isNotEmpty &&
-                                    File(char.portraitPath!).existsSync())
-                                ? FileImage(File(char.portraitPath!))
-                                : null,
-                            child: (char.portraitPath == null ||
-                                    char.portraitPath!.isEmpty ||
-                                    !File(char.portraitPath!).existsSync())
-                                ? const Icon(
-                                    Icons.person,
-                                    size: 36,
-                                    color: Colors.white,
-                                  )
-                                : null,
-                          ),
-                          const SizedBox(height: 16),
-                          _buildHeaderTextBlock(
-                            char,
-                            titleSize: titleSize,
-                            subtitleSize: subtitleSize,
-                            smallSubtitleSize: smallSubtitleSize,
-                            isCentered: true,
-                          ),
-                        ],
-                      ),
-              ),
-              if (char.campaignId != null) ...[
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    GestureDetector(
-                      onTap: () {
-                        context.go('/campaign-detail');
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.deepPurpleAccent.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(999),
-                          border: Border.all(
-                            color: Colors.deepPurpleAccent.withOpacity(0.25),
-                          ),
-                        ),
-                        child: Text(
-                          "View Campaign",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: isTablet ? 14 : 13,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      "Combat & Core",
-                      style: TextStyle(
-                        fontSize: sectionTitleSize,
-                        color: Colors.white.withOpacity(0.95),
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      ElevatedButton.icon(
-                        onPressed: _openDiceRoller,
-                        icon: const Icon(Icons.casino_outlined),
-                        label: const Text('Dice Roller'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor:
-                              Colors.deepPurpleAccent.withOpacity(0.25),
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 10,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      ),
-                      ElevatedButton.icon(
-                        onPressed: () => _showLevelUpDialog(context, char),
-                        icon: const Icon(Icons.arrow_upward),
-                        label: const Text('Level Up'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor:
-                              Colors.deepPurpleAccent.withOpacity(0.25),
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 10,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              GridView.builder(
-                itemCount: summaryCards.length,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: isLargeTablet ? 4 : (isTablet ? 3 : 2),
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  childAspectRatio:
-                      isLargeTablet ? 1.15 : (isTablet ? 1.05 : 0.92),
-                ),
-                itemBuilder: (_, index) => summaryCards[index],
-              ),
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF202028),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: Colors.deepPurpleAccent.withOpacity(0.22),
-                  ),
-                ),
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    if (passiveArmorBonus != 0)
-                      _buildFeatureMetaChip('Equipment AC +$passiveArmorBonus'),
-                    if (passiveSaveBonus != 0)
-                      _buildFeatureMetaChip(
-                          'Equipment Saves +$passiveSaveBonus'),
-                    if (passiveSpellAttackBonus != 0)
-                      _buildFeatureMetaChip(
-                        'Spell Attack +$passiveSpellAttackBonus',
-                      ),
-                    if (passiveSpellSaveDcBonus != 0)
-                      _buildFeatureMetaChip(
-                        'Spell Save DC +$passiveSpellSaveDcBonus',
-                      ),
-                    if (passiveArmorBonus == 0 &&
-                        passiveSaveBonus == 0 &&
-                        passiveSpellAttackBonus == 0 &&
-                        passiveSpellSaveDcBonus == 0)
-                      Text(
-                        'No passive equipment bonuses active.',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.65),
-                          fontSize: 13,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-              _buildCombatSummarySection(
-                context,
-                char,
-                equipmentProvider,
-                compendiumProvider,
-                isTablet: isTablet,
-                isLargeTablet: isLargeTablet,
-              ),
-              const SizedBox(height: 24),
-              Text(
-                "Ability Scores",
-                style: TextStyle(
-                  fontSize: sectionTitleSize,
-                  color: Colors.white.withOpacity(0.95),
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 12),
-              GridView.count(
-                crossAxisCount: statColumns,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-                childAspectRatio: statAspectRatio,
-                children: [
-                  _ability(
-                    char,
-                    "STR",
-                    str,
-                    isTablet: isTablet,
-                    isLargeTablet: isLargeTablet,
-                  ),
-                  _ability(
-                    char,
-                    "DEX",
-                    dex,
-                    isTablet: isTablet,
-                    isLargeTablet: isLargeTablet,
-                  ),
-                  _ability(
-                    char,
-                    "CON",
-                    con,
-                    isTablet: isTablet,
-                    isLargeTablet: isLargeTablet,
-                  ),
-                  _ability(
-                    char,
-                    "INT",
-                    intScore,
-                    isTablet: isTablet,
-                    isLargeTablet: isLargeTablet,
-                  ),
-                  _ability(
-                    char,
-                    "WIS",
-                    wis,
-                    isTablet: isTablet,
-                    isLargeTablet: isLargeTablet,
-                  ),
-                  _ability(
-                    char,
-                    "CHA",
-                    cha,
-                    isTablet: isTablet,
-                    isLargeTablet: isLargeTablet,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              Text(
-                "Recent Rolls",
-                style: TextStyle(
-                  fontSize: sectionTitleSize,
-                  color: Colors.white.withOpacity(0.95),
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 12),
-              _buildRecentDiceRolls(
-                isTablet: isTablet,
-                isLargeTablet: isLargeTablet,
-              ),
-              const SizedBox(height: 24),
-              if (isLargeTablet)
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: _buildSavingThrowsSection(
-                        context,
-                        char,
-                        isTablet: isTablet,
-                        isLargeTablet: isLargeTablet,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildSkillsSection(
-                        context,
-                        char,
-                        isTablet: isTablet,
-                        isLargeTablet: isLargeTablet,
-                      ),
-                    ),
-                  ],
-                )
-              else ...[
-                _buildSavingThrowsSection(
-                  context,
-                  char,
-                  isTablet: isTablet,
-                  isLargeTablet: isLargeTablet,
-                ),
-                const SizedBox(height: 12),
-                _buildSkillsSection(
-                  context,
-                  char,
-                  isTablet: isTablet,
-                  isLargeTablet: isLargeTablet,
-                ),
-              ],
-              const SizedBox(height: 24),
-              _buildDeathSavesSection(
-                context,
-                char,
-                isTablet: isTablet,
-                isLargeTablet: isLargeTablet,
-              ),
-              const SizedBox(height: 24),
-              Text(
-                "Narrative",
-                style: TextStyle(
-                  fontSize: sectionTitleSize,
-                  color: Colors.white.withOpacity(0.95),
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 12),
-              if (isLargeTablet)
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: _narrativeCard(
-                        title: 'Backstory',
-                        content: (char.backstory ?? '').trim().isEmpty
-                            ? 'No backstory yet.'
-                            : char.backstory!.trim(),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _narrativeCard(
-                        title: 'Notes',
-                        content: (char.notes ?? '').trim().isEmpty
-                            ? 'No notes yet.'
-                            : char.notes!.trim(),
-                      ),
-                    ),
-                  ],
-                )
-              else ...[
-                _narrativeCard(
-                  title: 'Backstory',
-                  content: (char.backstory ?? '').trim().isEmpty
-                      ? 'No backstory yet.'
-                      : char.backstory!.trim(),
-                ),
-                const SizedBox(height: 12),
-                _narrativeCard(
-                  title: 'Notes',
-                  content: (char.notes ?? '').trim().isEmpty
-                      ? 'No notes yet.'
-                      : char.notes!.trim(),
-                ),
-              ],
-            ],
-          ),
         ),
       ),
     );
