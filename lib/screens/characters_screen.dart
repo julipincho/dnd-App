@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-
+import '../providers/auth_provider.dart';
 import '../providers/campaign_provider.dart';
 import '../providers/character_provider.dart';
 
@@ -28,10 +28,13 @@ class _CharactersScreenState extends State<CharactersScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
 
-    if (!_didLoad) {
-      _didLoad = true;
-      context.read<CharacterProvider>().loadCharacters();
-    }
+    if (_didLoad) return;
+    _didLoad = true;
+
+    final userId = context.read<AuthProvider>().userId;
+    if (userId == null) return;
+
+    context.read<CharacterProvider>().loadCharacters(userId);
   }
 
   @override

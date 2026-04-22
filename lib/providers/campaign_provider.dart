@@ -1,71 +1,88 @@
 import 'package:flutter/foundation.dart';
+
 import '../models/campaign.dart';
-import '../services/campaign_storage.dart';
+import '../services/campaign_cloud_repository.dart';
 
 class CampaignProvider extends ChangeNotifier {
-  Campaign? _activeCampaign;
+  final CampaignCloudRepository _cloudRepo = CampaignCloudRepository();
+
   List<Campaign> _campaigns = [];
+  Campaign? _activeCampaign;
+  String? _activeUserId;
 
-  Campaign? get activeCampaign => _activeCampaign;
   List<Campaign> get campaigns => _campaigns;
+  Campaign? get activeCampaign => _activeCampaign;
+  String? get activeUserId => _activeUserId;
 
-  Future<void> loadCampaigns() async {
-    _campaigns = await CampaignStorage.loadCampaigns();
+  Future<void> loadCampaigns([String? userId]) async {
+    final resolvedUserId = userId ?? _activeUserId;
+    if (resolvedUserId == null || resolvedUserId.isEmpty) return;
 
-    final activeCampaignId = await CampaignStorage.loadActiveCampaignId();
+    _activeUserId = resolvedUserId;
+    _campaigns = await _cloudRepo.getCampaignsByUser(resolvedUserId);
 
-    if (_campaigns.isEmpty) {
-      _activeCampaign = null;
-    } else if (activeCampaignId != null) {
-      try {
-        _activeCampaign = _campaigns
-            .firstWhere((campaign) => campaign.id == activeCampaignId);
-      } catch (_) {
-        _activeCampaign = _campaigns.first;
-      }
-    } else {
+    if (_activeCampaign != null) {
+      final index = _campaigns.indexWhere((c) => c.id == _activeCampaign!.id);
+      _activeCampaign = index != -1 ? _campaigns[index] : null;
+    }
+
+    if (_activeCampaign == null && _campaigns.isNotEmpty) {
       _activeCampaign = _campaigns.first;
     }
 
     notifyListeners();
+  }
+
+  Future<void> addCampaign(Campaign campaign, String userId) async {
+    final cloudCampaign = campaign.copyWith(
+      ownerUserId: userId,
+      memberUserIds: [userId],
+    );
+
+    _activeUserId = userId;
+    await _cloudRepo.saveCampaign(cloudCampaign);
+    await loadCampaigns(userId);
+    await setActiveCampaignById(cloudCampaign.id);
+  }
+
+  Future<void> deleteCampaignById(String campaignId) async {
+    final userId = _activeUserId;
+    if (userId == null) return;
+
+    await _cloudRepo.deleteCampaign(campaignId);
+
+    if (_activeCampaign?.id == campaignId) {
+      _activeCampaign = null;
+    }
+
+    await loadCampaigns(userId);
+  }
+
+  Future<void> joinCampaign(String campaignId, String userId) async {
+    _activeUserId = userId;
+    await _cloudRepo.joinCampaign(
+      campaignId: campaignId,
+      userId: userId,
+    );
+    await loadCampaigns(userId);
   }
 
   Future<void> setActiveCampaign(Campaign campaign) async {
     _activeCampaign = campaign;
-    await CampaignStorage.saveActiveCampaignId(campaign.id);
     notifyListeners();
   }
 
-  Future<void> setCampaigns(List<Campaign> campaigns) async {
-    _campaigns = campaigns;
-
-    if (_campaigns.isEmpty) {
+  Future<void> setActiveCampaignById(String campaignId) async {
+    try {
+      _activeCampaign = _campaigns.firstWhere((c) => c.id == campaignId);
+    } catch (_) {
       _activeCampaign = null;
-      await CampaignStorage.saveActiveCampaignId(null);
-    } else if (_activeCampaign == null) {
-      _activeCampaign = _campaigns.first;
-      await CampaignStorage.saveActiveCampaignId(_activeCampaign!.id);
     }
-
-    await CampaignStorage.saveCampaigns(_campaigns);
     notifyListeners();
   }
 
-  Future<void> addCampaign(Campaign campaign) async {
-    _campaigns = [..._campaigns, campaign];
-    await CampaignStorage.saveCampaigns(_campaigns);
-    notifyListeners();
-  }
-
-  Future<void> removeCampaign(String id) async {
-    _campaigns = _campaigns.where((c) => c.id != id).toList();
-
-    if (_activeCampaign?.id == id) {
-      _activeCampaign = _campaigns.isNotEmpty ? _campaigns.first : null;
-      await CampaignStorage.saveActiveCampaignId(_activeCampaign?.id);
-    }
-
-    await CampaignStorage.saveCampaigns(_campaigns);
+  void clearActiveCampaign() {
+    _activeCampaign = null;
     notifyListeners();
   }
 }

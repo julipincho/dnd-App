@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/dnd_class.dart';
 import '../services/class_data_service.dart';
 import '../providers/character_provider.dart';
+import '../providers/auth_provider.dart';
 
 class SkillsProficienciesScreen extends StatefulWidget {
   const SkillsProficienciesScreen({super.key});
@@ -231,7 +232,10 @@ class _SkillsProficienciesScreenState extends State<SkillsProficienciesScreen> {
                     c.classSkills = finalSkills;
                   });
 
-                  await context.read<CharacterProvider>().saveCharacter();
+                  final userId = context.read<AuthProvider>().userId;
+                  if (userId == null) return;
+
+                  await context.read<CharacterProvider>().saveCharacter(userId);
 
                   if (!mounted) return;
                   context.go('/assign-stats');

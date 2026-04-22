@@ -5,6 +5,7 @@ import '../models/character_resource.dart';
 import '../models/character_selected_option_group.dart';
 
 class Character {
+  String? ownerUserId;
   String id;
   String name;
   String race;
@@ -100,6 +101,7 @@ class Character {
 // -----------------------------
 
   Character({
+    this.ownerUserId,
     required this.id,
     required this.name,
     required this.race,
@@ -188,6 +190,7 @@ class Character {
 
   factory Character.empty() {
     return Character(
+      ownerUserId: null,
       id: '',
       name: '',
       race: '',
@@ -370,6 +373,7 @@ class Character {
             .toList() ??
         [];
     return Character(
+      ownerUserId: json['ownerUserId'],
       racialArmorProficiencies: (json['racialArmorProficiencies'] as List?)
               ?.map((e) => e.toString())
               .toList() ??
@@ -508,6 +512,7 @@ class Character {
 
   Map<String, dynamic> toJson() {
     return {
+      'ownerUserId': ownerUserId,
       'id': id,
       'name': name,
       'race': race,

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
-
+import '../providers/auth_provider.dart';
 import '../providers/campaign_provider.dart';
 import '../providers/session_provider.dart';
 import '../providers/campaign_event_provider.dart';
@@ -24,10 +24,15 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
 
     if (!_didLoad) {
       _didLoad = true;
+
       context.read<SessionProvider>().loadSessions();
       context.read<CampaignEventProvider>().loadEvents();
       context.read<CompendiumProvider>().loadEntries();
-      context.read<CharacterProvider>().loadCharacters();
+
+      final userId = context.read<AuthProvider>().userId;
+      if (userId != null) {
+        context.read<CharacterProvider>().loadCharacters(userId);
+      }
     }
   }
 

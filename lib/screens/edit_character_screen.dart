@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
-
+import '../providers/auth_provider.dart';
 import '../models/dnd_class.dart';
 import '../models/dnd_background.dart';
 import '../models/character.dart';
@@ -438,7 +438,10 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                             ch.classSkills = List<String>.from(selectedSkills);
                           });
 
-                          await provider.saveCharacter();
+                          final userId = context.read<AuthProvider>().userId;
+                          if (userId == null) return;
+
+                          await provider.saveCharacter(userId);
 
                           if (!mounted) return;
 
@@ -1653,8 +1656,10 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
           : _notesController.text.trim();
     });
 
-    await provider.saveCharacter();
+    final userId = context.read<AuthProvider>().userId;
+    if (userId == null) return;
 
+    await provider.saveCharacter(userId);
     if (!mounted) return;
     context.go('/character/${widget.characterId}');
   }

@@ -2,7 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-
+import '../providers/auth_provider.dart';
 import '../providers/character_provider.dart';
 import '../models/dnd_class.dart';
 import '../models/dnd_class_level.dart';
@@ -191,7 +191,10 @@ class _SummaryScreenState extends State<SummaryScreen> {
                       _getSpellcastingAbility(character.charClass);
                 });
 
-                await characterProvider.saveCharacter();
+                final userId = context.read<AuthProvider>().userId;
+                if (userId == null) return;
+
+                await characterProvider.saveCharacter(userId);
 
                 final createdCharacter = characterProvider.character;
 

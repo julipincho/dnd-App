@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../models/character.dart';
+import '../providers/auth_provider.dart';
 import '../providers/character_provider.dart';
 
 class MainHomeScreen extends StatefulWidget {
@@ -19,7 +20,10 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<CharacterProvider>().loadCharacters();
+      final userId = context.read<AuthProvider>().userId;
+      if (userId == null) return;
+
+      context.read<CharacterProvider>().loadCharacters(userId);
     });
   }
 
@@ -75,7 +79,10 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: () async {
-          await provider.loadCharacters();
+          final userId = context.read<AuthProvider>().userId;
+          if (userId == null) return;
+
+          await provider.loadCharacters(userId);
         },
         child: ListView(
           padding: const EdgeInsets.all(16),

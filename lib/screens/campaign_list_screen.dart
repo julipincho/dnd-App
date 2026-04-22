@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../providers/campaign_provider.dart';
-import '../models/campaign.dart';
 import 'package:go_router/go_router.dart';
+
+import '../models/campaign.dart';
+import '../providers/auth_provider.dart';
+import '../providers/campaign_provider.dart';
+import '../providers/character_provider.dart';
 
 class CampaignListScreen extends StatefulWidget {
   const CampaignListScreen({super.key});
@@ -18,10 +21,14 @@ class _CampaignListScreenState extends State<CampaignListScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
 
-    if (!_didLoad) {
-      _didLoad = true;
-      context.read<CampaignProvider>().loadCampaigns();
-    }
+    if (_didLoad) return;
+    _didLoad = true;
+
+    final userId = context.read<AuthProvider>().userId;
+    if (userId == null) return;
+
+    context.read<CharacterProvider>().loadCharacters(userId);
+    context.read<CampaignProvider>().loadCampaigns(userId);
   }
 
   @override
@@ -108,16 +115,21 @@ class _CampaignListScreenState extends State<CampaignListScreen> {
 
                 if (name.isEmpty) return;
 
+                final userId = dialogContext.read<AuthProvider>().userId;
+                if (userId == null) return;
+
                 final campaign = Campaign(
                   id: DateTime.now().millisecondsSinceEpoch.toString(),
                   name: name,
                   description: description.isEmpty ? null : description,
                   createdAt: DateTime.now(),
+                  ownerUserId: userId,
+                  memberUserIds: [userId],
                 );
 
                 final campaignProvider = dialogContext.read<CampaignProvider>();
 
-                await campaignProvider.addCampaign(campaign);
+                await campaignProvider.addCampaign(campaign, userId);
                 await campaignProvider.setActiveCampaign(campaign);
 
                 if (!dialogContext.mounted) return;

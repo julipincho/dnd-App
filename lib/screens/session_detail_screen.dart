@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
-
+import '../providers/auth_provider.dart';
 import '../models/campaign_event.dart';
 import '../models/character.dart';
 import '../models/compendium_entry.dart';
@@ -39,6 +39,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
   Timer? _debounce;
   bool _isSaving = false;
   bool _hasUnsavedChanges = false;
+  bool _didLoad = false;
   late Session _currentSession;
 
   @override
@@ -60,10 +61,18 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+
+    if (_didLoad) return;
+    _didLoad = true;
+
     context.read<CampaignEventProvider>().loadEvents();
     context.read<CompendiumProvider>().loadEntries();
     context.read<JournalEntryProvider>().loadEntries();
-    context.read<CharacterProvider>().loadCharacters();
+
+    final userId = context.read<AuthProvider>().userId;
+    if (userId != null) {
+      context.read<CharacterProvider>().loadCharacters(userId);
+    }
   }
 
   @override
