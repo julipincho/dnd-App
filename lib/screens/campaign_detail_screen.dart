@@ -29,9 +29,9 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
       context.read<CampaignEventProvider>().loadEvents();
       context.read<CompendiumProvider>().loadEntries();
 
-      final userId = context.read<AuthProvider>().userId;
-      if (userId != null) {
-        context.read<CharacterProvider>().loadCharacters(userId);
+      final campaign = context.read<CampaignProvider>().activeCampaign;
+      if (campaign != null) {
+        context.read<CharacterProvider>().loadCampaignCharacters(campaign.id);
       }
     }
   }

@@ -29,15 +29,21 @@ import 'screens/session_detail_screen.dart';
 import 'screens/timeline_screen.dart';
 import 'screens/compendium_screen.dart';
 import 'screens/characters_screen.dart';
+import 'screens/home_screen.dart';
 
 final GoRouter appRouter = GoRouter(
   // initialLocation: '/welcome',
-  initialLocation: '/campaigns',
+  initialLocation: '/',
   refreshListenable: CharacterStorage.refreshNotifier,
   routes: [
     // ---------------------------------------------------------
     // 🚀 INICIO
     // ---------------------------------------------------------
+
+    GoRoute(
+      path: '/',
+      builder: (context, state) => const HomeScreen(),
+    ),
     GoRoute(
       path: '/welcome',
       builder: (_, __) => const WelcomeScreen(),

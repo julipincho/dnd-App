@@ -31,43 +31,49 @@ class _CampaignListScreenState extends State<CampaignListScreen> {
     context.read<CampaignProvider>().loadCampaigns(userId);
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final campaignProvider = context.watch<CampaignProvider>();
-    final campaigns = campaignProvider.campaigns;
+  void _showJoinCampaignDialog(BuildContext context) {
+    final campaignIdController = TextEditingController();
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Campaigns'),
-      ),
-      body: campaigns.isEmpty
-          ? const Center(
-              child: Text('No campaigns yet'),
-            )
-          : ListView.builder(
-              itemCount: campaigns.length,
-              itemBuilder: (context, index) {
-                final campaign = campaigns[index];
-                final isActive =
-                    campaignProvider.activeCampaign?.id == campaign.id;
-
-                return ListTile(
-                  title: Text(campaign.name),
-                  subtitle: Text(campaign.description ?? 'No description'),
-                  trailing: isActive ? const Icon(Icons.check_circle) : null,
-                  onTap: () async {
-                    await campaignProvider.setActiveCampaign(campaign);
-
-                    if (!context.mounted) return;
-                    context.go('/campaign-detail');
-                  },
-                );
-              },
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Join campaign'),
+          content: TextField(
+            controller: campaignIdController,
+            decoration: const InputDecoration(
+              labelText: 'Campaign ID',
+              hintText: 'Paste the campaign ID',
             ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showCreateCampaignDialog(context),
-        child: const Icon(Icons.add),
-      ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+              },
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final campaignId = campaignIdController.text.trim();
+                if (campaignId.isEmpty) return;
+
+                final userId = dialogContext.read<AuthProvider>().userId;
+                if (userId == null) return;
+
+                final campaignProvider = dialogContext.read<CampaignProvider>();
+
+                await campaignProvider.joinCampaign(campaignId, userId);
+                await campaignProvider.loadCampaigns(userId);
+
+                if (!dialogContext.mounted) return;
+                Navigator.of(dialogContext).pop();
+              },
+              child: const Text('Join'),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -130,7 +136,7 @@ class _CampaignListScreenState extends State<CampaignListScreen> {
                 final campaignProvider = dialogContext.read<CampaignProvider>();
 
                 await campaignProvider.addCampaign(campaign, userId);
-                await campaignProvider.setActiveCampaign(campaign);
+                await campaignProvider.setActiveCampaignById(campaign.id);
 
                 if (!dialogContext.mounted) return;
                 Navigator.of(dialogContext).pop();
@@ -140,6 +146,71 @@ class _CampaignListScreenState extends State<CampaignListScreen> {
           ],
         );
       },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final campaignProvider = context.watch<CampaignProvider>();
+    final campaigns = campaignProvider.campaigns;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Campaigns'),
+      ),
+      body: campaigns.isEmpty
+          ? const Center(
+              child: Text('No campaigns yet'),
+            )
+          : ListView.builder(
+              itemCount: campaigns.length,
+              itemBuilder: (context, index) {
+                final campaign = campaigns[index];
+                final isActive =
+                    campaignProvider.activeCampaign?.id == campaign.id;
+
+                return ListTile(
+                  title: Text(campaign.name),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(campaign.description ?? 'No description'),
+                      const SizedBox(height: 4),
+                      Text(
+                        'ID: ${campaign.id}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                  trailing: isActive ? const Icon(Icons.check_circle) : null,
+                  onTap: () async {
+                    await campaignProvider.setActiveCampaign(campaign);
+
+                    if (!context.mounted) return;
+                    context.go('/campaign-detail');
+                  },
+                );
+              },
+            ),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          FloatingActionButton.extended(
+            heroTag: 'join_campaign',
+            onPressed: () => _showJoinCampaignDialog(context),
+            icon: const Icon(Icons.group_add),
+            label: const Text('Join'),
+          ),
+          const SizedBox(height: 12),
+          FloatingActionButton.extended(
+            heroTag: 'create_campaign',
+            onPressed: () => _showCreateCampaignDialog(context),
+            icon: const Icon(Icons.add),
+            label: const Text('Create'),
+          ),
+        ],
+      ),
     );
   }
 }

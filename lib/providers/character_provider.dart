@@ -22,17 +22,21 @@ class CharacterProvider extends ChangeNotifier {
 
   Character? _character;
   List<Character> _characters = [];
+  List<Character> _campaignCharacters = [];
   int? _selectedIndex;
   String? _activeUserId;
 
   Character? get character => _character;
   List<Character> get characters => _characters;
+  List<Character> get campaignCharacters => _campaignCharacters;
   int? get selectedIndex => _selectedIndex;
   String? get activeUserId => _activeUserId;
 
   List<Character> getCharactersByCampaignSafe(String? campaignId) {
     if (campaignId == null) return [];
-    return _characters.where((c) => c.campaignId == campaignId).toList();
+    return _campaignCharacters
+        .where((c) => c.campaignId == campaignId)
+        .toList();
   }
 
   Character? getCharacterById(String id) {
@@ -62,6 +66,26 @@ class CharacterProvider extends ChangeNotifier {
       } else {
         _character = null;
         _selectedIndex = null;
+      }
+    }
+
+    notifyListeners();
+  }
+
+  Future<void> loadCampaignCharacters(String campaignId) async {
+    if (campaignId.isEmpty) {
+      debugPrint(
+          'CharacterProvider.loadCampaignCharacters: missing campaignId');
+      return;
+    }
+
+    _campaignCharacters = await _cloudRepo.getCharactersByCampaign(campaignId);
+
+    if (_character != null) {
+      final existingIndex =
+          _campaignCharacters.indexWhere((c) => c.id == _character!.id);
+      if (existingIndex != -1) {
+        _character = _campaignCharacters[existingIndex];
       }
     }
 
@@ -121,6 +145,7 @@ class CharacterProvider extends ChangeNotifier {
 
     _selectedIndex = index;
     _character = _characters[index];
+
     notifyListeners();
   }
 
@@ -740,6 +765,11 @@ class CharacterProvider extends ChangeNotifier {
 
     await _cloudRepo.saveCharacter(character);
     await loadCharacters(resolvedUserId);
+
+    if ((character.campaignId ?? '').isNotEmpty) {
+      await loadCampaignCharacters(character.campaignId!);
+    }
+
     _syncSelectedCharacterById(character.id);
   }
 

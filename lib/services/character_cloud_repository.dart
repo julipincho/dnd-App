@@ -14,6 +14,13 @@ class CharacterCloudRepository {
     return snapshot.docs.map((doc) => Character.fromJson(doc.data())).toList();
   }
 
+  Future<List<Character>> getCharactersByCampaign(String campaignId) async {
+    final snapshot =
+        await _collection.where('campaignId', isEqualTo: campaignId).get();
+
+    return snapshot.docs.map((doc) => Character.fromJson(doc.data())).toList();
+  }
+
   Future<void> saveCharacter(Character character) async {
     await _collection.doc(character.id).set(character.toJson());
   }

@@ -31,6 +31,18 @@ class _CharactersScreenState extends State<CharactersScreen> {
     if (_didLoad) return;
     _didLoad = true;
 
+    final campaignProvider = context.read<CampaignProvider>();
+    final activeCampaign = campaignProvider.activeCampaign;
+    final isCampaignMode = widget.mode == CharactersScreenMode.campaign;
+
+    if (isCampaignMode) {
+      if (activeCampaign == null) return;
+      context
+          .read<CharacterProvider>()
+          .loadCampaignCharacters(activeCampaign.id);
+      return;
+    }
+
     final userId = context.read<AuthProvider>().userId;
     if (userId == null) return;
 
