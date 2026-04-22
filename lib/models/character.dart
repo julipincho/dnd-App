@@ -75,6 +75,14 @@ class Character {
   List<String> featImmunities;
   List<String> featConditionImmunities;
   List<String> featSenses;
+  List<String> racialArmorProficiencies;
+  List<String> racialWeaponProficiencies;
+  List<String> racialToolProficiencies;
+  List<String> racialLanguageProficiencies;
+  List<String> racialResistances;
+  List<String> racialImmunities;
+  List<String> racialConditionImmunities;
+  List<String> racialSenses;
 
   int featInitiativeBonus;
   int featSpeedBonus;
@@ -145,6 +153,14 @@ class Character {
     this.featSenses = const [],
     this.featInitiativeBonus = 0,
     this.featSpeedBonus = 0,
+    this.racialArmorProficiencies = const [],
+    this.racialWeaponProficiencies = const [],
+    this.racialToolProficiencies = const [],
+    this.racialLanguageProficiencies = const [],
+    this.racialResistances = const [],
+    this.racialImmunities = const [],
+    this.racialConditionImmunities = const [],
+    this.racialSenses = const [],
     this.cannotBeSurprisedWhileConscious = false,
     this.unseenAttackersNoAdvantage = false,
     this.conditionalArmorClassBonus = 0,
@@ -183,6 +199,14 @@ class Character {
       level: 1,
       campaignId: null,
       pactWeaponItemId: null,
+      racialArmorProficiencies: const [],
+      racialWeaponProficiencies: const [],
+      racialToolProficiencies: const [],
+      racialLanguageProficiencies: const [],
+      racialResistances: const [],
+      racialImmunities: const [],
+      racialConditionImmunities: const [],
+      racialSenses: const [],
       pactWeaponBaseItemId: null,
       stats: const {
         'STR': 10,
@@ -346,6 +370,38 @@ class Character {
             .toList() ??
         [];
     return Character(
+      racialArmorProficiencies: (json['racialArmorProficiencies'] as List?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          [],
+      racialWeaponProficiencies: (json['racialWeaponProficiencies'] as List?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          [],
+      racialToolProficiencies: (json['racialToolProficiencies'] as List?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          [],
+      racialLanguageProficiencies:
+          (json['racialLanguageProficiencies'] as List?)
+                  ?.map((e) => e.toString())
+                  .toList() ??
+              [],
+      racialResistances: (json['racialResistances'] as List?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          [],
+      racialImmunities: (json['racialImmunities'] as List?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          [],
+      racialConditionImmunities: (json['racialConditionImmunities'] as List?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          [],
+      racialSenses:
+          (json['racialSenses'] as List?)?.map((e) => e.toString()).toList() ??
+              [],
       id: json['id']?.toString() ?? '',
       name: json['name']?.toString() ?? '',
       race: json['race']?.toString() ?? '',
@@ -472,6 +528,14 @@ class Character {
       'maxHp': maxHp,
       'currentHp': currentHp,
       'armorClass': armorClass,
+      'racialArmorProficiencies': racialArmorProficiencies,
+      'racialWeaponProficiencies': racialWeaponProficiencies,
+      'racialToolProficiencies': racialToolProficiencies,
+      'racialLanguageProficiencies': racialLanguageProficiencies,
+      'racialResistances': racialResistances,
+      'racialImmunities': racialImmunities,
+      'racialConditionImmunities': racialConditionImmunities,
+      'racialSenses': racialSenses,
       'speed': speed,
       'backstory': backstory,
       'notes': notes,

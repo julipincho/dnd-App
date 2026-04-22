@@ -562,9 +562,10 @@ class CharacterProvider extends ChangeNotifier {
 
     final raceSync = await RaceSyncService.buildForCharacter(character);
 
-    final generatedResources =
-        CharacterResourceFactory.buildResources(character);
-
+    final generatedResources = [
+      ...CharacterResourceFactory.buildResources(character),
+      ...raceSync.resources,
+    ];
     final existingById = {
       for (final resource in character.resources) resource.id: resource,
     };
@@ -598,6 +599,15 @@ class CharacterProvider extends ChangeNotifier {
       ...classAndSubclassFeatures,
       ...raceSync.features,
     ];
+
+    character.racialArmorProficiencies = raceSync.armorProficiencies;
+    character.racialWeaponProficiencies = raceSync.weaponProficiencies;
+    character.racialToolProficiencies = raceSync.toolProficiencies;
+    character.racialLanguageProficiencies = raceSync.languageProficiencies;
+    character.racialResistances = raceSync.resistances;
+    character.racialImmunities = raceSync.immunities;
+    character.racialConditionImmunities = raceSync.conditionImmunities;
+    character.racialSenses = raceSync.senses;
 
     character.resources = mergedResources;
 

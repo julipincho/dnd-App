@@ -216,6 +216,122 @@ class CharacterOverviewTab extends StatelessWidget {
     required this.rollMainHandAttack,
     required this.rollMainHandDamage,
   });
+  Widget _buildTagSection({
+    required String title,
+    required List<String> values,
+  }) {
+    if (values.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF202028),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.deepPurpleAccent.withOpacity(0.28),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: values.map((value) {
+              return Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.deepPurpleAccent.withOpacity(0.18),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  value,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildRacialTraitCards(Character char) {
+    final sections = <Widget>[];
+
+    void addSection(String title, List<String> values) {
+      if (values.isEmpty) return;
+
+      sections.add(
+        _buildTagSection(
+          title: title,
+          values: values,
+        ),
+      );
+    }
+
+    addSection('Senses', char.racialSenses);
+    addSection('Immunities', char.racialImmunities);
+    addSection('Armor Proficiencies', char.racialArmorProficiencies);
+    addSection('Resistances', char.racialResistances);
+    addSection('Condition Protections', char.racialConditionImmunities);
+    addSection('Weapon Proficiencies', char.racialWeaponProficiencies);
+    addSection('Tool Proficiencies', char.racialToolProficiencies);
+    addSection('Languages', char.racialLanguageProficiencies);
+
+    return sections;
+  }
+
+  Widget _buildRacialTraitsSection({
+    required Character char,
+    required bool isTablet,
+    required bool isLargeTablet,
+  }) {
+    final sections = _buildRacialTraitCards(char);
+
+    if (sections.isEmpty) return const SizedBox.shrink();
+
+    return GridView.builder(
+      itemCount: sections.length,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: isLargeTablet ? 2 : 1,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+        mainAxisExtent: isTablet ? 116 : 108,
+      ),
+      itemBuilder: (_, index) => sections[index],
+    );
+  }
+
+  bool _hasAnyRacialDetails(Character char) {
+    return char.racialSenses.isNotEmpty ||
+        char.racialResistances.isNotEmpty ||
+        char.racialImmunities.isNotEmpty ||
+        char.racialConditionImmunities.isNotEmpty ||
+        char.racialWeaponProficiencies.isNotEmpty ||
+        char.racialToolProficiencies.isNotEmpty ||
+        char.racialArmorProficiencies.isNotEmpty ||
+        char.racialLanguageProficiencies.isNotEmpty;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -510,6 +626,23 @@ class CharacterOverviewTab extends StatelessWidget {
                   ),
                 ],
               ),
+              if (_hasAnyRacialDetails(char)) ...[
+                const SizedBox(height: 24),
+                Text(
+                  "Racial Traits",
+                  style: TextStyle(
+                    fontSize: sectionTitleSize,
+                    color: Colors.white.withOpacity(0.95),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _buildRacialTraitsSection(
+                  char: char,
+                  isTablet: isTablet,
+                  isLargeTablet: isLargeTablet,
+                ),
+              ],
               const SizedBox(height: 24),
               Text(
                 "Recent Rolls",

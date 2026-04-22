@@ -41,6 +41,7 @@ import '../models/feat_data.dart';
 import '../services/feat_data_service.dart';
 import '../features/characters/models/resolved_inventory_item.dart';
 import '../services/race_sync_service.dart';
+import '../models/character_feature.dart';
 
 enum _SpellChoiceSaveMode {
   known,
@@ -75,6 +76,20 @@ class _CharacterOptionGrantGroup {
   });
 
   int get totalCount => grants.fold(0, (sum, grant) => sum + grant.count);
+}
+
+class _FeatureGroupData {
+  final String key;
+  final String title;
+  final IconData icon;
+  final List<CharacterFeature> features;
+
+  const _FeatureGroupData({
+    required this.key,
+    required this.title,
+    required this.icon,
+    required this.features,
+  });
 }
 
 class _SpellSelectorModal extends StatefulWidget {
@@ -406,12 +421,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final grants = CharacterChoiceEngine.buildChoiceGrants(char);
 
     final Map<String, List<CharacterChoiceGrant>> grouped = {};
-    print('--- FEATURES GRANTS DEBUG ---');
-    print('Character: ${char.name}');
-    print('Class: "${char.charClass}"');
-    print('Subclass: "${char.subclass}"');
-    print('Level: ${char.level}');
-    print('Grants count: ${grants.length}');
     for (final grant in grants) {
       final key =
           '${grant.category.key}__${grant.sourceId ?? ''}__${grant.sourceName ?? ''}';
@@ -753,9 +762,314 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     return base + (perceptionProficient ? _proficiencyBonus(char.level) : 0);
   }
 
+//SPELLS
   bool _isCaster(Character char) {
     return char.spellcastingAbility != null &&
         char.spellcastingAbility!.trim().isNotEmpty;
+  }
+
+  Future<void> _saveSpellcastingAbility(
+    BuildContext context,
+    Character char,
+    String? ability,
+  ) async {
+    final provider = context.read<CharacterProvider>();
+
+    await provider.updateCharacterById(char.id, (ch) {
+      ch.spellcastingAbility = ability?.trim().isEmpty ?? true ? null : ability;
+    });
+
+    if (!context.mounted) return;
+
+    final updatedChar = context
+        .read<CharacterProvider>()
+        .characters
+        .firstWhere((c) => c.id == char.id);
+
+    await _clearPreparedSpellsIfUnsupported(context, updatedChar);
+
+    if ((ability != null && ability.trim().isNotEmpty) &&
+        SpellcastingRules.isAutoSlotClass(updatedChar)) {
+      await _applyAutoSpellSlots(
+        context,
+        updatedChar,
+        preserveUsed: true,
+      );
+    }
+  }
+
+  Future<void> _showSpellcastingConfigDialog(
+    BuildContext context,
+    Character char,
+  ) async {
+    bool enabled = (char.spellcastingAbility?.trim().isNotEmpty ?? false);
+    String? selectedAbility = _normalizedSpellcastingAbility(char) ??
+        _defaultSpellcastingAbilityForClass(char);
+
+    const availableAbilities = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'];
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final defaultAbility = _defaultSpellcastingAbilityForClass(char);
+
+            return AlertDialog(
+              title: Text(
+                enabled ? 'Edit Spellcasting' : 'Enable Spellcasting',
+              ),
+              content: SingleChildScrollView(
+                child: SizedBox(
+                  width: 360,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Character can cast spells'),
+                        subtitle: const Text(
+                          'Enable spellcasting calculations for this character',
+                        ),
+                        value: enabled,
+                        onChanged: (value) {
+                          setDialogState(() {
+                            enabled = value;
+                            if (enabled && selectedAbility == null) {
+                              selectedAbility = defaultAbility ?? 'INT';
+                            }
+                          });
+                        },
+                      ),
+                      if (enabled) ...[
+                        const SizedBox(height: 12),
+                        if (defaultAbility != null)
+                          Container(
+                            width: double.infinity,
+                            margin: const EdgeInsets.only(bottom: 12),
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.deepPurpleAccent.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color:
+                                    Colors.deepPurpleAccent.withOpacity(0.22),
+                              ),
+                            ),
+                            child: Text(
+                              'Suggested for ${char.charClass}: $defaultAbility',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        DropdownButtonFormField<String>(
+                          value: selectedAbility,
+                          decoration: const InputDecoration(
+                            labelText: 'Spellcasting Ability',
+                          ),
+                          items: availableAbilities.map((ability) {
+                            final score = _getCurrentAbilityScore(
+                              char,
+                              ability,
+                              equipmentProvider:
+                                  context.read<EquipmentProvider>(),
+                              compendiumProvider:
+                                  context.read<CompendiumProvider>(),
+                            );
+                            final mod = _getAbilityModifier(score);
+
+                            return DropdownMenuItem<String>(
+                              value: ability,
+                              child: Text(
+                                '$ability • $score (${_formatSigned(mod)})',
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: (value) {
+                            setDialogState(() {
+                              selectedAbility = value;
+                            });
+                          },
+                        ),
+                        if (defaultAbility != null) ...[
+                          const SizedBox(height: 10),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton.icon(
+                              onPressed: () {
+                                setDialogState(() {
+                                  selectedAbility = defaultAbility;
+                                });
+                              },
+                              icon: const Icon(Icons.auto_fix_high),
+                              label: Text('Use default for ${char.charClass}'),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () async {
+                    final abilityToSave = enabled
+                        ? (selectedAbility ?? defaultAbility ?? 'INT')
+                        : null;
+
+                    await _saveSpellcastingAbility(
+                      context,
+                      char,
+                      abilityToSave,
+                    );
+
+                    if (!dialogContext.mounted) return;
+                    Navigator.pop(dialogContext);
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  String? _normalizedSpellcastingAbility(Character char) {
+    final raw = char.spellcastingAbility?.trim();
+    if (raw == null || raw.isEmpty) return null;
+
+    switch (raw.toUpperCase()) {
+      case 'STR':
+      case 'DEX':
+      case 'CON':
+      case 'INT':
+      case 'WIS':
+      case 'CHA':
+        return raw.toUpperCase();
+      default:
+        return null;
+    }
+  }
+
+  int _spellcastingAbilityModifier(
+    Character char,
+    EquipmentProvider equipmentProvider,
+    CompendiumProvider compendiumProvider,
+  ) {
+    final ability = _normalizedSpellcastingAbility(char);
+    if (ability == null) return 0;
+
+    final score = _getCurrentAbilityScore(
+      char,
+      ability,
+      equipmentProvider: equipmentProvider,
+      compendiumProvider: compendiumProvider,
+    );
+
+    return _getAbilityModifier(score);
+  }
+
+  int _spellSaveDc(
+    Character char,
+    EquipmentProvider equipmentProvider,
+    CompendiumProvider compendiumProvider,
+  ) {
+    final ability = _normalizedSpellcastingAbility(char);
+    if (ability == null) return 0;
+
+    final passiveBonus = CharacterEquipmentEffects.getPassiveSpellSaveDcBonus(
+      char: char,
+      equipmentItems: equipmentProvider.items,
+      compendiumEntries: compendiumProvider.entries,
+    );
+
+    return 8 +
+        _proficiencyBonus(char.level) +
+        _spellcastingAbilityModifier(
+          char,
+          equipmentProvider,
+          compendiumProvider,
+        ) +
+        passiveBonus;
+  }
+
+  int _spellAttackBonus(
+    Character char,
+    EquipmentProvider equipmentProvider,
+    CompendiumProvider compendiumProvider,
+  ) {
+    final ability = _normalizedSpellcastingAbility(char);
+    if (ability == null) return 0;
+
+    final passiveBonus = CharacterEquipmentEffects.getPassiveSpellAttackBonus(
+      char: char,
+      equipmentItems: equipmentProvider.items,
+      compendiumEntries: compendiumProvider.entries,
+    );
+
+    final rawMainHand =
+        _findInventoryItemById(char, char.equippedMainHandItemId);
+    final rawOffHand = _findInventoryItemById(char, char.equippedOffHandItemId);
+
+    final resolvedMainHand = rawMainHand == null
+        ? null
+        : _resolveInventoryItem(
+            rawMainHand,
+            equipmentProvider,
+            compendiumProvider,
+          );
+
+    final resolvedOffHand = rawOffHand == null
+        ? null
+        : _resolveInventoryItem(
+            rawOffHand,
+            equipmentProvider,
+            compendiumProvider,
+          );
+
+    final infusedSpellAttackBonus =
+        CharacterOptionEffects.getInfusedSpellAttackBonus(
+      character: char,
+      mainHandItem: resolvedMainHand?.effectiveItem,
+      offHandItem: resolvedOffHand?.effectiveItem,
+      mainHandEquipmentItem: resolvedMainHand?.equipmentItem,
+      offHandEquipmentItem: resolvedOffHand?.equipmentItem,
+    );
+
+    return _proficiencyBonus(char.level) +
+        _spellcastingAbilityModifier(
+          char,
+          equipmentProvider,
+          compendiumProvider,
+        ) +
+        passiveBonus +
+        infusedSpellAttackBonus;
+  }
+
+  int _knownSpellLimit(Character char) {
+    return SpellcastingRules.knownSpells(char);
+  }
+
+  int _knownCantripLimit(Character char) {
+    return SpellcastingRules.knownCantrips(char);
+  }
+
+  int _preparedSpellLimit(Character char) {
+    return SpellcastingRules.preparedSpellLimit(
+      char,
+      (ability) => _getCurrentAbilityScore(char, ability),
+      _getAbilityModifier,
+    );
   }
 
   String? _defaultSpellcastingAbilityForClass(Character char) {
@@ -1396,310 +1710,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
           ],
         ],
       ),
-    );
-  }
-
-  Future<void> _saveSpellcastingAbility(
-    BuildContext context,
-    Character char,
-    String? ability,
-  ) async {
-    final provider = context.read<CharacterProvider>();
-
-    await provider.updateCharacterById(char.id, (ch) {
-      ch.spellcastingAbility = ability?.trim().isEmpty ?? true ? null : ability;
-    });
-
-    if (!context.mounted) return;
-
-    final updatedChar = context
-        .read<CharacterProvider>()
-        .characters
-        .firstWhere((c) => c.id == char.id);
-
-    await _clearPreparedSpellsIfUnsupported(context, updatedChar);
-
-    if ((ability != null && ability.trim().isNotEmpty) &&
-        SpellcastingRules.isAutoSlotClass(updatedChar)) {
-      await _applyAutoSpellSlots(
-        context,
-        updatedChar,
-        preserveUsed: true,
-      );
-    }
-  }
-
-  Future<void> _showSpellcastingConfigDialog(
-    BuildContext context,
-    Character char,
-  ) async {
-    bool enabled = (char.spellcastingAbility?.trim().isNotEmpty ?? false);
-    String? selectedAbility = _normalizedSpellcastingAbility(char) ??
-        _defaultSpellcastingAbilityForClass(char);
-
-    const availableAbilities = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'];
-
-    await showDialog(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            final defaultAbility = _defaultSpellcastingAbilityForClass(char);
-
-            return AlertDialog(
-              title: Text(
-                enabled ? 'Edit Spellcasting' : 'Enable Spellcasting',
-              ),
-              content: SingleChildScrollView(
-                child: SizedBox(
-                  width: 360,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Character can cast spells'),
-                        subtitle: const Text(
-                          'Enable spellcasting calculations for this character',
-                        ),
-                        value: enabled,
-                        onChanged: (value) {
-                          setDialogState(() {
-                            enabled = value;
-                            if (enabled && selectedAbility == null) {
-                              selectedAbility = defaultAbility ?? 'INT';
-                            }
-                          });
-                        },
-                      ),
-                      if (enabled) ...[
-                        const SizedBox(height: 12),
-                        if (defaultAbility != null)
-                          Container(
-                            width: double.infinity,
-                            margin: const EdgeInsets.only(bottom: 12),
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: Colors.deepPurpleAccent.withOpacity(0.08),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color:
-                                    Colors.deepPurpleAccent.withOpacity(0.22),
-                              ),
-                            ),
-                            child: Text(
-                              'Suggested for ${char.charClass}: $defaultAbility',
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        DropdownButtonFormField<String>(
-                          value: selectedAbility,
-                          decoration: const InputDecoration(
-                            labelText: 'Spellcasting Ability',
-                          ),
-                          items: availableAbilities.map((ability) {
-                            final score = _getCurrentAbilityScore(
-                              char,
-                              ability,
-                              equipmentProvider:
-                                  context.read<EquipmentProvider>(),
-                              compendiumProvider:
-                                  context.read<CompendiumProvider>(),
-                            );
-                            final mod = _getAbilityModifier(score);
-
-                            return DropdownMenuItem<String>(
-                              value: ability,
-                              child: Text(
-                                '$ability • $score (${_formatSigned(mod)})',
-                              ),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            setDialogState(() {
-                              selectedAbility = value;
-                            });
-                          },
-                        ),
-                        if (defaultAbility != null) ...[
-                          const SizedBox(height: 10),
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: TextButton.icon(
-                              onPressed: () {
-                                setDialogState(() {
-                                  selectedAbility = defaultAbility;
-                                });
-                              },
-                              icon: const Icon(Icons.auto_fix_high),
-                              label: Text('Use default for ${char.charClass}'),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () async {
-                    final abilityToSave = enabled
-                        ? (selectedAbility ?? defaultAbility ?? 'INT')
-                        : null;
-
-                    await _saveSpellcastingAbility(
-                      context,
-                      char,
-                      abilityToSave,
-                    );
-
-                    if (!dialogContext.mounted) return;
-                    Navigator.pop(dialogContext);
-                  },
-                  child: const Text('Save'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  String? _normalizedSpellcastingAbility(Character char) {
-    final raw = char.spellcastingAbility?.trim();
-    if (raw == null || raw.isEmpty) return null;
-
-    switch (raw.toUpperCase()) {
-      case 'STR':
-      case 'DEX':
-      case 'CON':
-      case 'INT':
-      case 'WIS':
-      case 'CHA':
-        return raw.toUpperCase();
-      default:
-        return null;
-    }
-  }
-
-  int _spellcastingAbilityModifier(
-    Character char,
-    EquipmentProvider equipmentProvider,
-    CompendiumProvider compendiumProvider,
-  ) {
-    final ability = _normalizedSpellcastingAbility(char);
-    if (ability == null) return 0;
-
-    final score = _getCurrentAbilityScore(
-      char,
-      ability,
-      equipmentProvider: equipmentProvider,
-      compendiumProvider: compendiumProvider,
-    );
-
-    return _getAbilityModifier(score);
-  }
-
-  int _spellSaveDc(
-    Character char,
-    EquipmentProvider equipmentProvider,
-    CompendiumProvider compendiumProvider,
-  ) {
-    final ability = _normalizedSpellcastingAbility(char);
-    if (ability == null) return 0;
-
-    final passiveBonus = CharacterEquipmentEffects.getPassiveSpellSaveDcBonus(
-      char: char,
-      equipmentItems: equipmentProvider.items,
-      compendiumEntries: compendiumProvider.entries,
-    );
-
-    return 8 +
-        _proficiencyBonus(char.level) +
-        _spellcastingAbilityModifier(
-          char,
-          equipmentProvider,
-          compendiumProvider,
-        ) +
-        passiveBonus;
-  }
-
-  int _spellAttackBonus(
-    Character char,
-    EquipmentProvider equipmentProvider,
-    CompendiumProvider compendiumProvider,
-  ) {
-    final ability = _normalizedSpellcastingAbility(char);
-    if (ability == null) return 0;
-
-    final passiveBonus = CharacterEquipmentEffects.getPassiveSpellAttackBonus(
-      char: char,
-      equipmentItems: equipmentProvider.items,
-      compendiumEntries: compendiumProvider.entries,
-    );
-
-    final rawMainHand =
-        _findInventoryItemById(char, char.equippedMainHandItemId);
-    final rawOffHand = _findInventoryItemById(char, char.equippedOffHandItemId);
-
-    final resolvedMainHand = rawMainHand == null
-        ? null
-        : _resolveInventoryItem(
-            rawMainHand,
-            equipmentProvider,
-            compendiumProvider,
-          );
-
-    final resolvedOffHand = rawOffHand == null
-        ? null
-        : _resolveInventoryItem(
-            rawOffHand,
-            equipmentProvider,
-            compendiumProvider,
-          );
-
-    final infusedSpellAttackBonus =
-        CharacterOptionEffects.getInfusedSpellAttackBonus(
-      character: char,
-      mainHandItem: resolvedMainHand?.effectiveItem,
-      offHandItem: resolvedOffHand?.effectiveItem,
-      mainHandEquipmentItem: resolvedMainHand?.equipmentItem,
-      offHandEquipmentItem: resolvedOffHand?.equipmentItem,
-    );
-
-    return _proficiencyBonus(char.level) +
-        _spellcastingAbilityModifier(
-          char,
-          equipmentProvider,
-          compendiumProvider,
-        ) +
-        passiveBonus +
-        infusedSpellAttackBonus;
-  }
-
-  int _knownSpellLimit(Character char) {
-    return SpellcastingRules.knownSpells(char);
-  }
-
-  int _knownCantripLimit(Character char) {
-    return SpellcastingRules.knownCantrips(char);
-  }
-
-  int _preparedSpellLimit(Character char) {
-    return SpellcastingRules.preparedSpellLimit(
-      char,
-      (ability) => _getCurrentAbilityScore(char, ability),
-      _getAbilityModifier,
     );
   }
 
@@ -4500,6 +4510,23 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       return true;
     }
 
+    final weaponName = weaponItem.name.trim().toLowerCase();
+
+    bool listContainsWeapon(List<String> proficiencies) {
+      return proficiencies.any(
+        (entry) => entry.trim().toLowerCase() == weaponName,
+      );
+    }
+
+    // Racial / feat proficiencies by explicit weapon name
+    if (listContainsWeapon(char.racialWeaponProficiencies)) {
+      return true;
+    }
+
+    if (listContainsWeapon(char.featWeaponProficiencies)) {
+      return true;
+    }
+
     final weaponCategory = equipmentItem?.weaponCategory?.trim().toLowerCase();
 
     if (weaponCategory == null || weaponCategory.isEmpty) {
@@ -4531,7 +4558,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       case 'rogue':
         if (isSimple) return true;
 
-        final weaponName = weaponItem.name.trim().toLowerCase();
         return weaponName == 'hand crossbow' ||
             weaponName == 'longsword' ||
             weaponName == 'rapier' ||
@@ -9038,6 +9064,47 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       );
     }
 
+    final groupedFeatures = _groupFeaturesBySource(features);
+
+    final orderedGroups = <_FeatureGroupData>[
+      _FeatureGroupData(
+        key: 'race',
+        title: 'Race Features',
+        icon: Icons.public,
+        features: groupedFeatures['race'] ?? const [],
+      ),
+      _FeatureGroupData(
+        key: 'subrace',
+        title: 'Subrace Features',
+        icon: Icons.account_tree_outlined,
+        features: groupedFeatures['subrace'] ?? const [],
+      ),
+      _FeatureGroupData(
+        key: 'class',
+        title: 'Class Features',
+        icon: Icons.shield_outlined,
+        features: groupedFeatures['class'] ?? const [],
+      ),
+      _FeatureGroupData(
+        key: 'subclass',
+        title: 'Subclass Features',
+        icon: Icons.auto_awesome_outlined,
+        features: groupedFeatures['subclass'] ?? const [],
+      ),
+      _FeatureGroupData(
+        key: 'feat',
+        title: 'Feat Features',
+        icon: Icons.workspace_premium_outlined,
+        features: groupedFeatures['feat'] ?? const [],
+      ),
+      _FeatureGroupData(
+        key: 'other',
+        title: 'Other Features',
+        icon: Icons.category_outlined,
+        features: groupedFeatures['other'] ?? const [],
+      ),
+    ].where((group) => group.features.isNotEmpty).toList();
+
     return _spellSection(
       title: 'Features',
       child: Column(
@@ -9059,71 +9126,180 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
             ],
           ),
           const SizedBox(height: 14),
-          ...features.map(
-            (feature) => Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              decoration: BoxDecoration(
-                color: const Color(0xFF262632),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: Colors.deepPurpleAccent.withOpacity(0.22),
-                ),
-              ),
-              child: Theme(
-                data: Theme.of(context).copyWith(
-                  dividerColor: Colors.transparent,
-                  splashColor: Colors.transparent,
-                  highlightColor: Colors.transparent,
-                ),
-                child: ExpansionTile(
-                  tilePadding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 4,
-                  ),
-                  childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-                  iconColor: Colors.white70,
-                  collapsedIconColor: Colors.white54,
-                  title: Text(
-                    feature.name,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: isLargeTablet ? 16 : 15,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  subtitle: Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        if (feature.unlockedAtLevel != null)
-                          _buildFeatureMetaChip(
-                              'Lv ${feature.unlockedAtLevel}'),
-                        _buildFeatureMetaChip(feature.source.toUpperCase()),
-                      ],
-                    ),
-                  ),
-                  children: [
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        feature.description.trim().isEmpty
-                            ? 'No description available.'
-                            : feature.description,
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.82),
-                          fontSize: isTablet ? 14 : 13,
-                          height: 1.45,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+          ...orderedGroups.map(
+            (group) => _buildFeatureSourceGroupCard(
+              context,
+              title: group.title,
+              icon: group.icon,
+              features: group.features,
+              isTablet: isTablet,
+              isLargeTablet: isLargeTablet,
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Map<String, List<CharacterFeature>> _groupFeaturesBySource(
+    List<CharacterFeature> features,
+  ) {
+    final grouped = <String, List<CharacterFeature>>{
+      'race': [],
+      'subrace': [],
+      'class': [],
+      'subclass': [],
+      'feat': [],
+      'other': [],
+    };
+
+    for (final feature in features) {
+      final normalizedSource = feature.source.trim().toLowerCase();
+
+      if (grouped.containsKey(normalizedSource)) {
+        grouped[normalizedSource]!.add(feature);
+      } else {
+        grouped['other']!.add(feature);
+      }
+    }
+
+    return grouped;
+  }
+
+  Widget _buildFeatureSourceGroupCard(
+    BuildContext context, {
+    required String title,
+    required IconData icon,
+    required List<CharacterFeature> features,
+    required bool isTablet,
+    required bool isLargeTablet,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF22222C),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.deepPurpleAccent.withOpacity(0.24),
+        ),
+      ),
+      child: Theme(
+        data: Theme.of(context).copyWith(
+          dividerColor: Colors.transparent,
+          splashColor: Colors.transparent,
+          highlightColor: Colors.transparent,
+        ),
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: 6,
+          ),
+          childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          iconColor: Colors.white70,
+          collapsedIconColor: Colors.white54,
+          leading: Icon(
+            icon,
+            color: Colors.deepPurpleAccent.shade100,
+            size: 20,
+          ),
+          title: Text(
+            title,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: isLargeTablet ? 17 : 15,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              '${features.length} feature${features.length == 1 ? '' : 's'}',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.62),
+                fontSize: 12,
+              ),
+            ),
+          ),
+          children: [
+            ...features.map(
+              (feature) => _buildSingleFeatureTile(
+                context,
+                feature,
+                isTablet: isTablet,
+                isLargeTablet: isLargeTablet,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSingleFeatureTile(
+    BuildContext context,
+    CharacterFeature feature, {
+    required bool isTablet,
+    required bool isLargeTablet,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2A2A36),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: Colors.white.withOpacity(0.06),
+        ),
+      ),
+      child: Theme(
+        data: Theme.of(context).copyWith(
+          dividerColor: Colors.transparent,
+          splashColor: Colors.transparent,
+          highlightColor: Colors.transparent,
+        ),
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: 4,
+          ),
+          childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+          iconColor: Colors.white70,
+          collapsedIconColor: Colors.white54,
+          title: Text(
+            feature.name,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: isLargeTablet ? 15 : 14,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (feature.unlockedAtLevel != null)
+                  _buildFeatureMetaChip('Lv ${feature.unlockedAtLevel}'),
+                _buildFeatureMetaChip(feature.source.toUpperCase()),
+              ],
+            ),
+          ),
+          children: [
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                feature.description.trim().isEmpty
+                    ? 'No description available.'
+                    : feature.description,
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.82),
+                  fontSize: isTablet ? 14 : 13,
+                  height: 1.45,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -9207,7 +9383,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               crossAxisCount: isLargeTablet ? 2 : 1,
               crossAxisSpacing: 12,
               mainAxisSpacing: 12,
-              childAspectRatio: isLargeTablet ? 2.2 : 2.4,
+              mainAxisExtent: isLargeTablet ? 170 : 155,
             ),
             itemBuilder: (_, index) {
               final resource = resources[index];
@@ -9251,7 +9427,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const Spacer(),
+                    const SizedBox(height: 12),
                     Row(
                       children: [
                         Expanded(
@@ -9283,16 +9459,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         ),
                       ],
                     ),
-                    if ((resource.notes ?? '').trim().isNotEmpty) ...[
-                      const SizedBox(height: 10),
-                      Text(
-                        resource.notes!,
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.7),
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
                   ],
                 ),
               );
