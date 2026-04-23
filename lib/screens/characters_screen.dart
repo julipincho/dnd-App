@@ -129,17 +129,13 @@ class _CharactersScreenState extends State<CharactersScreen> {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
           final characterProvider = context.read<CharacterProvider>();
-          characterProvider.resetCharacter();
 
-          if (isCampaignMode) {
-            characterProvider.update((character) {
-              character.campaignId = activeCampaign!.id;
-            });
-          } else {
-            characterProvider.update((character) {
-              character.campaignId = null;
-            });
-          }
+          characterProvider.startNewCharacter(
+            campaignId: isCampaignMode ? activeCampaign!.id : null,
+            source: isCampaignMode
+                ? CharacterCreationSource.campaignDetail
+                : CharacterCreationSource.home,
+          );
 
           context.push('/welcome');
         },

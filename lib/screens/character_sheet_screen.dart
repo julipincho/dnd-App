@@ -42,6 +42,7 @@ import '../services/feat_data_service.dart';
 import '../features/characters/models/resolved_inventory_item.dart';
 import '../services/race_sync_service.dart';
 import '../models/character_feature.dart';
+import '../providers/campaign_provider.dart';
 
 enum _SpellChoiceSaveMode {
   known,
@@ -469,6 +470,184 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     });
 
     return groups;
+  }
+
+  Future<void> _showManageCampaignSheet(
+    BuildContext context,
+    Character char,
+  ) async {
+    final campaignProvider = context.read<CampaignProvider>();
+    final characterProvider = context.read<CharacterProvider>();
+
+    final campaigns = [...campaignProvider.campaigns]
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+    String? selectedCampaignId =
+        (char.campaignId != null && char.campaignId!.trim().isNotEmpty)
+            ? char.campaignId
+            : null;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1B1B24),
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(
+                      color: Colors.deepPurpleAccent.withOpacity(0.22),
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Center(
+                          child: Container(
+                            width: 42,
+                            height: 5,
+                            decoration: BoxDecoration(
+                              color: Colors.white24,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        const Text(
+                          'Manage Campaign',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          char.name.isEmpty
+                              ? 'Choose where this character belongs.'
+                              : 'Choose where ${char.name} belongs.',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.7),
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        RadioListTile<String?>(
+                          value: null,
+                          groupValue: selectedCampaignId,
+                          activeColor: Colors.deepPurpleAccent,
+                          title: const Text(
+                            'No Campaign',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                          subtitle: Text(
+                            'Keep this character unassigned.',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.6),
+                            ),
+                          ),
+                          onChanged: (value) {
+                            setSheetState(() {
+                              selectedCampaignId = value;
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                        if (campaigns.isEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(
+                              'No campaigns available yet.',
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.65),
+                              ),
+                            ),
+                          )
+                        else
+                          ...campaigns.map((campaign) {
+                            return RadioListTile<String?>(
+                              value: campaign.id,
+                              groupValue: selectedCampaignId,
+                              activeColor: Colors.deepPurpleAccent,
+                              title: Text(
+                                campaign.name,
+                                style: const TextStyle(color: Colors.white),
+                              ),
+                              subtitle: Text(
+                                (campaign.description ?? 'No description')
+                                    .trim(),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.6),
+                                ),
+                              ),
+                              onChanged: (value) {
+                                setSheetState(() {
+                                  selectedCampaignId = value;
+                                });
+                              },
+                            );
+                          }),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextButton(
+                                onPressed: () => Navigator.pop(sheetContext),
+                                child: const Text('Cancel'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: FilledButton(
+                                onPressed: () async {
+                                  await characterProvider.updateCharacterById(
+                                    char.id,
+                                    (ch) {
+                                      ch.campaignId = selectedCampaignId;
+                                    },
+                                  );
+
+                                  if (!sheetContext.mounted) return;
+                                  Navigator.pop(sheetContext);
+
+                                  if (!mounted) return;
+                                  ScaffoldMessenger.of(this.context)
+                                      .showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        selectedCampaignId == null
+                                            ? 'Character removed from campaign.'
+                                            : 'Character campaign updated.',
+                                      ),
+                                    ),
+                                  );
+                                },
+                                child: const Text('Save'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _reconcileCharacterOptionSelections(
@@ -4904,7 +5083,23 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               IconButton(
                 icon: const Icon(Icons.flag_outlined, color: Colors.white),
                 tooltip: 'Go to campaign',
-                onPressed: () {
+                onPressed: () async {
+                  final campaignId = char.campaignId;
+                  if (campaignId == null || campaignId.trim().isEmpty) return;
+
+                  final campaignProvider = context.read<CampaignProvider>();
+
+                  final matchingCampaigns = campaignProvider.campaigns
+                      .where((c) => c.id == campaignId)
+                      .toList();
+
+                  if (matchingCampaigns.isEmpty) return;
+
+                  final campaign = matchingCampaigns.first;
+
+                  await campaignProvider.setActiveCampaign(campaign);
+
+                  if (!context.mounted) return;
                   context.go('/campaign-detail');
                 },
               ),
@@ -5137,9 +5332,25 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               ),
               onOpenDiceRoller: _openDiceRoller,
               onLevelUp: () => _showLevelUpDialog(context, char),
-              onGoToCampaign: () {
+              onGoToCampaign: () async {
+                final campaignId = char.campaignId;
+                if (campaignId == null || campaignId.trim().isEmpty) return;
+
+                final campaignProvider = context.read<CampaignProvider>();
+
+                final matchingCampaigns = campaignProvider.campaigns
+                    .where((campaign) => campaign.id == campaignId)
+                    .toList();
+
+                if (matchingCampaigns.isEmpty) return;
+
+                await campaignProvider
+                    .setActiveCampaign(matchingCampaigns.first);
+
+                if (!context.mounted) return;
                 context.go('/campaign-detail');
               },
+              onManageCampaign: () => _showManageCampaignSheet(context, char),
               onEditSpeed: () => _editSpeed(context, char),
               onRollFromSheet: ({
                 required label,

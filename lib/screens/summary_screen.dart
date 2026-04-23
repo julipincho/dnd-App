@@ -155,12 +155,11 @@ class _SummaryScreenState extends State<SummaryScreen> {
             const SizedBox(height: 32),
             ElevatedButton(
               onPressed: () async {
-                final activeCampaign =
-                    context.read<CampaignProvider>().activeCampaign;
                 final characterProvider = context.read<CharacterProvider>();
 
                 characterProvider.update((character) {
-                  character.campaignId = activeCampaign?.id;
+                  // ❌ ELIMINADO:
+                  // character.campaignId = activeCampaign?.id;
 
                   final effectiveCon =
                       _getEffectiveAbilityScore(character, 'CON');
@@ -171,7 +170,6 @@ class _SummaryScreenState extends State<SummaryScreen> {
                   final dexMod = _getAbilityModifier(effectiveDex);
 
                   final hitDice = _getHitDice(character.charClass);
-
                   final level = character.level;
 
                   int totalHp = hitDice + conMod;

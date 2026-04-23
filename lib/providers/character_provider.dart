@@ -17,6 +17,11 @@ import '../services/feat_data_service.dart';
 import '../services/feat_sync_service.dart';
 import '../services/race_sync_service.dart';
 
+enum CharacterCreationSource {
+  home,
+  campaignDetail,
+}
+
 class CharacterProvider extends ChangeNotifier {
   final CharacterCloudRepository _cloudRepo = CharacterCloudRepository();
 
@@ -25,12 +30,16 @@ class CharacterProvider extends ChangeNotifier {
   List<Character> _campaignCharacters = [];
   int? _selectedIndex;
   String? _activeUserId;
+  String? _creationCampaignId;
+  CharacterCreationSource? _creationSource;
 
   Character? get character => _character;
   List<Character> get characters => _characters;
   List<Character> get campaignCharacters => _campaignCharacters;
   int? get selectedIndex => _selectedIndex;
   String? get activeUserId => _activeUserId;
+  String? get creationCampaignId => _creationCampaignId;
+  CharacterCreationSource? get creationSource => _creationSource;
 
   List<Character> getCharactersByCampaignSafe(String? campaignId) {
     if (campaignId == null) return [];
@@ -89,6 +98,20 @@ class CharacterProvider extends ChangeNotifier {
       }
     }
 
+    notifyListeners();
+  }
+
+  void startNewCharacter({
+    String? campaignId,
+    required CharacterCreationSource source,
+  }) {
+    _creationCampaignId = campaignId;
+    _creationSource = source;
+
+    _character = Character.empty();
+    _character!.campaignId = campaignId;
+
+    _selectedIndex = null;
     notifyListeners();
   }
 
@@ -173,6 +196,7 @@ class CharacterProvider extends ChangeNotifier {
 
   void resetCharacter() {
     _character = Character.empty();
+    _character!.campaignId = _creationCampaignId;
     _selectedIndex = null;
     notifyListeners();
   }
@@ -180,6 +204,8 @@ class CharacterProvider extends ChangeNotifier {
   void clear() {
     _character = null;
     _selectedIndex = null;
+    _creationCampaignId = null;
+    _creationSource = null;
     notifyListeners();
   }
 
@@ -223,6 +249,17 @@ class CharacterProvider extends ChangeNotifier {
     }
 
     notifyListeners();
+  }
+
+  Future<void> assignCharacterToCampaign(
+    String characterId,
+    String? campaignId,
+  ) async {
+    final character = getCharacterById(characterId);
+    if (character == null) return;
+
+    character.campaignId = campaignId;
+    await _saveAndRefreshCharacter(character);
   }
 
   Future<void> updateCharacterById(

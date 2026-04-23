@@ -100,7 +100,10 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
                   style: TextStyle(fontSize: 18, color: Colors.white),
                 ),
                 onPressed: () {
-                  provider.resetCharacter();
+                  provider.startNewCharacter(
+                    campaignId: null,
+                    source: CharacterCreationSource.home,
+                  );
                   context.go('/welcome');
                 },
               ),

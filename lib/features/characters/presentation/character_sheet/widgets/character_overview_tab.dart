@@ -11,7 +11,7 @@ class CharacterOverviewTab extends StatelessWidget {
   final Character char;
   final EquipmentProvider equipmentProvider;
   final CompendiumProvider compendiumProvider;
-
+  final Future<void> Function() onManageCampaign;
   final int Function(String) getStat;
 
   final Widget header;
@@ -175,6 +175,7 @@ class CharacterOverviewTab extends StatelessWidget {
   const CharacterOverviewTab({
     super.key,
     required this.header,
+    required this.onManageCampaign,
     required this.getEffectiveSpeed,
     required this.char,
     required this.equipmentProvider,
@@ -466,11 +467,11 @@ class CharacterOverviewTab extends StatelessWidget {
             children: [
               header,
               const SizedBox(height: 12),
-              if (char.campaignId != null) ...[
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  if (char.campaignId != null && char.campaignId!.isNotEmpty)
                     GestureDetector(
                       onTap: onGoToCampaign,
                       child: Container(
@@ -495,10 +496,35 @@ class CharacterOverviewTab extends StatelessWidget {
                         ),
                       ),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-              ],
+                  GestureDetector(
+                    onTap: onManageCampaign,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.blueAccent.withOpacity(0.16),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: Colors.blueAccent.withOpacity(0.24),
+                        ),
+                      ),
+                      child: Text(
+                        char.campaignId == null || char.campaignId!.isEmpty
+                            ? "Assign to Campaign"
+                            : "Manage Campaign",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: isTablet ? 14 : 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
               Row(
                 children: [
                   Expanded(

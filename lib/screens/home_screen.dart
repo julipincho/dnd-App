@@ -412,11 +412,10 @@ class _ActiveCampaignHero extends StatelessWidget {
               ),
               OutlinedButton.icon(
                 onPressed: () {
-                  final characterProvider = context.read<CharacterProvider>();
-                  characterProvider.resetCharacter();
-                  characterProvider.update((character) {
-                    character.campaignId = campaign!.id;
-                  });
+                  context.read<CharacterProvider>().startNewCharacter(
+                        campaignId: campaign!.id,
+                        source: CharacterCreationSource.campaignDetail,
+                      );
                   context.go('/welcome');
                 },
                 icon: const Icon(Icons.person_add_alt_1_rounded),
@@ -571,73 +570,76 @@ class _CampaignCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(20),
-      onTap: () async {
-        await context.read<CampaignProvider>().setActiveCampaign(campaign);
-        if (!context.mounted) return;
-        context.go('/campaign-detail');
-      },
-      child: Ink(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: const Color(0xFF17132A),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: Colors.white.withOpacity(0.06),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: () async {
+          await context.read<CampaignProvider>().setActiveCampaign(campaign);
+          if (!context.mounted) return;
+          context.go('/campaign-detail');
+        },
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF17132A),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: Colors.white.withOpacity(0.06),
+            ),
           ),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                gradient: const LinearGradient(
-                  colors: [
-                    Color(0xFF4DA8FF),
-                    Color(0xFF6D5BFF),
+          child: Row(
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  gradient: const LinearGradient(
+                    colors: [
+                      Color(0xFF4DA8FF),
+                      Color(0xFF6D5BFF),
+                    ],
+                  ),
+                ),
+                child: const Icon(
+                  Icons.menu_book_rounded,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      campaign.name,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      campaign.description ?? 'No description',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.66),
+                        height: 1.35,
+                      ),
+                    ),
                   ],
                 ),
               ),
-              child: const Icon(
-                Icons.menu_book_rounded,
-                color: Colors.white,
+              const SizedBox(width: 8),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: Colors.white.withOpacity(0.75),
               ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    campaign.name,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    campaign.description ?? 'No description',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.66),
-                      height: 1.35,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            Icon(
-              Icons.chevron_right_rounded,
-              color: Colors.white.withOpacity(0.75),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -694,7 +696,10 @@ class _CharactersSection extends StatelessWidget {
               ),
               OutlinedButton(
                 onPressed: () {
-                  context.read<CharacterProvider>().resetCharacter();
+                  context.read<CharacterProvider>().startNewCharacter(
+                        campaignId: null,
+                        source: CharacterCreationSource.home,
+                      );
                   context.go('/welcome');
                 },
                 style: OutlinedButton.styleFrom(
