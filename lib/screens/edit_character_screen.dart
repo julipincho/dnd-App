@@ -14,6 +14,8 @@ import '../services/dnd_data_service.dart';
 import '../models/feat_data.dart';
 import '../services/feat_data_service.dart';
 import '../services/feat_validation_service.dart';
+import '../services/supabase_storage_service.dart';
+import '../utils/image_path_utils.dart';
 
 class EditCharacterScreen extends StatefulWidget {
   final String characterId;
@@ -37,6 +39,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
   late TextEditingController _speedController;
 
   File? _portrait;
+  String? _portraitPath;
   List<FeatData> _allFeats = [];
   List<DndBackground> backgrounds = [];
   DndBackground? selectedBackground;
@@ -256,15 +259,17 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
     if (character == null) return;
 
     provider.selectCharacterByObject(character!);
+    _portraitPath = character!.portraitPath;
 
     selectedAlignment = alignments.contains(character!.alignment)
         ? character!.alignment
         : "True Neutral";
 
-    if (character!.portraitPath != null &&
-        character!.portraitPath!.isNotEmpty &&
-        File(character!.portraitPath!).existsSync()) {
-      _portrait = File(character!.portraitPath!);
+    if (_portraitPath != null &&
+        _portraitPath!.isNotEmpty &&
+        !isRemoteImagePath(_portraitPath!) &&
+        File(_portraitPath!).existsSync()) {
+      _portrait = File(_portraitPath!);
     }
 
     _loadBackgrounds(character!.background.name);
@@ -328,7 +333,10 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
     try {
       final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
       if (picked != null && mounted) {
-        setState(() => _portrait = File(picked.path));
+        setState(() {
+          _portrait = File(picked.path);
+          _portraitPath = picked.path;
+        });
       }
     } catch (e) {
       debugPrint('Error picking portrait: $e');
@@ -1639,6 +1647,30 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
     final safeCurrentHp = currentHp.clamp(0, maxHp > 0 ? maxHp : currentHp);
     if (character == null) return;
 
+    final userId = context.read<AuthProvider>().userId;
+    if (userId == null) return;
+
+    var resolvedPortraitPath = _portraitPath ?? character!.portraitPath;
+    if (_portrait != null) {
+      try {
+        resolvedPortraitPath = await SupabaseStorageService.uploadUserImage(
+          file: _portrait!,
+          ownerUserId: userId,
+          folder: 'character-portraits',
+          entityId: character!.id,
+        );
+      } catch (e) {
+        debugPrint('Error uploading portrait to Supabase: $e');
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not upload the portrait. Try again.'),
+          ),
+        );
+        return;
+      }
+    }
+
     provider.update((ch) {
       ch.name = _nameController.text.trim();
       ch.maxHp = maxHp;
@@ -1647,7 +1679,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
       ch.speed = speed;
       ch.background = selectedBackground ?? ch.background;
       ch.alignment = selectedAlignment ?? ch.alignment;
-      ch.portraitPath = _portrait?.path ?? ch.portraitPath;
+      ch.portraitPath = resolvedPortraitPath;
       ch.backstory = _backstoryController.text.trim().isEmpty
           ? null
           : _backstoryController.text.trim();
@@ -1655,9 +1687,6 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
           ? null
           : _notesController.text.trim();
     });
-
-    final userId = context.read<AuthProvider>().userId;
-    if (userId == null) return;
 
     await provider.saveCharacter(userId);
     if (!mounted) return;
@@ -2152,12 +2181,18 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                                       onTap: _pickImage,
                                       child: CircleAvatar(
                                         radius: avatarRadius,
-                                        backgroundImage: _portrait != null
-                                            ? FileImage(_portrait!)
+                                        backgroundImage: hasDisplayableImagePath(
+                                          _portraitPath,
+                                        )
+                                            ? imageProviderFromPath(
+                                                _portraitPath!,
+                                              )
                                             : null,
                                         backgroundColor:
                                             Colors.deepPurpleAccent,
-                                        child: _portrait == null
+                                        child: !hasDisplayableImagePath(
+                                          _portraitPath,
+                                        )
                                             ? const Icon(
                                                 Icons.camera_alt,
                                                 size: 34,
@@ -2210,12 +2245,18 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                                       onTap: _pickImage,
                                       child: CircleAvatar(
                                         radius: avatarRadius,
-                                        backgroundImage: _portrait != null
-                                            ? FileImage(_portrait!)
+                                        backgroundImage: hasDisplayableImagePath(
+                                          _portraitPath,
+                                        )
+                                            ? imageProviderFromPath(
+                                                _portraitPath!,
+                                              )
                                             : null,
                                         backgroundColor:
                                             Colors.deepPurpleAccent,
-                                        child: _portrait == null
+                                        child: !hasDisplayableImagePath(
+                                          _portraitPath,
+                                        )
                                             ? const Icon(
                                                 Icons.camera_alt,
                                                 size: 32,

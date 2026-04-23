@@ -155,6 +155,9 @@ class CharacterProvider extends ChangeNotifier {
 
     await _cloudRepo.saveCharacter(_character!);
     await loadCharacters(resolvedUserId);
+    if ((_character!.campaignId ?? '').isNotEmpty) {
+      await loadCampaignCharacters(_character!.campaignId!);
+    }
     _syncSelectedCharacterById(_character!.id);
   }
 

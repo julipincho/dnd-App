@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -7,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/character.dart';
 import '../providers/auth_provider.dart';
 import '../providers/character_provider.dart';
+import '../utils/image_path_utils.dart';
 
 class MainHomeScreen extends StatefulWidget {
   const MainHomeScreen({super.key});
@@ -173,14 +172,10 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
               CircleAvatar(
                 radius: 30,
                 backgroundColor: Colors.deepPurpleAccent,
-                backgroundImage: (c.portraitPath != null &&
-                        c.portraitPath!.isNotEmpty &&
-                        File(c.portraitPath!).existsSync())
-                    ? FileImage(File(c.portraitPath!))
+                backgroundImage: hasDisplayableImagePath(c.portraitPath)
+                    ? imageProviderFromPath(c.portraitPath!)
                     : null,
-                child: (c.portraitPath == null ||
-                        c.portraitPath!.isEmpty ||
-                        !File(c.portraitPath!).existsSync())
+                child: !hasDisplayableImagePath(c.portraitPath)
                     ? const Icon(Icons.person, size: 32, color: Colors.white)
                     : null,
               ),

@@ -10,6 +10,8 @@ import '../services/class_data_service.dart';
 import '../services/class_level_service.dart';
 import '../models/character.dart';
 import '../providers/campaign_provider.dart';
+import '../services/supabase_storage_service.dart';
+import '../utils/image_path_utils.dart';
 
 class SummaryScreen extends StatefulWidget {
   const SummaryScreen({super.key});
@@ -156,6 +158,8 @@ class _SummaryScreenState extends State<SummaryScreen> {
             ElevatedButton(
               onPressed: () async {
                 final characterProvider = context.read<CharacterProvider>();
+                final userId = context.read<AuthProvider>().userId;
+                if (userId == null) return;
 
                 characterProvider.update((character) {
                   // ❌ ELIMINADO:
@@ -189,8 +193,40 @@ class _SummaryScreenState extends State<SummaryScreen> {
                       _getSpellcastingAbility(character.charClass);
                 });
 
-                final userId = context.read<AuthProvider>().userId;
-                if (userId == null) return;
+                final updatedCharacter = characterProvider.character;
+                final currentPortraitPath = updatedCharacter?.portraitPath;
+
+                if (updatedCharacter != null &&
+                    currentPortraitPath != null &&
+                    currentPortraitPath.trim().isNotEmpty &&
+                    !isRemoteImagePath(currentPortraitPath) &&
+                    !isAssetImagePath(currentPortraitPath) &&
+                    File(currentPortraitPath).existsSync()) {
+                  try {
+                    final remotePortraitPath =
+                        await SupabaseStorageService.uploadUserImage(
+                      file: File(currentPortraitPath),
+                      ownerUserId: userId,
+                      folder: 'character-portraits',
+                      entityId: updatedCharacter.id,
+                    );
+
+                    characterProvider.update((character) {
+                      character.portraitPath = remotePortraitPath;
+                    });
+                  } catch (e) {
+                    debugPrint('Error uploading character portrait: $e');
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Could not upload the portrait. Try again.',
+                        ),
+                      ),
+                    );
+                    return;
+                  }
+                }
 
                 await characterProvider.saveCharacter(userId);
 
@@ -232,14 +268,10 @@ class _SummaryScreenState extends State<SummaryScreen> {
           CircleAvatar(
             radius: 40,
             backgroundColor: Colors.grey.shade900,
-            backgroundImage: (portraitPath != null &&
-                    portraitPath.isNotEmpty &&
-                    File(portraitPath).existsSync())
-                ? FileImage(File(portraitPath))
+            backgroundImage: hasDisplayableImagePath(portraitPath)
+                ? imageProviderFromPath(portraitPath!)
                 : null,
-            child: (portraitPath == null ||
-                    portraitPath.isEmpty ||
-                    !File(portraitPath).existsSync())
+            child: !hasDisplayableImagePath(portraitPath)
                 ? const Icon(Icons.person, size: 40)
                 : null,
           ),

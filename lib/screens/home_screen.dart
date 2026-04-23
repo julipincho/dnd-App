@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -9,6 +7,7 @@ import '../models/character.dart';
 import '../providers/auth_provider.dart';
 import '../providers/campaign_provider.dart';
 import '../providers/character_provider.dart';
+import '../utils/image_path_utils.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -535,9 +534,7 @@ class _CharacterAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasPortrait = character.portraitPath != null &&
-        character.portraitPath!.isNotEmpty &&
-        File(character.portraitPath!).existsSync();
+    final hasPortrait = hasDisplayableImagePath(character.portraitPath);
 
     return Container(
       decoration: BoxDecoration(
@@ -557,7 +554,7 @@ class _CharacterAvatar extends StatelessWidget {
         radius: radius,
         backgroundColor: const Color(0xFF22304B),
         backgroundImage:
-            hasPortrait ? FileImage(File(character.portraitPath!)) : null,
+            hasPortrait ? imageProviderFromPath(character.portraitPath!) : null,
         child: !hasPortrait
             ? Icon(
                 Icons.person,
@@ -790,9 +787,7 @@ class _CharacterListCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasPortrait = character.portraitPath != null &&
-        character.portraitPath!.isNotEmpty &&
-        File(character.portraitPath!).existsSync();
+    final hasPortrait = hasDisplayableImagePath(character.portraitPath);
 
     return InkWell(
       borderRadius: BorderRadius.circular(20),
@@ -813,8 +808,9 @@ class _CharacterListCard extends StatelessWidget {
             CircleAvatar(
               radius: 26,
               backgroundColor: const Color(0xFF22304B),
-              backgroundImage:
-                  hasPortrait ? FileImage(File(character.portraitPath!)) : null,
+              backgroundImage: hasPortrait
+                  ? imageProviderFromPath(character.portraitPath!)
+                  : null,
               child: !hasPortrait
                   ? const Icon(
                       Icons.person,

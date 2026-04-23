@@ -44,6 +44,8 @@ import '../services/race_sync_service.dart';
 import '../models/character_feature.dart';
 import '../providers/campaign_provider.dart';
 import '../providers/auth_provider.dart';
+import '../services/supabase_storage_service.dart';
+import '../utils/image_path_utils.dart';
 
 enum _SpellChoiceSaveMode {
   known,
@@ -3853,13 +3855,11 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
   }
 
   bool _isAssetPath(String path) {
-    return path.startsWith('assets/');
+    return isAssetImagePath(path);
   }
 
   bool _hasDisplayableImage(String? path) {
-    if (path == null || path.trim().isEmpty) return false;
-    if (_isAssetPath(path)) return true;
-    return File(path).existsSync();
+    return hasDisplayableImagePath(path);
   }
 
   Widget _buildResolvedImage(
@@ -3868,17 +3868,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     required double height,
     BoxFit fit = BoxFit.cover,
   }) {
-    if (_isAssetPath(path)) {
-      return Image.asset(
-        path,
-        width: width,
-        height: height,
-        fit: fit,
-      );
-    }
-
-    return Image.file(
-      File(path),
+    return buildImageFromPath(
+      path,
       width: width,
       height: height,
       fit: fit,
@@ -5226,14 +5217,14 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                               CircleAvatar(
                                 radius: avatarRadius,
                                 backgroundColor: Colors.deepPurpleAccent,
-                                backgroundImage: (char.portraitPath != null &&
-                                        char.portraitPath!.isNotEmpty &&
-                                        File(char.portraitPath!).existsSync())
-                                    ? FileImage(File(char.portraitPath!))
+                                backgroundImage:
+                                    hasDisplayableImagePath(char.portraitPath)
+                                        ? imageProviderFromPath(
+                                            char.portraitPath!,
+                                          )
                                     : null,
-                                child: (char.portraitPath == null ||
-                                        char.portraitPath!.isEmpty ||
-                                        !File(char.portraitPath!).existsSync())
+                                child:
+                                    !hasDisplayableImagePath(char.portraitPath)
                                     ? const Icon(
                                         Icons.person,
                                         size: 42,
@@ -5258,14 +5249,14 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                               CircleAvatar(
                                 radius: avatarRadius,
                                 backgroundColor: Colors.deepPurpleAccent,
-                                backgroundImage: (char.portraitPath != null &&
-                                        char.portraitPath!.isNotEmpty &&
-                                        File(char.portraitPath!).existsSync())
-                                    ? FileImage(File(char.portraitPath!))
+                                backgroundImage:
+                                    hasDisplayableImagePath(char.portraitPath)
+                                        ? imageProviderFromPath(
+                                            char.portraitPath!,
+                                          )
                                     : null,
-                                child: (char.portraitPath == null ||
-                                        char.portraitPath!.isEmpty ||
-                                        !File(char.portraitPath!).existsSync())
+                                child:
+                                    !hasDisplayableImagePath(char.portraitPath)
                                     ? const Icon(
                                         Icons.person,
                                         size: 36,
@@ -7124,7 +7115,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       ),
                     ),
                   ),
-                  if (isDm)
+                  if (isDm || isOwnedByCurrentUser)
                     TextButton.icon(
                       onPressed: campaignItemEntries.isEmpty
                           ? null
@@ -10078,13 +10069,10 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final screenWidth = MediaQuery.of(context).size.width;
     final isTablet = screenWidth >= 600;
 
-    final hasAuthorPortrait = entry.authorCharacterPortraitPath != null &&
-        entry.authorCharacterPortraitPath!.isNotEmpty &&
-        File(entry.authorCharacterPortraitPath!).existsSync();
+    final hasAuthorPortrait =
+        hasDisplayableImagePath(entry.authorCharacterPortraitPath);
 
-    final hasAttachedImage = entry.imagePath != null &&
-        entry.imagePath!.isNotEmpty &&
-        File(entry.imagePath!).existsSync();
+    final hasAttachedImage = hasDisplayableImagePath(entry.imagePath);
 
     final isPrivate = entry.sessionId == null || entry.sessionId!.isEmpty;
 
@@ -10106,7 +10094,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 radius: isTablet ? 24 : 22,
                 backgroundColor: Colors.deepPurpleAccent,
                 backgroundImage: hasAuthorPortrait
-                    ? FileImage(File(entry.authorCharacterPortraitPath!))
+                    ? imageProviderFromPath(entry.authorCharacterPortraitPath!)
                     : null,
                 child: !hasAuthorPortrait
                     ? const Icon(Icons.person, color: Colors.white)
@@ -10230,8 +10218,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     const SizedBox(height: 12),
                     ClipRRect(
                       borderRadius: BorderRadius.circular(14),
-                      child: Image.file(
-                        File(entry.imagePath!),
+                      child: buildImageFromPath(
+                        entry.imagePath!,
                         width: double.infinity,
                         height: isTablet ? 260 : 210,
                         fit: BoxFit.cover,
@@ -11885,8 +11873,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         const SizedBox(height: 12),
                         ClipRRect(
                           borderRadius: BorderRadius.circular(12),
-                          child: Image.file(
-                            File(selectedImagePath!),
+                          child: buildImageFromPath(
+                            selectedImagePath!,
                             height: 150,
                             width: double.infinity,
                             fit: BoxFit.cover,
@@ -11908,12 +11896,32 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     if (content.isEmpty) return;
                     if (!isPrivateNote && selectedSession == null) return;
 
+                    final entryId =
+                        DateTime.now().millisecondsSinceEpoch.toString();
+                    String? resolvedImagePath;
+                    try {
+                      resolvedImagePath = await _uploadPickedImageIfNeeded(
+                        selectedImagePath,
+                        ownerUserId: currentUserId,
+                        folder: 'journal-entries',
+                        entityId: entryId,
+                      );
+                    } catch (e) {
+                      if (!dialogContext.mounted) return;
+                      ScaffoldMessenger.of(dialogContext).showSnackBar(
+                        const SnackBar(
+                          content: Text('Could not upload the image.'),
+                        ),
+                      );
+                      return;
+                    }
+
                     final characterName = character.name.isEmpty
                         ? 'Unnamed Character'
                         : character.name;
 
                     final entry = JournalEntry(
-                      id: DateTime.now().millisecondsSinceEpoch.toString(),
+                      id: entryId,
                       campaignId: character.campaignId ??
                           selectedSession?.campaignId ??
                           '',
@@ -11925,7 +11933,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       authorCharacterId: character.id,
                       authorUserId: currentUserId,
                       content: content,
-                      imagePath: selectedImagePath,
+                      imagePath: resolvedImagePath,
                       createdAt: DateTime.now(),
                     );
 
@@ -12257,8 +12265,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                           const SizedBox(height: 12),
                           ClipRRect(
                             borderRadius: BorderRadius.circular(12),
-                            child: Image.file(
-                              File(selectedImagePath!),
+                            child: buildImageFromPath(
+                              selectedImagePath!,
                               height: 150,
                               width: 320,
                               fit: BoxFit.cover,
@@ -12287,12 +12295,29 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         InventoryItemSourceType.manual;
                     String? description;
                     String? imagePath;
+                    final itemId =
+                        DateTime.now().millisecondsSinceEpoch.toString();
 
                     if (isManual) {
                       itemName = nameController.text.trim();
                       sourceType = InventoryItemSourceType.manual;
                       description = null;
-                      imagePath = selectedImagePath;
+                      try {
+                        imagePath = await _uploadPickedImageIfNeeded(
+                          selectedImagePath,
+                          ownerUserId: context.read<AuthProvider>().userId,
+                          folder: 'inventory-items',
+                          entityId: itemId,
+                        );
+                      } catch (e) {
+                        if (!dialogContext.mounted) return;
+                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                          const SnackBar(
+                            content: Text('Could not upload the image.'),
+                          ),
+                        );
+                        return;
+                      }
                     } else if (isEquipment) {
                       if (selectedEquipmentEntry == null) return;
 
@@ -12321,7 +12346,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     if (itemName.isEmpty) return;
 
                     final item = CharacterInventoryItem(
-                      id: DateTime.now().millisecondsSinceEpoch.toString(),
+                      id: itemId,
                       name: itemName,
                       compendiumEntryId: compendiumEntryId,
                       sourceType: sourceType,
@@ -12496,8 +12521,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         const SizedBox(height: 12),
                         ClipRRect(
                           borderRadius: BorderRadius.circular(12),
-                          child: Image.file(
-                            File(selectedImagePath!),
+                          child: buildImageFromPath(
+                            selectedImagePath!,
                             height: 150,
                             width: double.infinity,
                             fit: BoxFit.cover,
@@ -12519,6 +12544,24 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     if (updatedContent.isEmpty) return;
                     if (!isPrivate && selectedSession == null) return;
 
+                    String? resolvedImagePath;
+                    try {
+                      resolvedImagePath = await _uploadPickedImageIfNeeded(
+                        selectedImagePath,
+                        ownerUserId: entry.authorUserId,
+                        folder: 'journal-entries',
+                        entityId: entry.id,
+                      );
+                    } catch (e) {
+                      if (!dialogContext.mounted) return;
+                      ScaffoldMessenger.of(dialogContext).showSnackBar(
+                        const SnackBar(
+                          content: Text('Could not upload the image.'),
+                        ),
+                      );
+                      return;
+                    }
+
                     final updated = JournalEntry(
                       id: entry.id,
                       campaignId: entry.campaignId,
@@ -12529,8 +12572,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       authorCharacterPortraitPath:
                           entry.authorCharacterPortraitPath,
                       authorCharacterId: entry.authorCharacterId,
+                      authorUserId: entry.authorUserId,
                       content: updatedContent,
-                      imagePath: selectedImagePath,
+                      imagePath: resolvedImagePath,
                       createdAt: entry.createdAt,
                     );
 
@@ -12548,6 +12592,30 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
           },
         );
       },
+    );
+  }
+
+  Future<String?> _uploadPickedImageIfNeeded(
+    String? imagePath, {
+    required String? ownerUserId,
+    required String folder,
+    required String entityId,
+  }) async {
+    if (imagePath == null || imagePath.trim().isEmpty) return null;
+    if (isRemoteImagePath(imagePath)) return imagePath;
+    if (isAssetImagePath(imagePath)) return imagePath;
+    if (ownerUserId == null || ownerUserId.trim().isEmpty) {
+      throw StateError('Cannot upload an image without an owner user id.');
+    }
+    if (!File(imagePath).existsSync()) {
+      throw StateError('Cannot upload an image because the file is missing.');
+    }
+
+    return SupabaseStorageService.uploadUserImage(
+      file: File(imagePath),
+      ownerUserId: ownerUserId,
+      folder: folder,
+      entityId: entityId,
     );
   }
 

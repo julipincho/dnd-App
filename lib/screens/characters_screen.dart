@@ -1,11 +1,10 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/campaign_provider.dart';
 import '../providers/character_provider.dart';
+import '../utils/image_path_utils.dart';
 
 enum CharactersScreenMode { global, campaign }
 
@@ -94,9 +93,8 @@ class _CharactersScreenState extends State<CharactersScreen> {
               itemBuilder: (context, index) {
                 final character = characters[index];
 
-                final hasPortrait = character.portraitPath != null &&
-                    character.portraitPath!.isNotEmpty &&
-                    File(character.portraitPath!).existsSync();
+                final hasPortrait =
+                    hasDisplayableImagePath(character.portraitPath);
 
                 return Card(
                   child: ListTile(
@@ -105,7 +103,7 @@ class _CharactersScreenState extends State<CharactersScreen> {
                         ? CircleAvatar(
                             radius: 24,
                             backgroundImage:
-                                FileImage(File(character.portraitPath!)),
+                                imageProviderFromPath(character.portraitPath!),
                           )
                         : const CircleAvatar(
                             radius: 24,

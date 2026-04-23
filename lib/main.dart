@@ -17,6 +17,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'providers/auth_provider.dart';
 import 'screens/login_screen.dart';
+import 'services/supabase_storage_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,6 +25,7 @@ Future<void> main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+  await SupabaseStorageService.initializeIfConfigured();
 
   try {
     await CharacterOptionsRepository.instance.loadAll();

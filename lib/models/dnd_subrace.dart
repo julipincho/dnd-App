@@ -3,7 +3,7 @@ class DndSubrace {
   final String name;
   final String source;
 
-  final int? speed; // 👈 NUEVO
+  final int? speed; //
 
   final List<Map<String, dynamic>> abilityBonuses;
   final List<Map<String, String>> traits;
@@ -14,7 +14,7 @@ class DndSubrace {
     required this.id,
     required this.name,
     required this.source,
-    this.speed, // 👈 NUEVO
+    this.speed, //
     required this.abilityBonuses,
     required this.traits,
     required this.description,
