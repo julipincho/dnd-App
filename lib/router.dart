@@ -30,12 +30,26 @@ import 'screens/timeline_screen.dart';
 import 'screens/compendium_screen.dart';
 import 'screens/characters_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/login_screen.dart';
+import 'screens/register_screen.dart';
 
 final GoRouter appRouter = GoRouter(
-  // initialLocation: '/welcome',
   initialLocation: '/',
   refreshListenable: CharacterStorage.refreshNotifier,
   routes: [
+    // ---------------------------------------------------------
+    // 🔐 AUTH
+    // ---------------------------------------------------------
+
+    GoRoute(
+      path: '/login',
+      builder: (_, __) => const LoginScreen(),
+    ),
+    GoRoute(
+      path: '/register',
+      builder: (_, __) => const RegisterScreen(),
+    ),
+
     // ---------------------------------------------------------
     // 🚀 INICIO
     // ---------------------------------------------------------
@@ -52,6 +66,7 @@ final GoRouter appRouter = GoRouter(
     // ---------------------------------------------------------
     // 🧬 RAZAS
     // ---------------------------------------------------------
+
     GoRoute(
       path: '/race-selection',
       builder: (_, __) => const RaceSelectionScreen(),
@@ -109,6 +124,7 @@ final GoRouter appRouter = GoRouter(
     // ---------------------------------------------------------
     // ⚔️ CLASES
     // ---------------------------------------------------------
+
     GoRoute(
       path: '/select-class',
       builder: (_, __) => const ClassSelectionScreen(),
@@ -136,6 +152,7 @@ final GoRouter appRouter = GoRouter(
     // ---------------------------------------------------------
     // 🛠 CREACIÓN DE PERSONAJE
     // ---------------------------------------------------------
+
     GoRoute(
       path: '/select-level',
       builder: (_, __) => const SelectLevelScreen(),
@@ -169,6 +186,7 @@ final GoRouter appRouter = GoRouter(
     // ---------------------------------------------------------
     // 🏠 HOME
     // ---------------------------------------------------------
+
     GoRoute(
       path: '/home',
       builder: (_, __) => const MainHomeScreen(),
@@ -177,6 +195,7 @@ final GoRouter appRouter = GoRouter(
     // ---------------------------------------------------------
     // 📜 HOJA DE PERSONAJE
     // ---------------------------------------------------------
+
     GoRoute(
       path: '/character/:id',
       builder: (_, state) {
@@ -201,9 +220,11 @@ final GoRouter appRouter = GoRouter(
       path: '/select-background',
       builder: (_, __) => const BackgroundSelectionScreen(),
     ),
+
     // ---------------------------------------------------------
     // ✏️ EDICIÓN DE PERSONAJE
     // ---------------------------------------------------------
+
     GoRoute(
       path: '/edit-character/:id',
       builder: (_, state) {

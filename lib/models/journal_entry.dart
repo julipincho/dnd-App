@@ -9,6 +9,9 @@ class JournalEntry {
   final String? authorCharacterPortraitPath;
   final String? authorCharacterId;
 
+  // 🔥 NUEVO CAMPO
+  final String? authorUserId;
+
   final String content;
   final String? imagePath;
 
@@ -23,6 +26,7 @@ class JournalEntry {
     this.authorCharacterName,
     this.authorCharacterPortraitPath,
     this.authorCharacterId,
+    this.authorUserId, // 👈 agregado
     required this.content,
     this.imagePath,
     required this.createdAt,
@@ -38,6 +42,10 @@ class JournalEntry {
       authorCharacterName: json['authorCharacterName'],
       authorCharacterPortraitPath: json['authorCharacterPortraitPath'],
       authorCharacterId: json['authorCharacterId'],
+
+      // 🔥 IMPORTANTE: fallback para datos viejos
+      authorUserId: json['authorUserId'],
+
       content: json['content'],
       imagePath: json['imagePath'],
       createdAt: DateTime.parse(json['createdAt']),
@@ -54,6 +62,10 @@ class JournalEntry {
       'authorCharacterName': authorCharacterName,
       'authorCharacterPortraitPath': authorCharacterPortraitPath,
       'authorCharacterId': authorCharacterId,
+
+      // 🔥 GUARDAR USER ID
+      'authorUserId': authorUserId,
+
       'content': content,
       'imagePath': imagePath,
       'createdAt': createdAt.toIso8601String(),

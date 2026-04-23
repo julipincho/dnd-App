@@ -87,7 +87,7 @@ class Character {
 
   int featInitiativeBonus;
   int featSpeedBonus;
-
+  String? get userId => ownerUserId;
   bool cannotBeSurprisedWhileConscious;
   bool unseenAttackersNoAdvantage;
 

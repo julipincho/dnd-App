@@ -16,6 +16,7 @@ import 'models/character_options_repository.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'providers/auth_provider.dart';
+import 'screens/login_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -84,7 +85,7 @@ class StitchApp extends StatelessWidget {
   Widget build(BuildContext context) {
     final authProvider = context.watch<AuthProvider>();
 
-    if (!authProvider.isInitialized) {
+    if (!authProvider.isInitialized || authProvider.isLoading) {
       return MaterialApp(
         title: 'Stitch',
         theme: stitchTheme,
@@ -94,6 +95,15 @@ class StitchApp extends StatelessWidget {
             child: CircularProgressIndicator(),
           ),
         ),
+      );
+    }
+
+    if (!authProvider.isSignedIn) {
+      return MaterialApp(
+        title: 'Stitch',
+        theme: stitchTheme,
+        debugShowCheckedModeBanner: false,
+        home: const LoginScreen(),
       );
     }
 

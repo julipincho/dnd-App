@@ -8,27 +8,61 @@ class AuthService {
 
   Stream<User?> get authStateChanges => _auth.authStateChanges();
 
-  Future<User> ensureSignedInAnonymously() async {
-    final existingUser = _auth.currentUser;
+  Future<User?> getCurrentUser() async {
+    return _auth.currentUser;
+  }
 
-    if (existingUser != null) {
-      debugPrint('AuthService: existing user ${existingUser.uid}');
-      return existingUser;
-    }
-
+  Future<User> signInWithEmailAndPassword({
+    required String email,
+    required String password,
+  }) async {
     try {
-      debugPrint('AuthService: signing in anonymously...');
-      final credential = await _auth.signInAnonymously();
+      final credential = await _auth.signInWithEmailAndPassword(
+        email: email.trim(),
+        password: password,
+      );
 
       final user = credential.user;
       if (user == null) {
-        throw Exception('AuthService: user is null after sign in');
+        throw FirebaseAuthException(
+          code: 'user-null',
+          message: 'No user was returned after sign in.',
+        );
       }
 
-      debugPrint('AuthService: signed in ${user.uid}');
       return user;
+    } on FirebaseAuthException {
+      rethrow;
     } catch (e, st) {
-      debugPrint('AuthService ERROR: $e');
+      debugPrint('AuthService signInWithEmailAndPassword ERROR: $e');
+      debugPrint('$st');
+      rethrow;
+    }
+  }
+
+  Future<User> createUserWithEmailAndPassword({
+    required String email,
+    required String password,
+  }) async {
+    try {
+      final credential = await _auth.createUserWithEmailAndPassword(
+        email: email.trim(),
+        password: password,
+      );
+
+      final user = credential.user;
+      if (user == null) {
+        throw FirebaseAuthException(
+          code: 'user-null',
+          message: 'No user was returned after registration.',
+        );
+      }
+
+      return user;
+    } on FirebaseAuthException {
+      rethrow;
+    } catch (e, st) {
+      debugPrint('AuthService createUserWithEmailAndPassword ERROR: $e');
       debugPrint('$st');
       rethrow;
     }

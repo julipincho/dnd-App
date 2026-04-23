@@ -192,10 +192,68 @@ class _HomeTopBar extends StatelessWidget {
               color: Colors.white.withOpacity(0.08),
             ),
           ),
-          child: IconButton(
-            onPressed: () {},
-            icon: const Icon(Icons.settings_rounded),
-            color: Colors.white,
+          child: PopupMenuButton<String>(
+            tooltip: 'Settings',
+            color: const Color(0xFF17132A),
+            icon: const Icon(
+              Icons.settings_rounded,
+              color: Colors.white,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            onSelected: (value) async {
+              if (value == 'logout') {
+                final confirm = await showDialog<bool>(
+                  context: context,
+                  builder: (dialogContext) {
+                    return AlertDialog(
+                      backgroundColor: const Color(0xFF17132A),
+                      title: const Text(
+                        'Log out',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                      content: Text(
+                        'Do you want to close your current session?',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.75),
+                        ),
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(dialogContext, false),
+                          child: const Text('Cancel'),
+                        ),
+                        FilledButton(
+                          onPressed: () => Navigator.pop(dialogContext, true),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF4DA8FF),
+                            foregroundColor: Colors.white,
+                          ),
+                          child: const Text('Log out'),
+                        ),
+                      ],
+                    );
+                  },
+                );
+
+                if (confirm == true) {
+                  await context.read<AuthProvider>().logout();
+                }
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem<String>(
+                value: 'logout',
+                child: Row(
+                  children: [
+                    Icon(Icons.logout_rounded),
+                    SizedBox(width: 10),
+                    Text('Log out'),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ],

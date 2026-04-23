@@ -43,6 +43,7 @@ import '../features/characters/models/resolved_inventory_item.dart';
 import '../services/race_sync_service.dart';
 import '../models/character_feature.dart';
 import '../providers/campaign_provider.dart';
+import '../providers/auth_provider.dart';
 
 enum _SpellChoiceSaveMode {
   known,
@@ -5023,12 +5024,22 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final compendiumProvider = context.watch<CompendiumProvider>();
     final roleProvider = context.watch<AppRoleProvider>();
     final spellProvider = context.watch<SpellProvider>();
-    final isDm = roleProvider.isDm;
     final equipmentProvider = context.watch<EquipmentProvider>();
+    final authProvider = context.watch<AuthProvider>();
+
+    final isDm = roleProvider.isDm;
+    final currentUserId = authProvider.userId;
+
+    final allVisibleCharacters = <Character>[
+      ...provider.characters,
+      ...provider.campaignCharacters,
+    ];
+
     Character? foundCharacter;
     try {
-      foundCharacter =
-          provider.characters.firstWhere((c) => c.id == widget.characterId);
+      foundCharacter = allVisibleCharacters.firstWhere(
+        (c) => c.id == widget.characterId,
+      );
     } catch (_) {
       foundCharacter = null;
     }
@@ -5046,6 +5057,10 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     }
 
     final char = foundCharacter;
+
+    final isOwnedByCurrentUser = currentUserId != null &&
+        char.userId != null &&
+        char.userId == currentUserId;
 
     final characterJournalEntries = journalProvider
         .getEntriesByCharacter(char.id)
@@ -5079,6 +5094,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
           ),
           centerTitle: true,
           actions: [
+            // 👉 Ir a campaña (SIEMPRE disponible)
             if (char.campaignId != null)
               IconButton(
                 icon: const Icon(Icons.flag_outlined, color: Colors.white),
@@ -5103,56 +5119,62 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                   context.go('/campaign-detail');
                 },
               ),
-            IconButton(
-              icon: const Icon(Icons.edit, color: Colors.white),
-              onPressed: () {
-                context.push('/edit-character/${char.id}');
-              },
-            ),
-            IconButton(
-              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-              tooltip: 'Delete character',
-              onPressed: () async {
-                final confirm = await showDialog<bool>(
-                  context: context,
-                  builder: (_) => AlertDialog(
-                    title: const Text('Delete Character'),
-                    content: const Text(
-                      'Are you sure you want to delete this character?',
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context, false),
-                        child: const Text('Cancel'),
+
+            // 👉 SOLO SI ES TUYO → EDITAR
+            if (isOwnedByCurrentUser)
+              IconButton(
+                icon: const Icon(Icons.edit, color: Colors.white),
+                onPressed: () {
+                  context.push('/edit-character/${char.id}');
+                },
+              ),
+
+            // 👉 SOLO SI ES TUYO → BORRAR
+            if (isOwnedByCurrentUser)
+              IconButton(
+                icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                tooltip: 'Delete character',
+                onPressed: () async {
+                  final confirm = await showDialog<bool>(
+                    context: context,
+                    builder: (_) => AlertDialog(
+                      title: const Text('Delete Character'),
+                      content: const Text(
+                        'Are you sure you want to delete this character?',
                       ),
-                      TextButton(
-                        onPressed: () => Navigator.pop(context, true),
-                        child: const Text(
-                          'Delete',
-                          style: TextStyle(color: Colors.red),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, false),
+                          child: const Text('Cancel'),
                         ),
-                      ),
-                    ],
-                  ),
-                );
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          child: const Text(
+                            'Delete',
+                            style: TextStyle(color: Colors.red),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
 
-                if (confirm != true) return;
+                  if (confirm != true) return;
 
-                final deletedCharacter = char;
+                  final deletedCharacter = char;
 
-                await context
-                    .read<CharacterProvider>()
-                    .deleteCharacterById(deletedCharacter.id);
+                  await context
+                      .read<CharacterProvider>()
+                      .deleteCharacterById(deletedCharacter.id);
 
-                if (!context.mounted) return;
+                  if (!context.mounted) return;
 
-                if (deletedCharacter.campaignId != null) {
-                  context.go('/campaign-characters');
-                } else {
-                  context.go('/characters');
-                }
-              },
-            ),
+                  if (deletedCharacter.campaignId != null) {
+                    context.go('/campaign-characters');
+                  } else {
+                    context.go('/characters');
+                  }
+                },
+              ),
           ],
           bottom: const TabBar(
             isScrollable: true,
@@ -5331,7 +5353,10 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 content: content,
               ),
               onOpenDiceRoller: _openDiceRoller,
-              onLevelUp: () => _showLevelUpDialog(context, char),
+              onLevelUp: () async {
+                if (!isOwnedByCurrentUser) return;
+                await _showLevelUpDialog(context, char);
+              },
               onGoToCampaign: () async {
                 final campaignId = char.campaignId;
                 if (campaignId == null || campaignId.trim().isEmpty) return;
@@ -5350,8 +5375,14 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 if (!context.mounted) return;
                 context.go('/campaign-detail');
               },
-              onManageCampaign: () => _showManageCampaignSheet(context, char),
-              onEditSpeed: () => _editSpeed(context, char),
+              onManageCampaign: () async {
+                if (!isOwnedByCurrentUser) return;
+                await _showManageCampaignSheet(context, char);
+              },
+              onEditSpeed: () async {
+                if (!isOwnedByCurrentUser) return;
+                await _editSpeed(context, char);
+              },
               onRollFromSheet: ({
                 required label,
                 required modifier,
@@ -6724,7 +6755,15 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     required bool isTablet,
     required bool isLargeTablet,
   }) {
+    final authProvider = context.read<AuthProvider>();
+    final currentUserId = authProvider.userId;
+
+    final isOwnedByCurrentUser = currentUserId != null &&
+        char.userId != null &&
+        char.userId == currentUserId;
+
     final selectedIds = char.selectedFeatIds;
+
     final selectedFeats = _allFeats
         .where((feat) => selectedIds.contains(feat.id))
         .toList()
@@ -6765,7 +6804,21 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               fontSize: 13,
             ),
           ),
+
+          // 🔹 MENSAJE SOLO LECTURA
+          if (!isOwnedByCurrentUser) ...[
+            const SizedBox(height: 6),
+            Text(
+              'You can view feats, but only the owner can modify them.',
+              style: TextStyle(
+                color: Colors.orangeAccent.withOpacity(0.8),
+                fontSize: 11,
+              ),
+            ),
+          ],
+
           const SizedBox(height: 14),
+
           ...selectedFeats.map((feat) {
             final selection = featSelections[feat.id];
 
@@ -6782,7 +6835,10 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 color: Colors.transparent,
                 child: InkWell(
                   borderRadius: BorderRadius.circular(14),
+
+                  // 🔒 SOLO LECTURA PARA NO DUEÑO
                   onTap: () => _showFeatDetailSheet(context, feat),
+
                   child: Padding(
                     padding: const EdgeInsets.all(14),
                     child: Row(
@@ -6871,6 +6927,13 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     required bool isTablet,
     required bool isLargeTablet,
   }) {
+    final authProvider = context.read<AuthProvider>();
+    final currentUserId = authProvider.userId;
+
+    final isOwnedByCurrentUser = currentUserId != null &&
+        char.userId != null &&
+        char.userId == currentUserId;
+
     final infusions = CharacterOptionEffects.getSelectedInfusions(char);
     final activeInfusedCount = getActiveInfusedItemsCount(char);
     final activeInfusedLimit = getArtificerActiveInfusedItemsLimit(char);
@@ -6908,6 +6971,16 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               fontSize: 13,
             ),
           ),
+          if (!isOwnedByCurrentUser) ...[
+            const SizedBox(height: 6),
+            Text(
+              'You can view infusions, but only the owner can modify how they are applied.',
+              style: TextStyle(
+                color: Colors.orangeAccent.withOpacity(0.8),
+                fontSize: 11,
+              ),
+            ),
+          ],
           const SizedBox(height: 14),
           ...infusions.map((infusion) {
             return Container(
@@ -7006,6 +7079,13 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     EquipmentProvider equipmentProvider,
     bool isDm,
   ) {
+    final authProvider = context.read<AuthProvider>();
+    final currentUserId = authProvider.userId;
+
+    final isOwnedByCurrentUser = currentUserId != null &&
+        char.userId != null &&
+        char.userId == currentUserId;
+
     final screenWidth = MediaQuery.of(context).size.width;
     final isTablet = screenWidth >= 600;
     final isLargeTablet = screenWidth >= 900;
@@ -7288,7 +7368,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                     ],
                                   ),
                                 ),
-                                if (isDm)
+                                if (isDm || isOwnedByCurrentUser)
                                   IconButton(
                                     onPressed: () async {
                                       await context
@@ -7360,7 +7440,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                         MaterialPageRoute(
                                           builder: (_) =>
                                               CompendiumEntryDetailScreen(
-                                            entry: linkedEntry!,
+                                            entry: linkedEntry,
                                           ),
                                         ),
                                       );
@@ -7369,20 +7449,24 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                 if (effectiveItem.isEquippable && !isEquipped)
                                   ActionChip(
                                     label: const Text('Equip'),
-                                    onPressed: () => _equipInventoryItem(
-                                      context,
-                                      char,
-                                      effectiveItem,
-                                    ),
+                                    onPressed: isOwnedByCurrentUser
+                                        ? () => _equipInventoryItem(
+                                              context,
+                                              char,
+                                              effectiveItem,
+                                            )
+                                        : null,
                                   ),
                                 if (effectiveItem.isEquippable && isEquipped)
                                   ActionChip(
                                     label: const Text('Unequip'),
-                                    onPressed: () => _unequipInventoryItem(
-                                      context,
-                                      char,
-                                      effectiveItem,
-                                    ),
+                                    onPressed: isOwnedByCurrentUser
+                                        ? () => _unequipInventoryItem(
+                                              context,
+                                              char,
+                                              effectiveItem,
+                                            )
+                                        : null,
                                   ),
                                 if (_getValidInfusionsForItem(
                                       char,
@@ -7401,11 +7485,13 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                           ? 'Change Infusion'
                                           : 'Infuse',
                                     ),
-                                    onPressed: () => _showInfusionPicker(
-                                      context,
-                                      char,
-                                      inventoryItem,
-                                    ),
+                                    onPressed: isOwnedByCurrentUser
+                                        ? () => _showInfusionPicker(
+                                              context,
+                                              char,
+                                              inventoryItem,
+                                            )
+                                        : null,
                                   ),
                               ],
                             ),
@@ -7432,6 +7518,14 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         child: CircularProgressIndicator(),
       );
     }
+
+    final authProvider = context.read<AuthProvider>();
+    final currentUserId = authProvider.userId;
+
+    final isOwnedByCurrentUser = currentUserId != null &&
+        char.userId != null &&
+        char.userId == currentUserId;
+
     final equipmentProvider = context.read<EquipmentProvider>();
     final compendiumProvider = context.read<CompendiumProvider>();
     final screenWidth = MediaQuery.of(context).size.width;
@@ -7463,6 +7557,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         usesPreparedLimit ? _preparedSpellLimit(char) : 0;
     final preparedSpellLimitLabel =
         SpellcastingRules.preparedSpellLimitLabel(char);
+
     final selectedSpells = char.spellIds
         .map((id) => spellProvider.getById(id))
         .whereType<Spell>()
@@ -7472,6 +7567,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         if (levelCompare != 0) return levelCompare;
         return a.name.toLowerCase().compareTo(b.name.toLowerCase());
       });
+
     final usesKnownSpells = SpellcastingRules.usesKnownSpells(char);
     final usesKnownCantrips = SpellcastingRules.usesKnownCantrips(char);
     final knownSpellLimit = usesKnownSpells ? _knownSpellLimit(char) : 0;
@@ -7481,6 +7577,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         selectedSpells.where((spell) => spell.level == 0).length;
     final selectedNonCantripSpells =
         selectedSpells.where((spell) => spell.level > 0).length;
+
     final preparedSpells = char.preparedSpellIds
         .map((id) => spellProvider.getById(id))
         .whereType<Spell>()
@@ -7525,6 +7622,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     Widget buildSpellChip(Spell spell) {
       final isPrepared =
           usesPreparedSpells && char.preparedSpellIds.contains(spell.id);
+
       return ActionChip(
         label: Row(
           mainAxisSize: MainAxisSize.min,
@@ -7562,16 +7660,17 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
             builder: (_) {
               final preparedNow = usesPreparedSpells &&
                   char.preparedSpellIds.contains(spell.id);
-              final usesPreparedLimit = usesPreparedSpells &&
+              final usesPreparedLimitNow = usesPreparedSpells &&
                   SpellcastingRules.usesPreparedSpellLimit(char);
-              final preparedLimit =
-                  usesPreparedLimit ? _preparedSpellLimit(char) : 0;
-              final preparedCount =
+              final preparedLimitNow =
+                  usesPreparedLimitNow ? _preparedSpellLimit(char) : 0;
+              final preparedCountNow =
                   usesPreparedSpells ? char.preparedSpellIds.length : 0;
               final canPrepareMore = !usesPreparedSpells ||
-                  !usesPreparedLimit ||
+                  !usesPreparedLimitNow ||
                   preparedNow ||
-                  preparedCount < preparedLimit;
+                  preparedCountNow < preparedLimitNow;
+
               return Padding(
                 padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
                 child: SingleChildScrollView(
@@ -7597,10 +7696,10 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                             _buildSpellMetaChip(spell.source),
                         ],
                       ),
-                      if (usesPreparedSpells && usesPreparedLimit) ...[
+                      if (usesPreparedSpells && usesPreparedLimitNow) ...[
                         const SizedBox(height: 10),
                         Text(
-                          'Prepared: $preparedCount / $preparedLimit',
+                          'Prepared: $preparedCountNow / $preparedLimitNow',
                           style: TextStyle(
                             color: canPrepareMore
                                 ? Colors.white70
@@ -7647,19 +7746,20 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         children: [
                           if (usesPreparedSpells)
                             FilledButton.icon(
-                              onPressed: canPrepareMore
-                                  ? () async {
-                                      await _togglePreparedSpell(
-                                        context,
-                                        char,
-                                        spell.id,
-                                      );
+                              onPressed:
+                                  (isOwnedByCurrentUser && canPrepareMore)
+                                      ? () async {
+                                          await _togglePreparedSpell(
+                                            context,
+                                            char,
+                                            spell.id,
+                                          );
 
-                                      if (context.mounted) {
-                                        Navigator.pop(context);
-                                      }
-                                    }
-                                  : null,
+                                          if (context.mounted) {
+                                            Navigator.pop(context);
+                                          }
+                                        }
+                                      : null,
                               icon: Icon(
                                 preparedNow
                                     ? Icons.check_box_outlined
@@ -7672,17 +7772,19 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                               ),
                             ),
                           TextButton.icon(
-                            onPressed: () async {
-                              await _removeSpellFromCharacter(
-                                context,
-                                char,
-                                spell.id,
-                              );
+                            onPressed: isOwnedByCurrentUser
+                                ? () async {
+                                    await _removeSpellFromCharacter(
+                                      context,
+                                      char,
+                                      spell.id,
+                                    );
 
-                              if (context.mounted) {
-                                Navigator.pop(context);
-                              }
-                            },
+                                    if (context.mounted) {
+                                      Navigator.pop(context);
+                                    }
+                                  }
+                                : null,
                             icon: const Icon(Icons.delete_outline),
                             label: const Text('Remove Spell'),
                           ),
@@ -7723,8 +7825,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     runSpacing: 8,
                     children: [
                       OutlinedButton.icon(
-                        onPressed: () =>
-                            _showSpellcastingConfigDialog(context, char),
+                        onPressed: isOwnedByCurrentUser
+                            ? () => _showSpellcastingConfigDialog(context, char)
+                            : null,
                         icon: const Icon(Icons.auto_awesome_outlined),
                         label: Text(
                           _normalizedSpellcastingAbility(char) == null
@@ -7733,28 +7836,30 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         ),
                       ),
                       OutlinedButton.icon(
-                        onPressed: () =>
-                            _showEditSpellSlotsDialog(context, char),
+                        onPressed: isOwnedByCurrentUser
+                            ? () => _showEditSpellSlotsDialog(context, char)
+                            : null,
                         icon: const Icon(Icons.tune),
                         label: const Text('Manage Slots'),
                       ),
                       if (SpellcastingRules.canReplaceKnownSpellOnLevelUp(char))
                         OutlinedButton.icon(
-                          onPressed: char.spellIds.isEmpty
-                              ? null
-                              : () => _showReplaceKnownSpellDialog(
-                                    context,
-                                    char,
-                                  ),
+                          onPressed:
+                              (isOwnedByCurrentUser && char.spellIds.isNotEmpty)
+                                  ? () => _showReplaceKnownSpellDialog(
+                                        context,
+                                        char,
+                                      )
+                                  : null,
                           icon: const Icon(Icons.swap_horiz),
                           label: const Text('Replace Spell'),
                         ),
                       ElevatedButton.icon(
-                        onPressed: () => _openSpellSelector(context, char),
+                        onPressed: isOwnedByCurrentUser
+                            ? () => _openSpellSelector(context, char)
+                            : null,
                         icon: const Icon(Icons.add),
-                        label: Text(
-                          usesKnownSpells ? 'Add Spell' : 'Add Spell',
-                        ),
+                        label: const Text('Add Spell'),
                       ),
                     ],
                   ),
@@ -7862,41 +7967,44 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                   children: [
                     Expanded(
                       child: FilledButton.icon(
-                        onPressed: () async {
-                          final confirm = await showDialog<bool>(
-                            context: context,
-                            builder: (_) => AlertDialog(
-                              backgroundColor: const Color(0xFF202028),
-                              title: const Text(
-                                'Auto-fill Spell Slots',
-                                style: TextStyle(color: Colors.white),
-                              ),
-                              content: const Text(
-                                'This will generate spell slots based on class and level.\n\nDo you want to continue?',
-                                style: TextStyle(color: Colors.white70),
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () =>
-                                      Navigator.pop(context, false),
-                                  child: const Text('Cancel'),
-                                ),
-                                FilledButton(
-                                  onPressed: () => Navigator.pop(context, true),
-                                  child: const Text('Apply'),
-                                ),
-                              ],
-                            ),
-                          );
+                        onPressed: isOwnedByCurrentUser
+                            ? () async {
+                                final confirm = await showDialog<bool>(
+                                  context: context,
+                                  builder: (_) => AlertDialog(
+                                    backgroundColor: const Color(0xFF202028),
+                                    title: const Text(
+                                      'Auto-fill Spell Slots',
+                                      style: TextStyle(color: Colors.white),
+                                    ),
+                                    content: const Text(
+                                      'This will generate spell slots based on class and level.\n\nDo you want to continue?',
+                                      style: TextStyle(color: Colors.white70),
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(context, false),
+                                        child: const Text('Cancel'),
+                                      ),
+                                      FilledButton(
+                                        onPressed: () =>
+                                            Navigator.pop(context, true),
+                                        child: const Text('Apply'),
+                                      ),
+                                    ],
+                                  ),
+                                );
 
-                          if (confirm != true) return;
+                                if (confirm != true) return;
 
-                          await _applyAutoSpellSlots(
-                            context,
-                            char,
-                            preserveUsed: true,
-                          );
-                        },
+                                await _applyAutoSpellSlots(
+                                  context,
+                                  char,
+                                  preserveUsed: true,
+                                );
+                              }
+                            : null,
                         icon: const Icon(Icons.auto_fix_high),
                         label: const Text('Auto-fill Slots'),
                       ),
@@ -7905,13 +8013,15 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     IconButton(
                       tooltip: 'Regenerate slots (reset usage)',
                       icon: const Icon(Icons.refresh),
-                      onPressed: () async {
-                        await _applyAutoSpellSlots(
-                          context,
-                          char,
-                          preserveUsed: false,
-                        );
-                      },
+                      onPressed: isOwnedByCurrentUser
+                          ? () async {
+                              await _applyAutoSpellSlots(
+                                context,
+                                char,
+                                preserveUsed: false,
+                              );
+                            }
+                          : null,
                     ),
                   ],
                 ),
@@ -7929,8 +8039,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                           ),
                           const SizedBox(height: 10),
                           OutlinedButton.icon(
-                            onPressed: () =>
-                                _showEditSpellSlotsDialog(context, char),
+                            onPressed: isOwnedByCurrentUser
+                                ? () => _showEditSpellSlotsDialog(context, char)
+                                : null,
                             icon: const Icon(Icons.auto_fix_high),
                             label: const Text('Set up slots'),
                           ),
@@ -7945,8 +8056,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                             children: [
                               ActionChip(
                                 label: const Text('Recover All Slots'),
-                                onPressed: () =>
-                                    _recoverAllSpellSlots(context, char),
+                                onPressed: isOwnedByCurrentUser
+                                    ? () => _recoverAllSpellSlots(context, char)
+                                    : null,
                               ),
                             ],
                           ),
@@ -8365,6 +8477,13 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     required bool isTablet,
     required bool isLargeTablet,
   }) {
+    final authProvider = context.read<AuthProvider>();
+    final currentUserId = authProvider.userId;
+
+    final isOwnedByCurrentUser = currentUserId != null &&
+        char.userId != null &&
+        char.userId == currentUserId;
+
     final groups = _buildCharacterOptionGrantGroups(char);
 
     if (groups.isEmpty) {
@@ -8383,7 +8502,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Choices granted by class, subclass, or feats will appear here.',
+            isOwnedByCurrentUser
+                ? 'Choices granted by class, subclass, or feats will appear here.'
+                : 'You can view this character’s class options, but only the owner can modify them.',
             style: TextStyle(
               color: Colors.white.withOpacity(0.7),
               fontSize: 12,
@@ -8414,6 +8535,13 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     required bool isTablet,
     required bool isLargeTablet,
   }) {
+    final authProvider = context.read<AuthProvider>();
+    final currentUserId = authProvider.userId;
+
+    final isOwnedByCurrentUser = currentUserId != null &&
+        char.userId != null &&
+        char.userId == currentUserId;
+
     final isSpellGroup = group.category == CharacterOptionCategory.spell;
 
     final selectedOptions = isSpellGroup
@@ -8491,7 +8619,10 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               ),
             ],
           ),
+
           const SizedBox(height: 12),
+
+          // 🔹 SELECCIONES
           if (isSpellGroup)
             if (spellLabels.isEmpty)
               Text(
@@ -8525,6 +8656,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                   .map((option) => _buildCharacterOptionChip(context, option))
                   .toList(),
             ),
+
+          // 🔹 DISPONIBLES
           if (!isSpellGroup && availableOptions.isNotEmpty) ...[
             const SizedBox(height: 12),
             Text(
@@ -8535,15 +8668,20 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               ),
             ),
           ],
+
           const SizedBox(height: 12),
+
+          // 🔹 BOTÓN EDITAR / ELEGIR (BLINDADO)
           Align(
             alignment: Alignment.centerLeft,
             child: FilledButton.icon(
-              onPressed: () => _showChooseOptionsForGrantGroupDialog(
-                context,
-                char,
-                group,
-              ),
+              onPressed: isOwnedByCurrentUser
+                  ? () => _showChooseOptionsForGrantGroupDialog(
+                        context,
+                        char,
+                        group,
+                      )
+                  : null,
               icon: Icon(
                 selectedCount == 0
                     ? Icons.add_circle_outline
@@ -8552,6 +8690,18 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               label: Text(selectedCount == 0 ? 'Choose' : 'Edit'),
             ),
           ),
+
+          // 🔹 MENSAJE SOLO LECTURA
+          if (!isOwnedByCurrentUser) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Only the character owner can modify these options.',
+              style: TextStyle(
+                color: Colors.orangeAccent.withOpacity(0.8),
+                fontSize: 11,
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -9243,6 +9393,13 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     required bool isTablet,
     required bool isLargeTablet,
   }) {
+    final authProvider = context.read<AuthProvider>();
+    final currentUserId = authProvider.userId;
+
+    final isOwnedByCurrentUser = currentUserId != null &&
+        char.userId != null &&
+        char.userId == currentUserId;
+
     final features = [...char.features]..sort((a, b) {
         final levelCompare =
             (a.unlockedAtLevel ?? 0).compareTo(b.unlockedAtLevel ?? 0);
@@ -9262,14 +9419,26 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
             ),
             const SizedBox(height: 10),
             OutlinedButton.icon(
-              onPressed: () async {
-                await context
-                    .read<CharacterProvider>()
-                    .syncFeaturesAndResources(char.id);
-              },
+              onPressed: isOwnedByCurrentUser
+                  ? () async {
+                      await context
+                          .read<CharacterProvider>()
+                          .syncFeaturesAndResources(char.id);
+                    }
+                  : null,
               icon: const Icon(Icons.sync),
               label: const Text('Sync Features'),
             ),
+            if (!isOwnedByCurrentUser) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Only the character owner can sync features.',
+                style: TextStyle(
+                  color: Colors.orangeAccent.withOpacity(0.8),
+                  fontSize: 11,
+                ),
+              ),
+            ],
           ],
         ),
       );
@@ -9326,16 +9495,28 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
             runSpacing: 8,
             children: [
               OutlinedButton.icon(
-                onPressed: () async {
-                  await context
-                      .read<CharacterProvider>()
-                      .syncFeaturesAndResources(char.id);
-                },
+                onPressed: isOwnedByCurrentUser
+                    ? () async {
+                        await context
+                            .read<CharacterProvider>()
+                            .syncFeaturesAndResources(char.id);
+                      }
+                    : null,
                 icon: const Icon(Icons.sync),
                 label: const Text('Sync'),
               ),
             ],
           ),
+          if (!isOwnedByCurrentUser) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Only the character owner can sync features.',
+              style: TextStyle(
+                color: Colors.orangeAccent.withOpacity(0.8),
+                fontSize: 11,
+              ),
+            ),
+          ],
           const SizedBox(height: 14),
           ...orderedGroups.map(
             (group) => _buildFeatureSourceGroupCard(
@@ -9521,6 +9702,13 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     required bool isTablet,
     required bool isLargeTablet,
   }) {
+    final authProvider = context.read<AuthProvider>();
+    final currentUserId = authProvider.userId;
+
+    final isOwnedByCurrentUser = currentUserId != null &&
+        char.userId != null &&
+        char.userId == currentUserId;
+
     final resources = [...char.resources]
       ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
@@ -9536,11 +9724,13 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
             ),
             const SizedBox(height: 10),
             OutlinedButton.icon(
-              onPressed: () async {
-                await context
-                    .read<CharacterProvider>()
-                    .syncFeaturesAndResources(char.id);
-              },
+              onPressed: isOwnedByCurrentUser
+                  ? () async {
+                      await context
+                          .read<CharacterProvider>()
+                          .syncFeaturesAndResources(char.id);
+                    }
+                  : null,
               icon: const Icon(Icons.sync),
               label: const Text('Sync Resources'),
             ),
@@ -9560,26 +9750,32 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
             children: [
               ActionChip(
                 label: const Text('Recover Short Rest'),
-                onPressed: () async {
-                  await context
-                      .read<CharacterProvider>()
-                      .recoverResourcesByType(char.id, 'shortRest');
-                },
+                onPressed: isOwnedByCurrentUser
+                    ? () async {
+                        await context
+                            .read<CharacterProvider>()
+                            .recoverResourcesByType(char.id, 'shortRest');
+                      }
+                    : null,
               ),
               ActionChip(
                 label: const Text('Recover Long Rest'),
-                onPressed: () async {
-                  await context
-                      .read<CharacterProvider>()
-                      .recoverResourcesByType(char.id, 'longRest');
-                },
+                onPressed: isOwnedByCurrentUser
+                    ? () async {
+                        await context
+                            .read<CharacterProvider>()
+                            .recoverResourcesByType(char.id, 'longRest');
+                      }
+                    : null,
               ),
               OutlinedButton.icon(
-                onPressed: () async {
-                  await context
-                      .read<CharacterProvider>()
-                      .syncFeaturesAndResources(char.id);
-                },
+                onPressed: isOwnedByCurrentUser
+                    ? () async {
+                        await context
+                            .read<CharacterProvider>()
+                            .syncFeaturesAndResources(char.id);
+                      }
+                    : null,
                 icon: const Icon(Icons.sync),
                 label: const Text('Sync'),
               ),
@@ -9643,11 +9839,14 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       children: [
                         Expanded(
                           child: OutlinedButton.icon(
-                            onPressed: current > 0
+                            onPressed: (isOwnedByCurrentUser && current > 0)
                                 ? () async {
                                     await context
                                         .read<CharacterProvider>()
-                                        .spendResource(char.id, resource.id);
+                                        .spendResource(
+                                          char.id,
+                                          resource.id,
+                                        );
                                   }
                                 : null,
                             icon: const Icon(Icons.remove_circle_outline),
@@ -9657,11 +9856,14 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         const SizedBox(width: 10),
                         Expanded(
                           child: OutlinedButton.icon(
-                            onPressed: current < max
+                            onPressed: (isOwnedByCurrentUser && current < max)
                                 ? () async {
                                     await context
                                         .read<CharacterProvider>()
-                                        .recoverResource(char.id, resource.id);
+                                        .recoverResource(
+                                          char.id,
+                                          resource.id,
+                                        );
                                   }
                                 : null,
                             icon: const Icon(Icons.add_circle_outline),
@@ -9707,6 +9909,13 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     List<JournalEntry> entries,
     List<Session> campaignSessions,
   ) {
+    final authProvider = context.read<AuthProvider>();
+    final currentUserId = authProvider.userId;
+
+    final isOwnedByCurrentUser = currentUserId != null &&
+        character.userId != null &&
+        character.userId == currentUserId;
+
     final screenWidth = MediaQuery.of(context).size.width;
     final isTablet = screenWidth >= 600;
     final isLargeTablet = screenWidth >= 900;
@@ -9722,20 +9931,21 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         .toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
-    if (entries.isEmpty) {
-      return Column(
-        children: [
-          Padding(
-            padding: EdgeInsets.fromLTRB(
-              isTablet ? 24 : 16,
-              isTablet ? 20 : 16,
-              isTablet ? 24 : 16,
-              8,
-            ),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: maxWidth),
-                child: Row(
+    Widget buildHeader() {
+      return Padding(
+        padding: EdgeInsets.fromLTRB(
+          isTablet ? 24 : 16,
+          isTablet ? 20 : 16,
+          isTablet ? 24 : 16,
+          8,
+        ),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: maxWidth),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
                     Expanded(
                       child: Text(
@@ -9748,19 +9958,39 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       ),
                     ),
                     TextButton.icon(
-                      onPressed: () => _showCreateEntryDialog(
-                        context,
-                        character,
-                        campaignSessions,
-                      ),
+                      onPressed: isOwnedByCurrentUser
+                          ? () => _showCreateEntryDialog(
+                                context,
+                                character,
+                                campaignSessions,
+                              )
+                          : null,
                       icon: const Icon(Icons.add),
                       label: const Text("Add note"),
                     ),
                   ],
                 ),
-              ),
+                if (!isOwnedByCurrentUser) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'You can view this journal, but only the owner can add notes.',
+                    style: TextStyle(
+                      color: Colors.orangeAccent.withOpacity(0.8),
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
+        ),
+      );
+    }
+
+    if (entries.isEmpty) {
+      return Column(
+        children: [
+          buildHeader(),
           const Expanded(
             child: Center(
               child: Text(
@@ -9775,42 +10005,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
     return Column(
       children: [
-        Padding(
-          padding: EdgeInsets.fromLTRB(
-            isTablet ? 24 : 16,
-            isTablet ? 20 : 16,
-            isTablet ? 24 : 16,
-            8,
-          ),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: maxWidth),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      "Journal entries",
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.95),
-                        fontSize: isLargeTablet ? 22 : (isTablet ? 20 : 18),
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  TextButton.icon(
-                    onPressed: () => _showCreateEntryDialog(
-                      context,
-                      character,
-                      campaignSessions,
-                    ),
-                    icon: const Icon(Icons.add),
-                    label: const Text("Add note"),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
+        buildHeader(),
         Expanded(
           child: Center(
             child: ConstrainedBox(
@@ -9873,6 +10068,13 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
   }
 
   Widget _buildJournalCard(BuildContext context, JournalEntry entry) {
+    final authProvider = context.read<AuthProvider>();
+    final currentUserId = authProvider.userId;
+
+    final isOwnedByCurrentUser = currentUserId != null &&
+        entry.authorUserId != null &&
+        entry.authorUserId == currentUserId;
+
     final screenWidth = MediaQuery.of(context).size.width;
     final isTablet = screenWidth >= 600;
 
@@ -9970,34 +10172,39 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                           ],
                         ),
                       ),
-                      PopupMenuButton<String>(
-                        icon: const Icon(
-                          Icons.more_vert,
-                          color: Colors.white70,
+
+                      // 🔒 SOLO SI ES TUYO → MENÚ
+                      if (isOwnedByCurrentUser)
+                        PopupMenuButton<String>(
+                          icon: const Icon(
+                            Icons.more_vert,
+                            color: Colors.white70,
+                          ),
+                          onSelected: (value) async {
+                            if (value == 'edit') {
+                              _showEditEntryDialog(context, entry);
+                            } else if (value == 'delete') {
+                              await context
+                                  .read<JournalEntryProvider>()
+                                  .removeEntry(entry.id);
+                            }
+                          },
+                          itemBuilder: (context) => const [
+                            PopupMenuItem(
+                              value: 'edit',
+                              child: Text('Edit'),
+                            ),
+                            PopupMenuItem(
+                              value: 'delete',
+                              child: Text('Delete'),
+                            ),
+                          ],
                         ),
-                        onSelected: (value) async {
-                          if (value == 'edit') {
-                            _showEditEntryDialog(context, entry);
-                          } else if (value == 'delete') {
-                            await context
-                                .read<JournalEntryProvider>()
-                                .removeEntry(entry.id);
-                          }
-                        },
-                        itemBuilder: (context) => const [
-                          PopupMenuItem(
-                            value: 'edit',
-                            child: Text('Edit'),
-                          ),
-                          PopupMenuItem(
-                            value: 'delete',
-                            child: Text('Delete'),
-                          ),
-                        ],
-                      ),
                     ],
                   ),
+
                   const SizedBox(height: 14),
+
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(12),
@@ -10018,6 +10225,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       ),
                     ),
                   ),
+
                   if (hasAttachedImage) ...[
                     const SizedBox(height: 12),
                     ClipRRect(
@@ -10027,6 +10235,18 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         width: double.infinity,
                         height: isTablet ? 260 : 210,
                         fit: BoxFit.cover,
+                      ),
+                    ),
+                  ],
+
+                  // 🔹 MENSAJE SOLO LECTURA
+                  if (!isOwnedByCurrentUser) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Only the author can edit or delete this note.',
+                      style: TextStyle(
+                        color: Colors.orangeAccent.withOpacity(0.8),
+                        fontSize: 11,
                       ),
                     ),
                   ],
@@ -11531,6 +11751,22 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     Character character,
     List<Session> campaignSessions,
   ) {
+    final authProvider = context.read<AuthProvider>();
+    final currentUserId = authProvider.userId;
+
+    final isOwnedByCurrentUser = currentUserId != null &&
+        character.userId != null &&
+        character.userId == currentUserId;
+
+    if (!isOwnedByCurrentUser) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Only the character owner can create notes.'),
+        ),
+      );
+      return;
+    }
+
     final controller = TextEditingController();
     Session? selectedSession =
         campaignSessions.isNotEmpty ? campaignSessions.first : null;
@@ -11687,6 +11923,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       authorCharacterName: characterName,
                       authorCharacterPortraitPath: character.portraitPath,
                       authorCharacterId: character.id,
+                      authorUserId: currentUserId,
                       content: content,
                       imagePath: selectedImagePath,
                       createdAt: DateTime.now(),
