@@ -68,6 +68,7 @@ flutter:
   assets:
     - assets/data/
     - assets/images/classes/
+    - assets/images/races/
     - assets/data/5etools/
     - assets/data/5etools/races.json
     - assets/data/5etools/subraces.json

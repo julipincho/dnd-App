@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -353,215 +355,223 @@ class _ActiveCampaignHero extends StatelessWidget {
       );
     }
 
-    final visibleCharacters = characters.take(6).toList();
+    final campaignCharacters = characters
+        .where((character) => character.campaignId == campaign!.id)
+        .where((character) => hasDisplayableImagePath(character.portraitPath))
+        .toList();
+    final visibleCharacters = _pickCampaignPortraits(
+      campaignCharacters,
+      campaign!.id,
+    );
 
-    return Container(
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(28),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color(0xFF17132A),
-            Color(0xFF0F1A2F),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Campana Activa',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 25,
+                  fontWeight: FontWeight.w800,
+                  height: 1.05,
+                ),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF4DA8FF).withOpacity(0.10),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: const Color(0xFF4DA8FF).withOpacity(0.24),
+                ),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.circle,
+                    color: Color(0xFF53D9FF),
+                    size: 9,
+                  ),
+                  SizedBox(width: 8),
+                  Text(
+                    'EN CURSO',
+                    style: TextStyle(
+                      color: Color(0xFF8FD2FF),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
-        border: Border.all(
-          color: const Color(0xFF4DA8FF).withOpacity(0.20),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF4DA8FF).withOpacity(0.10),
-            blurRadius: 30,
-            spreadRadius: 1,
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(
-              color: const Color(0xFF4DA8FF).withOpacity(0.10),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: const Text(
-              'ACTIVE CAMPAIGN',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Color(0xFF8FD2FF),
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 1.1,
-              ),
-            ),
-          ),
-          const SizedBox(height: 18),
-          Text(
-            campaign!.name,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 28,
-              fontWeight: FontWeight.w800,
-              height: 1.1,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            campaign!.description ?? 'No description',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.72),
-              fontSize: 14,
-              height: 1.45,
-            ),
-          ),
-          const SizedBox(height: 20),
-          if (visibleCharacters.isEmpty)
-            Text(
-              'No characters in this campaign yet.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.65),
-                fontSize: 14,
-              ),
-            )
-          else
-            Column(
-              children: [
-                _CharacterStack(characters: visibleCharacters),
-                const SizedBox(height: 10),
-                Text(
-                  '${characters.length} character${characters.length == 1 ? '' : 's'} linked to this campaign',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.60),
-                    fontSize: 13,
-                  ),
-                ),
+        const SizedBox(height: 16),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(22),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Color(0xFF17132A),
+                Color(0xFF0F1A2F),
               ],
             ),
-          const SizedBox(height: 22),
-          Wrap(
-            alignment: WrapAlignment.center,
-            spacing: 12,
-            runSpacing: 12,
-            children: [
-              FilledButton.icon(
-                onPressed: () {
-                  context.go('/campaign-detail');
-                },
-                icon: const Icon(Icons.arrow_forward_rounded),
-                label: const Text('Enter Campaign'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF4DA8FF),
-                  foregroundColor: Colors.white,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
-              ),
-              OutlinedButton.icon(
-                onPressed: () {
-                  context.read<CharacterProvider>().startNewCharacter(
-                        campaignId: campaign!.id,
-                        source: CharacterCreationSource.campaignDetail,
-                      );
-                  context.go('/welcome');
-                },
-                icon: const Icon(Icons.person_add_alt_1_rounded),
-                label: const Text('Create for Campaign'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  side: BorderSide(
-                    color: Colors.white.withOpacity(0.18),
-                  ),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
+            border: Border.all(
+              color: const Color(0xFF4DA8FF).withOpacity(0.20),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF4DA8FF).withOpacity(0.10),
+                blurRadius: 30,
+                spreadRadius: 1,
               ),
             ],
           ),
-        ],
-      ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                campaign!.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0xFFBBDFFF),
+                  fontSize: 28,
+                  fontWeight: FontWeight.w900,
+                  fontStyle: FontStyle.italic,
+                  height: 1.12,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                campaign!.description ?? 'No description',
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.70),
+                  fontSize: 16,
+                  height: 1.42,
+                ),
+              ),
+              if (visibleCharacters.isNotEmpty) ...[
+                const SizedBox(height: 22),
+                _CampaignPortraitStrip(characters: visibleCharacters),
+              ],
+              const SizedBox(height: 22),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  FilledButton.icon(
+                    onPressed: () {
+                      context.go('/campaign-detail');
+                    },
+                    icon: const Icon(Icons.arrow_forward_rounded),
+                    label: const Text('Enter Campaign'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF4DA8FF),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 14,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      context.read<CharacterProvider>().startNewCharacter(
+                            campaignId: campaign!.id,
+                            source: CharacterCreationSource.campaignDetail,
+                          );
+                      context.go('/welcome');
+                    },
+                    icon: const Icon(Icons.person_add_alt_1_rounded),
+                    label: const Text('Create for Campaign'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: BorderSide(
+                        color: Colors.white.withOpacity(0.18),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 14,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
     );
+  }
+
+  List<Character> _pickCampaignPortraits(
+    List<Character> characters,
+    String campaignId,
+  ) {
+    if (characters.length <= 6) return characters;
+
+    final seed = campaignId.codeUnits.fold<int>(
+      characters.length,
+      (value, codeUnit) => value + codeUnit,
+    );
+    final randomized = [...characters]..shuffle(Random(seed));
+    return randomized.take(6).toList();
   }
 }
 
-class _CharacterStack extends StatelessWidget {
+class _CampaignPortraitStrip extends StatelessWidget {
   final List<Character> characters;
 
-  const _CharacterStack({required this.characters});
+  const _CampaignPortraitStrip({required this.characters});
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 52,
-      child: Stack(
-        clipBehavior: Clip.none,
+      height: 58,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          for (int i = 0; i < characters.length; i++)
-            Positioned(
-              left: i * 28,
-              child: _CharacterAvatar(
-                character: characters[i],
-                radius: 24,
+          for (var i = 0; i < characters.length; i++)
+            Container(
+              width: 48,
+              height: 58,
+              margin: EdgeInsets.only(right: i == characters.length - 1 ? 0 : 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFF22304B),
+                borderRadius: BorderRadius.horizontal(
+                  left: Radius.circular(i == 0 ? 10 : 3),
+                  right: Radius.circular(i == characters.length - 1 ? 10 : 3),
+                ),
+                border: Border.all(
+                  color: const Color(0xFF4DA8FF).withOpacity(0.22),
+                ),
+                image: DecorationImage(
+                  image: imageProviderFromPath(characters[i].portraitPath!),
+                  fit: BoxFit.cover,
+                  alignment: Alignment.topCenter,
+                ),
               ),
             ),
         ],
-      ),
-    );
-  }
-}
-
-class _CharacterAvatar extends StatelessWidget {
-  final Character character;
-  final double radius;
-
-  const _CharacterAvatar({
-    required this.character,
-    this.radius = 18,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final hasPortrait = hasDisplayableImagePath(character.portraitPath);
-
-    return Container(
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: const Color(0xFF0C0916),
-          width: 2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.18),
-            blurRadius: 10,
-          ),
-        ],
-      ),
-      child: CircleAvatar(
-        radius: radius,
-        backgroundColor: const Color(0xFF22304B),
-        backgroundImage:
-            hasPortrait ? imageProviderFromPath(character.portraitPath!) : null,
-        child: !hasPortrait
-            ? Icon(
-                Icons.person,
-                size: radius,
-                color: Colors.white,
-              )
-            : null,
       ),
     );
   }
