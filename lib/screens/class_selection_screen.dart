@@ -29,22 +29,45 @@ class _ClassSelectionScreenState extends State<ClassSelectionScreen> {
   static const _classesDataPath = 'assets/data/classes_normalized.json';
 
   final ScrollController _classScrollController = ScrollController();
+  final Map<String, Future<ImageProvider?>> _classImageFutures = {};
 
   List<DndClass> _classes = [];
   Map<String, dynamic> _rawClassDataById = {};
+  double _classScrollOffset = 0;
   int _selectedIndex = 0;
   bool _loading = true;
 
   @override
   void initState() {
     super.initState();
+    _classScrollController.addListener(_rememberClassScrollOffset);
     _loadClasses();
   }
 
   @override
   void dispose() {
+    _classScrollController.removeListener(_rememberClassScrollOffset);
     _classScrollController.dispose();
     super.dispose();
+  }
+
+  void _rememberClassScrollOffset() {
+    if (!_classScrollController.hasClients) return;
+    _classScrollOffset = _classScrollController.offset;
+  }
+
+  void _restoreClassScrollOffset() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_classScrollController.hasClients) return;
+      if (_classScrollOffset <= 0) return;
+
+      final maxOffset = _classScrollController.position.maxScrollExtent;
+      final target = _classScrollOffset.clamp(0.0, maxOffset);
+
+      if ((_classScrollController.offset - target).abs() > 1) {
+        _classScrollController.jumpTo(target);
+      }
+    });
   }
 
   Future<void> _loadClasses() async {
@@ -196,13 +219,19 @@ class _ClassSelectionScreenState extends State<ClassSelectionScreen> {
   }
 
   Future<ImageProvider?> _classImage(String className) async {
-    final path = 'assets/images/classes/${className.toLowerCase()}.png';
+    final assetName = className.trim().toLowerCase().replaceAll(' ', '-');
+    final path = 'assets/images/classes/$assetName.png';
     try {
       await rootBundle.load(path);
       return AssetImage(path);
     } catch (_) {
       return null;
     }
+  }
+
+  Future<ImageProvider?> _cachedClassImage(String className) {
+    final key = className.trim().toLowerCase();
+    return _classImageFutures.putIfAbsent(key, () => _classImage(className));
   }
 
   void _selectClass(int index) {
@@ -240,6 +269,7 @@ class _ClassSelectionScreenState extends State<ClassSelectionScreen> {
     }
 
     final selected = _selectedClass;
+    _restoreClassScrollOffset();
 
     if (selected == null) {
       return const Scaffold(
@@ -274,8 +304,10 @@ class _ClassSelectionScreenState extends State<ClassSelectionScreen> {
             SizedBox(
               height: 390,
               child: ListView.separated(
+                key: const PageStorageKey<String>('class-selection-carousel'),
                 controller: _classScrollController,
                 scrollDirection: Axis.horizontal,
+                restorationId: 'class-selection-carousel',
                 itemCount: _classes.length,
                 separatorBuilder: (_, __) => const SizedBox(width: 16),
                 itemBuilder: (context, index) {
@@ -284,7 +316,7 @@ class _ClassSelectionScreenState extends State<ClassSelectionScreen> {
                     cls: cls,
                     selected: index == _selectedIndex,
                     tagline: _classTagline(cls),
-                    imageLoader: () => _classImage(cls.name),
+                    imageLoader: () => _cachedClassImage(cls.name),
                     onTap: () => _selectClass(index),
                   );
                 },
@@ -515,10 +547,7 @@ class _SelectedClassPanel extends StatelessWidget {
               'Armor & Weapon Profs',
               cls.proficiencies.isEmpty
                   ? 'None listed'
-                  : cls.proficiencies
-                      .map(_cleanSummaryText)
-                      .take(5)
-                      .join(', '),
+                  : cls.proficiencies.map(_cleanSummaryText).take(5).join(', '),
             ),
           ],
         ),
