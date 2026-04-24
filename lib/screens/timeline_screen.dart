@@ -29,12 +29,15 @@ class _TimelineScreenState extends State<TimelineScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
 
-    if (!_didLoad) {
-      _didLoad = true;
-      context.read<CampaignEventProvider>().loadEvents();
-      context.read<SessionProvider>().loadSessions();
-      context.read<JournalEntryProvider>().loadEntries();
-    }
+    if (_didLoad) return;
+    _didLoad = true;
+
+    final activeCampaign = context.read<CampaignProvider>().activeCampaign;
+    if (activeCampaign == null) return;
+
+    context.read<CampaignEventProvider>().loadEvents(activeCampaign.id);
+    context.read<SessionProvider>().loadSessions(activeCampaign.id);
+    context.read<JournalEntryProvider>().loadEntries(activeCampaign.id);
   }
 
   @override

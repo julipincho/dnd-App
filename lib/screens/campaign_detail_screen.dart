@@ -25,12 +25,12 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
     if (!_didLoad) {
       _didLoad = true;
 
-      context.read<SessionProvider>().loadSessions();
-      context.read<CampaignEventProvider>().loadEvents();
       context.read<CompendiumProvider>().loadEntries();
 
       final campaign = context.read<CampaignProvider>().activeCampaign;
       if (campaign != null) {
+        context.read<SessionProvider>().loadSessions(campaign.id);
+        context.read<CampaignEventProvider>().loadEvents(campaign.id);
         context.read<CharacterProvider>().loadCampaignCharacters(campaign.id);
       }
     }

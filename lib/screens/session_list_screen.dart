@@ -5,9 +5,12 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 
+import '../providers/auth_provider.dart';
 import '../providers/campaign_provider.dart';
 import '../providers/session_provider.dart';
 import '../models/session.dart';
+import '../services/supabase_storage_service.dart';
+import '../utils/image_path_utils.dart';
 
 class SessionListScreen extends StatefulWidget {
   const SessionListScreen({super.key});
@@ -23,16 +26,20 @@ class _SessionListScreenState extends State<SessionListScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
 
-    if (!_didLoad) {
-      _didLoad = true;
-      context.read<SessionProvider>().loadSessions();
-    }
+    if (_didLoad) return;
+    _didLoad = true;
+
+    final activeCampaign = context.read<CampaignProvider>().activeCampaign;
+    if (activeCampaign == null) return;
+
+    context.read<SessionProvider>().loadSessions(activeCampaign.id);
   }
 
   @override
   Widget build(BuildContext context) {
     final campaignProvider = context.watch<CampaignProvider>();
     final sessionProvider = context.watch<SessionProvider>();
+    final currentUserId = context.watch<AuthProvider>().userId;
     final activeCampaign = campaignProvider.activeCampaign;
 
     if (activeCampaign == null) {
@@ -50,6 +57,8 @@ class _SessionListScreenState extends State<SessionListScreen> {
         .getSessionsByCampaign(activeCampaign.id)
         .toList()
       ..sort((a, b) => b.date.compareTo(a.date));
+    final isDm = currentUserId != null &&
+        activeCampaign.ownerUserId == currentUserId;
 
     return Scaffold(
       appBar: AppBar(
@@ -66,9 +75,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
               itemBuilder: (context, index) {
                 final session = sessions[index];
 
-                final hasImage = session.imagePath != null &&
-                    session.imagePath!.isNotEmpty &&
-                    File(session.imagePath!).existsSync();
+                final hasImage = hasDisplayableImagePath(session.imagePath);
 
                 return Card(
                   clipBehavior: Clip.antiAlias,
@@ -83,8 +90,8 @@ class _SessionListScreenState extends State<SessionListScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         if (hasImage)
-                          Image.file(
-                            File(session.imagePath!),
+                          buildImageFromPath(
+                            session.imagePath!,
                             width: double.infinity,
                             height: 160,
                             fit: BoxFit.cover,
@@ -118,19 +125,24 @@ class _SessionListScreenState extends State<SessionListScreen> {
                               ],
                             ),
                           ),
-                          trailing: PopupMenuButton<String>(
-                            onSelected: (value) async {
-                              if (value == 'delete') {
-                                await _confirmDeleteSession(context, session);
-                              }
-                            },
-                            itemBuilder: (context) => const [
-                              PopupMenuItem(
-                                value: 'delete',
-                                child: Text('Delete'),
-                              ),
-                            ],
-                          ),
+                          trailing: isDm
+                              ? PopupMenuButton<String>(
+                                  onSelected: (value) async {
+                                    if (value == 'delete') {
+                                      await _confirmDeleteSession(
+                                        context,
+                                        session,
+                                      );
+                                    }
+                                  },
+                                  itemBuilder: (context) => const [
+                                    PopupMenuItem(
+                                      value: 'delete',
+                                      child: Text('Delete'),
+                                    ),
+                                  ],
+                                )
+                              : null,
                         ),
                       ],
                     ),
@@ -138,10 +150,17 @@ class _SessionListScreenState extends State<SessionListScreen> {
                 );
               },
             ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showCreateSessionDialog(context, activeCampaign.id),
-        child: const Icon(Icons.add),
-      ),
+      floatingActionButton: isDm
+          ? FloatingActionButton.extended(
+              onPressed: () => _showCreateSessionDialog(
+                context,
+                activeCampaign.id,
+                currentUserId!,
+              ),
+              icon: const Icon(Icons.add),
+              label: const Text('Session'),
+            )
+          : null,
     );
   }
 
@@ -211,7 +230,34 @@ class _SessionListScreenState extends State<SessionListScreen> {
     );
   }
 
-  void _showCreateSessionDialog(BuildContext context, String campaignId) {
+  Future<String?> _uploadSessionImageIfNeeded(
+    String? imagePath, {
+    required String ownerUserId,
+    required String sessionId,
+  }) async {
+    if (imagePath == null || imagePath.trim().isEmpty) return null;
+    if (isRemoteImagePath(imagePath) || isAssetImagePath(imagePath)) {
+      return imagePath;
+    }
+    if (!File(imagePath).existsSync()) {
+      throw StateError(
+        'Cannot upload session image because the file is missing.',
+      );
+    }
+
+    return SupabaseStorageService.uploadUserImage(
+      file: File(imagePath),
+      ownerUserId: ownerUserId,
+      folder: 'session-covers',
+      entityId: sessionId,
+    );
+  }
+
+  void _showCreateSessionDialog(
+    BuildContext context,
+    String campaignId,
+    String ownerUserId,
+  ) {
     final titleController = TextEditingController();
     final notesController = TextEditingController();
     String? selectedImagePath;
@@ -284,8 +330,8 @@ class _SessionListScreenState extends State<SessionListScreen> {
                         const SizedBox(height: 12),
                         ClipRRect(
                           borderRadius: BorderRadius.circular(12),
-                          child: Image.file(
-                            File(selectedImagePath!),
+                          child: buildImageFromPath(
+                            selectedImagePath!,
                             height: 150,
                             width: 320,
                             fit: BoxFit.cover,
@@ -308,14 +354,33 @@ class _SessionListScreenState extends State<SessionListScreen> {
 
                     if (title.isEmpty) return;
 
+                    final sessionId =
+                        DateTime.now().millisecondsSinceEpoch.toString();
+                    String? imagePath;
+                    try {
+                      imagePath = await _uploadSessionImageIfNeeded(
+                        selectedImagePath,
+                        ownerUserId: ownerUserId,
+                        sessionId: sessionId,
+                      );
+                    } catch (e) {
+                      if (!dialogContext.mounted) return;
+                      ScaffoldMessenger.of(dialogContext).showSnackBar(
+                        const SnackBar(
+                          content: Text('Could not upload the cover image.'),
+                        ),
+                      );
+                      return;
+                    }
+
                     final session = Session(
-                      id: DateTime.now().millisecondsSinceEpoch.toString(),
+                      id: sessionId,
                       campaignId: campaignId,
                       title: title,
                       date: DateTime.now(),
                       rawNotes: notes,
                       summary: null,
-                      imagePath: selectedImagePath,
+                      imagePath: imagePath,
                     );
 
                     await dialogContext

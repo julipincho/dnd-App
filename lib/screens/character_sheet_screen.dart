@@ -863,13 +863,17 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         final currentChar = maybeChar.first;
         _clearPreparedSpellsIfUnsupported(context, currentChar);
         characterProvider.syncFeaturesAndResources(currentChar.id);
-      }
-      if (journalProvider.entries.isEmpty) {
-        journalProvider.loadEntries();
-      }
 
-      if (sessionProvider.sessions.isEmpty) {
-        sessionProvider.loadSessions();
+        final campaignId = currentChar.campaignId;
+        if (campaignId != null && campaignId.isNotEmpty) {
+          if (journalProvider.entries.isEmpty) {
+            journalProvider.loadEntries(campaignId);
+          }
+
+          if (sessionProvider.sessions.isEmpty) {
+            sessionProvider.loadSessions(campaignId);
+          }
+        }
       }
 
       if (compendiumProvider.entries.isEmpty) {
