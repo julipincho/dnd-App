@@ -243,7 +243,7 @@ class CharacterProvider extends ChangeNotifier {
   void setSubclass(String subclassName, {Map<String, int>? bonuses}) {
     if (_character == null) return;
 
-    _character!.subclass = subclassName;
+    _character!.setSubclassForPrimaryClass(subclassName);
 
     if (bonuses != null) {
       bonuses.forEach((ability, value) {

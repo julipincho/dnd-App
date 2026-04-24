@@ -8,6 +8,7 @@ import '../models/spell.dart';
 import '../models/character.dart';
 import '../models/character_inventory_item.dart';
 import '../models/compendium_entry.dart';
+import '../models/dnd_class.dart';
 import '../models/journal_entry.dart';
 import '../models/session.dart';
 import '../providers/app_role_provider.dart';
@@ -34,6 +35,7 @@ import '../models/character_available_options_engine.dart';
 import '../models/character_option_selection_helper.dart';
 import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_overview_tab.dart';
 import '../services/character_pact_service.dart';
+import '../services/character_level_up_service.dart';
 import '../logic/character_option_effects.dart';
 import '../models/character_selected_option_group.dart';
 import '../services/character_infusion_service.dart';
@@ -41,6 +43,8 @@ import '../models/feat_data.dart';
 import '../services/feat_data_service.dart';
 import '../features/characters/models/resolved_inventory_item.dart';
 import '../services/race_sync_service.dart';
+import '../services/dnd_data_service.dart';
+import '../services/multiclass_rules_service.dart';
 import '../models/character_feature.dart';
 import '../providers/campaign_provider.dart';
 import '../providers/auth_provider.dart';
@@ -1900,29 +1904,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
   }
 
   String _formatSigned(int value) => value >= 0 ? '+$value' : '$value';
-  int _getHitDice(String charClass) {
-    switch (charClass.toLowerCase()) {
-      case 'barbarian':
-        return 12;
-      case 'fighter':
-      case 'paladin':
-      case 'ranger':
-        return 10;
-      case 'cleric':
-      case 'druid':
-      case 'rogue':
-      case 'bard':
-      case 'warlock':
-      case 'monk':
-      case 'artificer':
-        return 8;
-      case 'wizard':
-      case 'sorcerer':
-        return 6;
-      default:
-        return 8;
-    }
-  }
 
   static const Map<String, List<String>> _skillsByAbility = {
     'STR': ['Athletics'],
@@ -3241,16 +3222,20 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     BuildContext context,
     Character char,
     int hpGain,
+    String className,
+    int hitDie,
   ) async {
     final provider = context.read<CharacterProvider>();
-    final currentLevel = char.level;
-    final newLevel = currentLevel + 1;
-    final safeHpGain = hpGain < 1 ? 1 : hpGain;
 
     await provider.updateCharacterById(char.id, (ch) {
-      ch.level = newLevel;
-      ch.maxHp = (ch.maxHp ?? 0) + safeHpGain;
-      ch.currentHp = (ch.currentHp ?? 0) + safeHpGain;
+      CharacterLevelUpService.applyLevelUp(
+        character: ch,
+        decision: CharacterLevelUpDecision(
+          className: className,
+          hpGain: hpGain,
+          hitDie: hitDie,
+        ),
+      );
     });
 
     await provider.syncFeaturesAndResources(char.id);
@@ -3271,23 +3256,21 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     }
   }
 
-  int _calculateLevelUpHpGain(Character char) {
-    final hitDice = _getHitDice(char.charClass);
+  int _calculateLevelUpHpGainForHitDie(Character char, int hitDie) {
     final conScore =
         (char.stats['CON'] ?? 10) + (char.racialBonuses['CON'] ?? 0);
     final conModifier = _abilityMod(conScore);
 
-    final hpGain = ((hitDice / 2).floor() + 1) + conModifier;
+    final hpGain = ((hitDie / 2).floor() + 1) + conModifier;
     return hpGain < 1 ? 1 : hpGain;
   }
 
-  int _rollLevelUpHpGain(Character char) {
-    final hitDice = _getHitDice(char.charClass);
+  int _rollLevelUpHpGainForHitDie(Character char, int hitDie) {
     final conScore =
         (char.stats['CON'] ?? 10) + (char.racialBonuses['CON'] ?? 0);
     final conModifier = _abilityMod(conScore);
 
-    final rolledValue = 1 + (DateTime.now().microsecondsSinceEpoch % hitDice);
+    final rolledValue = 1 + (DateTime.now().microsecondsSinceEpoch % hitDie);
     final hpGain = rolledValue + conModifier;
 
     return hpGain < 1 ? 1 : hpGain;
@@ -3547,99 +3530,180 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
   ) async {
     final currentLevel = char.level;
     final newLevel = currentLevel + 1;
-    final grantsAsi = _levelGrantsAbilityScoreImprovement(newLevel);
+    final classes = await DndDataService.getAllClasses();
+    if (!context.mounted) return;
+    if (classes.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No class data available.')),
+      );
+      return;
+    }
 
     await showDialog(
       context: context,
       builder: (dialogContext) {
+        DndClass selectedClass = classes.firstWhere(
+          (cls) => cls.name.toLowerCase() == char.charClass.toLowerCase(),
+          orElse: () => classes.first,
+        );
         String selectedMethod = 'average';
-        int hpGain = _calculateLevelUpHpGain(char);
+        int hpGain = _calculateLevelUpHpGainForHitDie(
+          char,
+          selectedClass.hitDie,
+        );
         bool rollLocked = false;
 
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            final currentClassLevel = char.levelForClass(selectedClass.name);
+            final newClassLevel = currentClassLevel + 1;
+            final isNewClass = currentClassLevel == 0;
+            final validation = MulticlassRulesService.validateEntry(
+              character: char,
+              targetClassName: selectedClass.name,
+            );
+            final canConfirm = !isNewClass || validation.canMulticlass;
+            final grantsAsi =
+                _levelGrantsAbilityScoreImprovement(newClassLevel);
+
             return AlertDialog(
               title: const Text('Level Up'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Current Level: $currentLevel'),
-                  const SizedBox(height: 8),
-                  Text('New Level: $newLevel'),
-                  if (grantsAsi) ...[
-                    const SizedBox(height: 8),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: Colors.orange.withOpacity(0.35),
+              content: SingleChildScrollView(
+                child: SizedBox(
+                  width: 360,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Current Level: $currentLevel'),
+                      const SizedBox(height: 8),
+                      Text('New Level: $newLevel'),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<DndClass>(
+                        value: selectedClass,
+                        decoration: const InputDecoration(
+                          labelText: 'Class to level',
                         ),
+                        items: classes
+                            .map(
+                              (cls) => DropdownMenuItem<DndClass>(
+                                value: cls,
+                                child: Text(
+                                  '${cls.name} ${char.levelForClass(cls.name) + 1}',
+                                ),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: rollLocked
+                            ? null
+                            : (value) {
+                                if (value == null) return;
+                                setDialogState(() {
+                                  selectedClass = value;
+                                  selectedMethod = 'average';
+                                  hpGain = _calculateLevelUpHpGainForHitDie(
+                                    char,
+                                    selectedClass.hitDie,
+                                  );
+                                });
+                              },
                       ),
-                      child: const Text(
-                        'This level grants an Ability Score Improvement. '
-                        'After leveling up, you should assign your stat increase.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.orange,
-                          fontWeight: FontWeight.w600,
+                      if (isNewClass) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          validation.canMulticlass
+                              ? 'Multiclass requirements met: ${validation.requirementsLabel}'
+                              : 'Requirements missing: ${validation.unmetRequirements.join(', ')}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: validation.canMulticlass
+                                ? Colors.green
+                                : Colors.redAccent,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
+                      ],
+                      if (grantsAsi) ...[
+                        const SizedBox(height: 8),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: Colors.orange.withOpacity(0.35),
+                            ),
+                          ),
+                          child: Text(
+                            '${selectedClass.name} $newClassLevel grants an Ability Score Improvement. '
+                            'After leveling up, you should assign your stat increase.',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.orange,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 16),
+                      const Text(
+                        'HP Method',
+                        style: TextStyle(fontWeight: FontWeight.bold),
                       ),
-                    ),
-                  ],
-                  const SizedBox(height: 16),
-                  const Text(
-                    'HP Method',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  RadioListTile<String>(
-                    contentPadding: EdgeInsets.zero,
-                    value: 'average',
-                    groupValue: selectedMethod,
-                    title: const Text('Take Average'),
-                    onChanged: rollLocked
-                        ? null
-                        : (value) {
-                            if (value == null) return;
-                            setDialogState(() {
-                              selectedMethod = value;
-                              hpGain = _calculateLevelUpHpGain(char);
-                            });
-                          },
-                  ),
-                  RadioListTile<String>(
-                    contentPadding: EdgeInsets.zero,
-                    value: 'roll',
-                    groupValue: selectedMethod,
-                    title: const Text('Roll Hit Die'),
-                    onChanged: rollLocked
-                        ? null
-                        : (value) {
-                            if (value == null) return;
-                            setDialogState(() {
-                              selectedMethod = value;
-                              hpGain = _rollLevelUpHpGain(char);
-                              rollLocked = true;
-                            });
-                          },
-                  ),
-                  const SizedBox(height: 8),
-                  Text('HP Gain: +$hpGain'),
-                  if (rollLocked) ...[
-                    const SizedBox(height: 10),
-                    const Text(
-                      'Hit die rolled. This choice is now locked.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.orange,
+                      const SizedBox(height: 8),
+                      RadioListTile<String>(
+                        contentPadding: EdgeInsets.zero,
+                        value: 'average',
+                        groupValue: selectedMethod,
+                        title: Text('Take Average (d${selectedClass.hitDie})'),
+                        onChanged: rollLocked
+                            ? null
+                            : (value) {
+                                if (value == null) return;
+                                setDialogState(() {
+                                  selectedMethod = value;
+                                  hpGain = _calculateLevelUpHpGainForHitDie(
+                                    char,
+                                    selectedClass.hitDie,
+                                  );
+                                });
+                              },
                       ),
-                    ),
-                  ],
-                ],
+                      RadioListTile<String>(
+                        contentPadding: EdgeInsets.zero,
+                        value: 'roll',
+                        groupValue: selectedMethod,
+                        title: Text('Roll d${selectedClass.hitDie}'),
+                        onChanged: rollLocked
+                            ? null
+                            : (value) {
+                                if (value == null) return;
+                                setDialogState(() {
+                                  selectedMethod = value;
+                                  hpGain = _rollLevelUpHpGainForHitDie(
+                                    char,
+                                    selectedClass.hitDie,
+                                  );
+                                  rollLocked = true;
+                                });
+                              },
+                      ),
+                      const SizedBox(height: 8),
+                      Text('HP Gain: +$hpGain'),
+                      if (rollLocked) ...[
+                        const SizedBox(height: 10),
+                        const Text(
+                          'Hit die rolled. This choice is now locked.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.orange,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ),
               actions: [
                 TextButton(
@@ -3647,42 +3711,51 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                   child: const Text('Cancel'),
                 ),
                 FilledButton(
-                  onPressed: () async {
-                    Navigator.pop(dialogContext);
+                  onPressed: !canConfirm
+                      ? null
+                      : () async {
+                          Navigator.pop(dialogContext);
 
-                    await _levelUpCharacter(context, char, hpGain);
+                          await _levelUpCharacter(
+                            context,
+                            char,
+                            hpGain,
+                            selectedClass.name,
+                            selectedClass.hitDie,
+                          );
 
-                    if (!context.mounted) return;
+                          if (!context.mounted) return;
 
-                    final updatedChar = context
-                        .read<CharacterProvider>()
-                        .characters
-                        .firstWhere((c) => c.id == char.id);
+                          final updatedChar = context
+                              .read<CharacterProvider>()
+                              .characters
+                              .firstWhere((c) => c.id == char.id);
 
-                    if (_levelGrantsAbilityScoreImprovement(newLevel)) {
-                      await _showAbilityScoreImprovementDialog(
-                        context,
-                        updatedChar,
-                      );
-                    }
+                          if (_levelGrantsAbilityScoreImprovement(
+                              newClassLevel)) {
+                            await _showAbilityScoreImprovementDialog(
+                              context,
+                              updatedChar,
+                            );
+                          }
 
-                    if (!context.mounted) return;
+                          if (!context.mounted) return;
 
-                    final refreshedChar = context
-                        .read<CharacterProvider>()
-                        .characters
-                        .firstWhere((c) => c.id == char.id);
+                          final refreshedChar = context
+                              .read<CharacterProvider>()
+                              .characters
+                              .firstWhere((c) => c.id == char.id);
 
-                    if (SpellcastingRules.canReplaceKnownSpellOnLevelUp(
-                          refreshedChar,
-                        ) &&
-                        refreshedChar.spellIds.isNotEmpty) {
-                      await _showReplaceKnownSpellDialog(
-                        context,
-                        refreshedChar,
-                      );
-                    }
-                  },
+                          if (SpellcastingRules.canReplaceKnownSpellOnLevelUp(
+                                refreshedChar,
+                              ) &&
+                              refreshedChar.spellIds.isNotEmpty) {
+                            await _showReplaceKnownSpellDialog(
+                              context,
+                              refreshedChar,
+                            );
+                          }
+                        },
                   child: const Text('Confirm'),
                 ),
               ],
@@ -5226,15 +5299,15 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                         ? imageProviderFromPath(
                                             char.portraitPath!,
                                           )
-                                    : null,
+                                        : null,
                                 child:
                                     !hasDisplayableImagePath(char.portraitPath)
-                                    ? const Icon(
-                                        Icons.person,
-                                        size: 42,
-                                        color: Colors.white,
-                                      )
-                                    : null,
+                                        ? const Icon(
+                                            Icons.person,
+                                            size: 42,
+                                            color: Colors.white,
+                                          )
+                                        : null,
                               ),
                               const SizedBox(width: 20),
                               Expanded(
@@ -5258,15 +5331,15 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                         ? imageProviderFromPath(
                                             char.portraitPath!,
                                           )
-                                    : null,
+                                        : null,
                                 child:
                                     !hasDisplayableImagePath(char.portraitPath)
-                                    ? const Icon(
-                                        Icons.person,
-                                        size: 36,
-                                        color: Colors.white,
-                                      )
-                                    : null,
+                                        ? const Icon(
+                                            Icons.person,
+                                            size: 36,
+                                            color: Colors.white,
+                                          )
+                                        : null,
                               ),
                               const SizedBox(height: 16),
                               _buildHeaderTextBlock(
@@ -5594,6 +5667,18 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
             fontWeight: FontWeight.w500,
           ),
         ),
+        if (char.classLevels.length > 1) ...[
+          const SizedBox(height: 4),
+          Text(
+            char.classProgressionLabel,
+            textAlign: isCentered ? TextAlign.center : TextAlign.start,
+            style: TextStyle(
+              fontSize: smallSubtitleSize,
+              color: Colors.white.withOpacity(0.72),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
         const SizedBox(height: 4),
         Text(
           "${char.background.name} · ${char.alignment ?? 'True Neutral'}",

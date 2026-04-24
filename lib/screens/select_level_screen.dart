@@ -75,7 +75,7 @@ class _SelectLevelScreenState extends State<SelectLevelScreen> {
                         size: 18, color: Colors.white),
                     onTap: () {
                       context.read<CharacterProvider>().update((c) {
-                        c.level = lvl.level;
+                        c.setPrimaryClassLevel(lvl.level);
                       });
 
                       context.go('/name-character');

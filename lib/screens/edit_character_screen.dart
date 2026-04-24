@@ -1567,7 +1567,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                                           ch.subclass!.trim().isNotEmpty;
 
                                   if (alreadyHasSubclass) return;
-                                  ch.subclass = subclass.name;
+                                  ch.setSubclassForPrimaryClass(subclass.name);
                                 },
                               );
 
@@ -2181,13 +2181,14 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                                       onTap: _pickImage,
                                       child: CircleAvatar(
                                         radius: avatarRadius,
-                                        backgroundImage: hasDisplayableImagePath(
+                                        backgroundImage:
+                                            hasDisplayableImagePath(
                                           _portraitPath,
                                         )
-                                            ? imageProviderFromPath(
-                                                _portraitPath!,
-                                              )
-                                            : null,
+                                                ? imageProviderFromPath(
+                                                    _portraitPath!,
+                                                  )
+                                                : null,
                                         backgroundColor:
                                             Colors.deepPurpleAccent,
                                         child: !hasDisplayableImagePath(
@@ -2245,13 +2246,14 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                                       onTap: _pickImage,
                                       child: CircleAvatar(
                                         radius: avatarRadius,
-                                        backgroundImage: hasDisplayableImagePath(
+                                        backgroundImage:
+                                            hasDisplayableImagePath(
                                           _portraitPath,
                                         )
-                                            ? imageProviderFromPath(
-                                                _portraitPath!,
-                                              )
-                                            : null,
+                                                ? imageProviderFromPath(
+                                                    _portraitPath!,
+                                                  )
+                                                : null,
                                         backgroundColor:
                                             Colors.deepPurpleAccent,
                                         child: !hasDisplayableImagePath(

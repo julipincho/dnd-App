@@ -140,7 +140,7 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
                 ),
                 onPressed: () {
                   context.read<CharacterProvider>().update((ch) {
-                    ch.charClass = c.name;
+                    ch.setPrimaryClassProgression(className: c.name);
                     ch.savingThrows = List<String>.from(c.savingThrows);
                   });
 

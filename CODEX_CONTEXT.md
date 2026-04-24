@@ -158,9 +158,54 @@ Listar assets razas:
   `C:\Users\jnsaurralde\.codex\generated_images\...`
   hacia la carpeta de assets correspondiente.
 
+## Roadmaps Pendientes
+
+- Personajes / backgrounds:
+  - Hay texto mal parseado en trasfondos por la fuente original.
+  - Evaluar parser/renderizador para convertir marcas o patrones a texto rico, por ejemplo secciones en negrita.
+  - Algunos trasfondos otorgan dotes; sumar deteccion y aplicacion automatica al personaje.
+- Progreso de niveles y multiclass:
+  - Roadmap detallado en `docs/ROADMAP_LEVELING_MULTICLASS.md`.
+  - Prioridad actual para empezar a planificar/implementar.
+  - Necesita modelo de progresion por clase, validacion de requisitos de multiclass, recalculo de features/recursos/spellcasting y UI dedicada.
+  - Primer corte implementado: `CharacterProgression`, `CharacterClassLevel`, `MulticlassRulesService`, `CharacterLevelUpService`, features/recursos por nivel de clase y level-up con selector de clase.
+  - Decision de producto: al multiclassear, validar solo requisitos de la nueva clase elegida. No bloquear por no cumplir requisitos de clases que el personaje ya tiene.
+- Limpieza de `lib/screens/character_sheet_screen.dart`:
+  - Punto critico. El archivo concentra demasiada logica.
+  - Futuro refactor debe extraer widgets, services y/o view models siguiendo las referencias de buenas practicas Dart/Flutter.
+
 ## Preferencias del Usuario
 
 - Quiere UI visualmente pro, legible, cercana a manuales oficiales de DnD, pero con coherencia visual propia.
 - Prefiere que se implemente directamente.
 - Aprecia explicaciones concretas y comandos cuando debe correr algo.
 - No le interesa por ahora tests unitarios.
+
+## Referencias de Buenas Practicas Dart/Flutter
+
+Usar estas guias como norte para cambios nuevos y refactors futuros:
+
+- Effective Dart, oficial:
+  - Style: https://dart.dev/effective-dart/style
+  - Usage: https://dart.dev/effective-dart/usage
+  - Design: https://dart.dev/effective-dart/design
+  - Documentation: https://dart.dev/effective-dart/documentation
+- Flutter app architecture, oficial:
+  - Overview: https://docs.flutter.dev/app-architecture
+  - Guide: https://docs.flutter.dev/app-architecture/guide
+  - Concepts: https://docs.flutter.dev/app-architecture/concepts
+- Flutter performance best practices:
+  - https://docs.flutter.dev/perf/best-practices
+
+Lineamientos practicos para este proyecto:
+
+- Mantener separacion clara entre UI, providers/view models, repositories y services.
+- Pantallas Flutter no deberian concentrar logica de negocio pesada. Si una pantalla crece demasiado, extraer widgets, helpers, providers, repositories o services segun corresponda.
+- Repositories son fuente de verdad para datos de app y transforman datos crudos en modelos del dominio.
+- Services envuelven APIs externas o plataforma: Firebase, Firestore, Supabase, storage local, image picker, etc.
+- Modelos deben mantenerse simples, serializables y sin dependencia de UI.
+- Seguir convenciones Dart: `UpperCamelCase` para tipos, `lowerCamelCase` para miembros/variables, `lowercase_with_underscores` para archivos.
+- Preferir `final` cuando no se reasigna, constructores `const` donde aplique, imports ordenados y relativos dentro de `lib`.
+- Evitar duplicar logica de UI compleja en varias pantallas; extraer componentes reutilizables cuando haya repeticion real.
+- En listas/grillas grandes, preferir builders lazy (`ListView.builder`, `GridView.builder`) y evitar trabajo caro dentro de `build`.
+- Antes de refactors grandes, hacer cambios incrementales y verificables, manteniendo compatibilidad con Firebase/Supabase y el flujo actual de creacion de personajes/campanas.

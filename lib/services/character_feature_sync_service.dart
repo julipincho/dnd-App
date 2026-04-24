@@ -54,73 +54,80 @@ class CharacterFeatureSyncService {
   static Future<List<CharacterFeature>> buildFeaturesForCharacter(
     Character character,
   ) async {
-    final classJson = await _findClassJson(character.charClass);
-    if (classJson == null) return [];
-
     final List<CharacterFeature> result = [];
+    final classLevels = character.classLevels;
 
-    final progression = (classJson['progression'] as List? ?? [])
-        .whereType<Map<String, dynamic>>();
+    for (final classEntry in classLevels.entries) {
+      final className = classEntry.key;
+      final classLevel = classEntry.value;
+      final classJson = await _findClassJson(className);
+      if (classJson == null) continue;
 
-    for (final levelData in progression) {
-      final level = (levelData['level'] as num?)?.toInt() ?? 0;
-      if (level > character.level) continue;
+      final progression = (classJson['progression'] as List? ?? [])
+          .whereType<Map<String, dynamic>>();
 
-      final features =
-          (levelData['features'] as List? ?? []).whereType<Map>().toList();
+      for (final levelData in progression) {
+        final level = (levelData['level'] as num?)?.toInt() ?? 0;
+        if (level > classLevel) continue;
 
-      for (final rawFeature in features) {
-        final feature = Map<String, dynamic>.from(rawFeature);
-        final name = feature['name']?.toString().trim() ?? '';
-        final description = feature['description']?.toString().trim() ?? '';
+        final features =
+            (levelData['features'] as List? ?? []).whereType<Map>().toList();
 
-        if (name.isEmpty) continue;
+        for (final rawFeature in features) {
+          final feature = Map<String, dynamic>.from(rawFeature);
+          final name = feature['name']?.toString().trim() ?? '';
+          final description = feature['description']?.toString().trim() ?? '';
 
-        result.add(
-          CharacterFeature(
-            id: 'class_${_norm(character.charClass)}_${level}_${_norm(name)}',
-            name: name,
-            description: description,
-            source: 'class',
-            unlockedAtLevel: level,
-          ),
-        );
+          if (name.isEmpty) continue;
+
+          result.add(
+            CharacterFeature(
+              id: 'class_${_norm(className)}_${level}_${_norm(name)}',
+              name: name,
+              description: description,
+              source: 'class',
+              unlockedAtLevel: level,
+            ),
+          );
+        }
       }
-    }
 
-    if (character.subclass != null && character.subclass!.trim().isNotEmpty) {
-      final subclassJson = _findSubclassJson(classJson, character.subclass!);
+      final subclassName = character.subclassForClass(className);
+      if (subclassName != null && subclassName.trim().isNotEmpty) {
+        final subclassJson = _findSubclassJson(classJson, subclassName);
 
-      if (subclassJson != null) {
-        final progression = (subclassJson['progression'] as Map? ?? {}).map(
-          (key, value) => MapEntry(
-            int.tryParse(key.toString()) ?? 0,
-            (value as List?) ?? [],
-          ),
-        );
+        if (subclassJson != null) {
+          final progression = (subclassJson['progression'] as Map? ?? {}).map(
+            (key, value) => MapEntry(
+              int.tryParse(key.toString()) ?? 0,
+              (value as List?) ?? [],
+            ),
+          );
 
-        for (final entry in progression.entries) {
-          final level = entry.key;
-          if (level <= 0 || level > character.level) continue;
+          for (final entry in progression.entries) {
+            final level = entry.key;
+            if (level <= 0 || level > classLevel) continue;
 
-          final features = entry.value.whereType<Map>().toList();
+            final features = entry.value.whereType<Map>().toList();
 
-          for (final rawFeature in features) {
-            final feature = Map<String, dynamic>.from(rawFeature);
-            final name = feature['name']?.toString().trim() ?? '';
-            final description = feature['description']?.toString().trim() ?? '';
+            for (final rawFeature in features) {
+              final feature = Map<String, dynamic>.from(rawFeature);
+              final name = feature['name']?.toString().trim() ?? '';
+              final description =
+                  feature['description']?.toString().trim() ?? '';
 
-            if (name.isEmpty) continue;
+              if (name.isEmpty) continue;
 
-            result.add(
-              CharacterFeature(
-                id: 'subclass_${_norm(character.subclass!)}_${level}_${_norm(name)}',
-                name: name,
-                description: description,
-                source: 'subclass',
-                unlockedAtLevel: level,
-              ),
-            );
+              result.add(
+                CharacterFeature(
+                  id: 'subclass_${_norm(className)}_${_norm(subclassName)}_${level}_${_norm(name)}',
+                  name: name,
+                  description: description,
+                  source: 'subclass',
+                  unlockedAtLevel: level,
+                ),
+              );
+            }
           }
         }
       }

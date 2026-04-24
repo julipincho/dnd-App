@@ -6,13 +6,20 @@ class CharacterResourceFactory {
 
   static List<CharacterResource> buildResources(Character character) {
     final result = <CharacterResource>[];
-    final className = _norm(character.charClass);
-    final subclassName = _norm(character.subclass ?? '');
 
     int abilityMod(String key) {
       final base = character.stats[key] ?? 10;
       final racial = character.racialBonuses[key] ?? 0;
-      return ((base + racial - 10) / 2).floor();
+      final feat = character.featAbilityBonuses[key] ?? 0;
+      return ((base + racial + feat - 10) / 2).floor();
+    }
+
+    int classLevel(String className) {
+      return character.levelForClass(className);
+    }
+
+    bool hasClassLevel(String className, int minimumLevel) {
+      return classLevel(className) >= minimumLevel;
     }
 
     void addResource({
@@ -35,15 +42,16 @@ class CharacterResourceFactory {
       );
     }
 
-    if (className == 'barbarian') {
+    final barbarianLevel = classLevel('barbarian');
+    if (barbarianLevel > 0) {
       int rageMax;
-      if (character.level >= 17) {
+      if (barbarianLevel >= 17) {
         rageMax = 6;
-      } else if (character.level >= 12) {
+      } else if (barbarianLevel >= 12) {
         rageMax = 5;
-      } else if (character.level >= 6) {
+      } else if (barbarianLevel >= 6) {
         rageMax = 4;
-      } else if (character.level >= 3) {
+      } else if (barbarianLevel >= 3) {
         rageMax = 3;
       } else {
         rageMax = 2;
@@ -57,7 +65,7 @@ class CharacterResourceFactory {
       );
     }
 
-    if (className == 'artificer' && character.level >= 7) {
+    if (hasClassLevel('artificer', 7)) {
       addResource(
         id: 'flash_of_genius',
         name: 'Flash of Genius',
@@ -66,7 +74,7 @@ class CharacterResourceFactory {
       );
     }
 
-    if (className == 'fighter' && character.level >= 1) {
+    if (hasClassLevel('fighter', 1)) {
       addResource(
         id: 'second_wind',
         name: 'Second Wind',
@@ -75,7 +83,7 @@ class CharacterResourceFactory {
       );
     }
 
-    if (className == 'fighter' && character.level >= 2) {
+    if (hasClassLevel('fighter', 2)) {
       addResource(
         id: 'action_surge',
         name: 'Action Surge',
@@ -84,26 +92,29 @@ class CharacterResourceFactory {
       );
     }
 
-    if (className == 'monk' && character.level >= 2) {
+    final monkLevel = classLevel('monk');
+    if (monkLevel >= 2) {
       addResource(
         id: 'ki_points',
         name: 'Ki Points',
-        max: character.level,
+        max: monkLevel,
         rechargeType: 'shortRest',
       );
     }
 
-    if (className == 'sorcerer' && character.level >= 2) {
+    final sorcererLevel = classLevel('sorcerer');
+    if (sorcererLevel >= 2) {
       addResource(
         id: 'sorcery_points',
         name: 'Sorcery Points',
-        max: character.level,
+        max: sorcererLevel,
         rechargeType: 'longRest',
       );
     }
 
-    if (className == 'cleric' && character.level >= 2) {
-      final uses = character.level >= 6 ? 2 : 1;
+    final clericLevel = classLevel('cleric');
+    if (clericLevel >= 2) {
+      final uses = clericLevel >= 6 ? 2 : 1;
       addResource(
         id: 'channel_divinity',
         name: 'Channel Divinity',
@@ -112,26 +123,28 @@ class CharacterResourceFactory {
       );
     }
 
-    if (className == 'paladin' && character.level >= 1) {
+    final paladinLevel = classLevel('paladin');
+    if (paladinLevel >= 1) {
       addResource(
         id: 'lay_on_hands',
         name: 'Lay on Hands',
-        max: character.level * 5,
+        max: paladinLevel * 5,
         rechargeType: 'longRest',
       );
     }
 
-    if (className == 'bard' && character.level >= 1) {
+    final bardLevel = classLevel('bard');
+    if (bardLevel >= 1) {
       final max = abilityMod('CHA');
       addResource(
         id: 'bardic_inspiration',
         name: 'Bardic Inspiration',
         max: max,
-        rechargeType: character.level >= 5 ? 'shortRest' : 'longRest',
+        rechargeType: bardLevel >= 5 ? 'shortRest' : 'longRest',
       );
     }
 
-    if (className == 'druid' && character.level >= 2) {
+    if (hasClassLevel('druid', 2)) {
       addResource(
         id: 'wild_shape',
         name: 'Wild Shape',
@@ -143,14 +156,13 @@ class CharacterResourceFactory {
     int superiorityDiceMax = 0;
     String? superiorityDiceNotes;
 
-    if (className == 'fighter' &&
-        subclassName == 'battle master' &&
-        character.level >= 3) {
-      superiorityDiceMax =
-          character.level >= 15 ? 6 : (character.level >= 7 ? 5 : 4);
-      superiorityDiceNotes = character.level >= 18
+    final fighterLevel = classLevel('fighter');
+    final fighterSubclass = _norm(character.subclassForClass('fighter') ?? '');
+    if (fighterSubclass == 'battle master' && fighterLevel >= 3) {
+      superiorityDiceMax = fighterLevel >= 15 ? 6 : (fighterLevel >= 7 ? 5 : 4);
+      superiorityDiceNotes = fighterLevel >= 18
           ? 'd12 superiority dice'
-          : character.level >= 10
+          : fighterLevel >= 10
               ? 'd10 superiority dice'
               : 'd8 superiority dice';
     }

@@ -1,4 +1,5 @@
 import '../models/character_inventory_item.dart';
+import '../models/character_progression.dart';
 import '../models/dnd_background.dart';
 import '../models/character_feature.dart';
 import '../models/character_resource.dart';
@@ -14,6 +15,7 @@ class Character {
   String charClass;
   List<String> spellIds;
   int level;
+  CharacterProgression progression;
   List<CharacterFeature> features;
   List<CharacterResource> resources;
   String? campaignId;
@@ -113,6 +115,7 @@ class Character {
     this.subclass,
     required this.charClass,
     required this.level,
+    CharacterProgression? progression,
     this.campaignId,
     required this.stats,
     required this.racialBonuses,
@@ -176,7 +179,13 @@ class Character {
     this.equippedShieldItemId,
     this.equippedAccessory1ItemId,
     this.equippedAccessory2ItemId,
-  })  : classSkills = classSkills ?? [],
+  })  : progression = progression ??
+            CharacterProgression.legacy(
+              className: charClass,
+              totalLevel: level,
+              subclassName: subclass,
+            ),
+        classSkills = classSkills ?? [],
         features = features ?? [],
         resources = resources ?? [],
         savingThrows = savingThrows ?? [],
@@ -200,6 +209,7 @@ class Character {
       preparedSpellIds: const [],
       charClass: '',
       level: 1,
+      progression: const CharacterProgression(levels: []),
       campaignId: null,
       pactWeaponItemId: null,
       racialArmorProficiencies: const [],
@@ -372,6 +382,20 @@ class Character {
             )
             .toList() ??
         [];
+    final charClass = json['charClass']?.toString() ?? '';
+    final subclass = json['subclass']?.toString();
+    final level = (json['level'] as num?)?.toInt() ?? 1;
+    final rawProgression = json['progression'];
+    final progression = rawProgression is Map
+        ? CharacterProgression.fromJson(
+            Map<String, dynamic>.from(rawProgression),
+          )
+        : CharacterProgression.legacy(
+            className: charClass,
+            totalLevel: level,
+            subclassName: subclass,
+          );
+
     return Character(
       ownerUserId: json['ownerUserId'],
       racialArmorProficiencies: (json['racialArmorProficiencies'] as List?)
@@ -410,9 +434,10 @@ class Character {
       name: json['name']?.toString() ?? '',
       race: json['race']?.toString() ?? '',
       subrace: json['subrace']?.toString(),
-      subclass: json['subclass']?.toString(),
-      charClass: json['charClass']?.toString() ?? '',
-      level: (json['level'] as num?)?.toInt() ?? 1,
+      subclass: subclass,
+      charClass: charClass,
+      level: level,
+      progression: progression,
       campaignId: json['campaignId']?.toString(),
       stats: stats,
       racialBonuses: bonuses,
@@ -511,6 +536,8 @@ class Character {
   }
 
   Map<String, dynamic> toJson() {
+    final effectiveProgression = normalizedProgression;
+
     return {
       'ownerUserId': ownerUserId,
       'id': id,
@@ -519,7 +546,10 @@ class Character {
       'subrace': subrace,
       'subclass': subclass,
       'charClass': charClass,
-      'level': level,
+      'level': effectiveProgression.totalLevel == 0
+          ? level
+          : effectiveProgression.totalLevel,
+      'progression': effectiveProgression.toJson(),
       'campaignId': campaignId,
       'stats': stats,
       'racialBonuses': racialBonuses,
@@ -593,6 +623,91 @@ class Character {
       if (item.id == itemId) return item;
     }
     return null;
+  }
+
+  CharacterProgression get normalizedProgression {
+    if (!progression.isEmpty) return progression;
+    return CharacterProgression.legacy(
+      className: charClass,
+      totalLevel: level,
+      subclassName: subclass,
+    );
+  }
+
+  Map<String, int> get classLevels => normalizedProgression.levelsByClass;
+
+  int levelForClass(String className) {
+    return normalizedProgression.levelForClass(className);
+  }
+
+  String? subclassForClass(String className) {
+    return normalizedProgression.subclassForClass(className);
+  }
+
+  String get classProgressionLabel {
+    final entries = classLevels.entries.toList()
+      ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
+
+    if (entries.isEmpty) {
+      return charClass.trim().isEmpty
+          ? 'No class selected'
+          : '$charClass $level';
+    }
+
+    return entries.map((entry) => '${entry.key} ${entry.value}').join(' / ');
+  }
+
+  void setPrimaryClassProgression({
+    required String className,
+    String? subclassName,
+    int? totalLevel,
+  }) {
+    final safeLevel = totalLevel ?? (level < 1 ? 1 : level);
+    charClass = className;
+    subclass = subclassName ?? subclass;
+    level = safeLevel;
+    progression = CharacterProgression.legacy(
+      className: className,
+      totalLevel: safeLevel,
+      subclassName: subclass,
+    );
+  }
+
+  void setPrimaryClassLevel(int totalLevel) {
+    final safeLevel = totalLevel < 1 ? 1 : totalLevel;
+    level = safeLevel;
+    progression = normalizedProgression.withPrimaryClassLevel(
+      className: charClass,
+      totalLevel: safeLevel,
+      subclassName: subclass,
+    );
+  }
+
+  void setSubclassForPrimaryClass(String subclassName) {
+    subclass = subclassName;
+    progression = normalizedProgression.withSubclassForClass(
+      className: charClass,
+      subclassName: subclassName,
+    );
+  }
+
+  void addClassLevel({
+    required String className,
+    String? subclassName,
+    int? hitDie,
+    Map<String, dynamic> choices = const {},
+  }) {
+    progression = normalizedProgression.addClassLevel(
+      className: className,
+      subclassName: subclassName,
+      hitDie: hitDie,
+      choices: choices,
+    );
+    level = progression.totalLevel;
+    if (charClass.trim().isEmpty) {
+      charClass = className;
+      subclass = subclassName;
+    }
   }
 
   bool get hasPactOfTheBlade {

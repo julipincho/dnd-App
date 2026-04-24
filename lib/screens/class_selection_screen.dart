@@ -242,7 +242,7 @@ class _ClassSelectionScreenState extends State<ClassSelectionScreen> {
 
   void _chooseClass(DndClass cls) {
     context.read<CharacterProvider>().update((ch) {
-      ch.charClass = cls.name;
+      ch.setPrimaryClassProgression(className: cls.name);
       ch.savingThrows = List<String>.from(cls.savingThrows);
       ch.classSkills = [];
     });
