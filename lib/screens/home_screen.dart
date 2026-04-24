@@ -1,7 +1,9 @@
+import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../models/campaign.dart';
@@ -97,7 +99,7 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
             children: [
               _HomeTopBar(
-                displayName: 'Grimoire Keeper',
+                displayName: authProvider.displayName,
                 subtitle: 'User • $shortUserId',
               ),
               const SizedBox(height: 20),
@@ -132,6 +134,9 @@ class _HomeTopBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final effectiveAvatarPath = context.watch<AuthProvider>().avatarPath;
+    final hasAvatar = hasDisplayableImagePath(effectiveAvatarPath);
+
     return Row(
       children: [
         Container(
@@ -153,10 +158,19 @@ class _HomeTopBar extends StatelessWidget {
               ),
             ],
           ),
-          child: const Icon(
-            Icons.auto_stories_rounded,
-            color: Colors.white,
-            size: 28,
+          child: ClipOval(
+            child: hasAvatar
+                ? Image(
+                    image: imageProviderFromPath(effectiveAvatarPath!),
+                    width: 56,
+                    height: 56,
+                    fit: BoxFit.cover,
+                  )
+                : const Icon(
+                    Icons.auto_stories_rounded,
+                    color: Colors.white,
+                    size: 28,
+                  ),
           ),
         ),
         const SizedBox(width: 14),
@@ -204,6 +218,10 @@ class _HomeTopBar extends StatelessWidget {
               borderRadius: BorderRadius.circular(14),
             ),
             onSelected: (value) async {
+              if (value == 'edit-profile') {
+                await _showEditProfileDialog(context);
+              }
+
               if (value == 'logout') {
                 final confirm = await showDialog<bool>(
                   context: context,
@@ -245,6 +263,16 @@ class _HomeTopBar extends StatelessWidget {
             },
             itemBuilder: (context) => const [
               PopupMenuItem<String>(
+                value: 'edit-profile',
+                child: Row(
+                  children: [
+                    Icon(Icons.account_circle_rounded),
+                    SizedBox(width: 10),
+                    Text('Edit profile'),
+                  ],
+                ),
+              ),
+              PopupMenuItem<String>(
                 value: 'logout',
                 child: Row(
                   children: [
@@ -259,6 +287,163 @@ class _HomeTopBar extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  Future<void> _showEditProfileDialog(BuildContext context) async {
+    final authProvider = context.read<AuthProvider>();
+    final nameController = TextEditingController(
+      text: authProvider.displayName,
+    );
+    File? selectedAvatar;
+    String? currentAvatarPath = authProvider.avatarPath;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final hasCurrentAvatar = selectedAvatar != null ||
+                hasDisplayableImagePath(currentAvatarPath);
+
+            Future<void> pickAvatar() async {
+              try {
+                final picked = await ImagePicker().pickImage(
+                  source: ImageSource.gallery,
+                );
+                if (picked == null) return;
+                setDialogState(() {
+                  selectedAvatar = File(picked.path);
+                });
+              } catch (e) {
+                debugPrint('Error picking profile avatar: $e');
+              }
+            }
+
+            return AlertDialog(
+              backgroundColor: const Color(0xFF17132A),
+              title: const Text(
+                'Edit profile',
+                style: TextStyle(color: Colors.white),
+              ),
+              content: SingleChildScrollView(
+                child: SizedBox(
+                  width: 320,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      GestureDetector(
+                        onTap: pickAvatar,
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            CircleAvatar(
+                              radius: 46,
+                              backgroundColor: const Color(0xFF22304B),
+                              backgroundImage: selectedAvatar != null
+                                  ? FileImage(selectedAvatar!)
+                                  : hasDisplayableImagePath(currentAvatarPath)
+                                      ? imageProviderFromPath(
+                                          currentAvatarPath!,
+                                        )
+                                      : null,
+                              child: !hasCurrentAvatar
+                                  ? const Icon(
+                                      Icons.photo_camera_rounded,
+                                      color: Colors.white,
+                                      size: 30,
+                                    )
+                                  : null,
+                            ),
+                            Positioned(
+                              right: -2,
+                              bottom: -2,
+                              child: Container(
+                                width: 30,
+                                height: 30,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF4DA8FF),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: const Color(0xFF17132A),
+                                    width: 3,
+                                  ),
+                                ),
+                                child: const Icon(
+                                  Icons.edit_rounded,
+                                  color: Colors.white,
+                                  size: 16,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      TextField(
+                        controller: nameController,
+                        textCapitalization: TextCapitalization.words,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
+                          labelText: 'Username',
+                          labelStyle: TextStyle(
+                            color: Colors.white.withOpacity(0.7),
+                          ),
+                          filled: true,
+                          fillColor: const Color(0xFF221D3A),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () async {
+                    final name = nameController.text.trim();
+                    if (name.length < 3) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Username must be at least 3 characters',
+                          ),
+                        ),
+                      );
+                      return;
+                    }
+
+                    final success =
+                        await context.read<AuthProvider>().updateProfile(
+                              displayName: name,
+                              avatarFile: selectedAvatar,
+                            );
+                    if (!context.mounted) return;
+
+                    if (success) {
+                      Navigator.pop(dialogContext);
+                    }
+                  },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF4DA8FF),
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    nameController.dispose();
   }
 }
 
@@ -554,7 +739,8 @@ class _CampaignPortraitStrip extends StatelessWidget {
             Container(
               width: 48,
               height: 58,
-              margin: EdgeInsets.only(right: i == characters.length - 1 ? 0 : 4),
+              margin:
+                  EdgeInsets.only(right: i == characters.length - 1 ? 0 : 4),
               decoration: BoxDecoration(
                 color: const Color(0xFF22304B),
                 borderRadius: BorderRadius.horizontal(

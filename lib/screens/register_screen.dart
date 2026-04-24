@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/auth_provider.dart';
@@ -12,20 +15,35 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
+  final _displayNameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
 
+  File? _avatarFile;
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
 
   @override
   void dispose() {
+    _displayNameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickAvatar() async {
+    try {
+      final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
+      if (picked == null || !mounted) return;
+      setState(() {
+        _avatarFile = File(picked.path);
+      });
+    } catch (e) {
+      debugPrint('Error picking user avatar: $e');
+    }
   }
 
   Future<void> _submit() async {
@@ -36,6 +54,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final success = await authProvider.register(
       email: _emailController.text.trim(),
       password: _passwordController.text,
+      displayName: _displayNameController.text.trim(),
+      avatarFile: _avatarFile,
     );
 
     if (!mounted) return;
@@ -70,22 +90,61 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   key: _formKey,
                   child: Column(
                     children: [
-                      Container(
-                        width: 72,
-                        height: 72,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: const LinearGradient(
-                            colors: [
-                              Color(0xFF4DA8FF),
-                              Color(0xFF6D5BFF),
-                            ],
-                          ),
-                        ),
-                        child: const Icon(
-                          Icons.person_add_alt_1_rounded,
-                          color: Colors.white,
-                          size: 36,
+                      GestureDetector(
+                        onTap: authProvider.isLoading ? null : _pickAvatar,
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            Container(
+                              width: 84,
+                              height: 84,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: _avatarFile == null
+                                    ? const LinearGradient(
+                                        colors: [
+                                          Color(0xFF4DA8FF),
+                                          Color(0xFF6D5BFF),
+                                        ],
+                                      )
+                                    : null,
+                                image: _avatarFile != null
+                                    ? DecorationImage(
+                                        image: FileImage(_avatarFile!),
+                                        fit: BoxFit.cover,
+                                      )
+                                    : null,
+                              ),
+                              child: _avatarFile == null
+                                  ? const Icon(
+                                      Icons.person_add_alt_1_rounded,
+                                      color: Colors.white,
+                                      size: 38,
+                                    )
+                                  : null,
+                            ),
+                            Positioned(
+                              right: -2,
+                              bottom: -2,
+                              child: Container(
+                                width: 30,
+                                height: 30,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF4DA8FF),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: const Color(0xFF17132A),
+                                    width: 3,
+                                  ),
+                                ),
+                                child: const Icon(
+                                  Icons.photo_camera_rounded,
+                                  color: Colors.white,
+                                  size: 16,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       const SizedBox(height: 20),
@@ -109,6 +168,32 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                       const SizedBox(height: 24),
                       TextFormField(
+                        controller: _displayNameController,
+                        textCapitalization: TextCapitalization.words,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
+                          labelText: 'Username',
+                          labelStyle: TextStyle(
+                            color: Colors.white.withOpacity(0.7),
+                          ),
+                          filled: true,
+                          fillColor: const Color(0xFF221D3A),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                        validator: (value) {
+                          final name = value?.trim() ?? '';
+                          if (name.isEmpty) return 'Enter your username';
+                          if (name.length < 3) {
+                            return 'Username must be at least 3 characters';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
                         controller: _emailController,
                         keyboardType: TextInputType.emailAddress,
                         style: const TextStyle(color: Colors.white),
@@ -127,8 +212,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         validator: (value) {
                           final email = value?.trim() ?? '';
                           if (email.isEmpty) return 'Enter your email';
-                          if (!email.contains('@'))
+                          if (!email.contains('@')) {
                             return 'Enter a valid email';
+                          }
                           return null;
                         },
                       ),

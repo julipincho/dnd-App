@@ -27,6 +27,19 @@ Usuario trabaja en espanol. Prefiere avanzar iterativo, UI pro, paleta azul/viol
 - Uploads bajo `users/{firebaseUserId}/{folder}/...`.
 - Ya no debe caer silenciosamente a path local cuando Supabase falta.
 - Character portraits, journal/inventory images y session covers fueron adaptados en gran parte.
+- Avatares de usuario ahora se suben a Supabase en `users/{firebaseUserId}/avatars/...`.
+
+## Perfil de Usuario
+
+- Perfil cloud nuevo en Firestore: `users/{uid}`.
+- Archivos:
+  - `lib/models/user_profile.dart`
+  - `lib/services/user_profile_repository.dart`
+- `AuthProvider` carga/crea perfil al iniciar sesion y expone:
+  - `displayName`
+  - `avatarPath`
+- Registro pide username y avatar opcional. Si se elige avatar, se sube a Supabase y se sincroniza tambien en Firebase Auth (`displayName` / `photoURL`).
+- Home usa nombre/avatar reales y permite editar perfil desde settings.
 
 ## Campanas / Sesiones
 
