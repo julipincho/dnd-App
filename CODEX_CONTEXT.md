@@ -170,6 +170,7 @@ Listar assets razas:
   - Necesita modelo de progresion por clase, validacion de requisitos de multiclass, recalculo de features/recursos/spellcasting y UI dedicada.
   - Primer corte implementado: `CharacterProgression`, `CharacterClassLevel`, `MulticlassRulesService`, `CharacterLevelUpService`, features/recursos por nivel de clase y level-up con selector de clase.
   - Decision de producto: al multiclassear, validar solo requisitos de la nueva clase elegida. No bloquear por no cumplir requisitos de clases que el personaje ya tiene.
+  - `lib/screens/level_up_screen.dart` reemplaza el dialog basico de level-up. Muestra progreso, requisitos, HP, features desbloqueadas y permite elegir subclase cuando el nivel de clase lo requiere.
 - Limpieza de `lib/screens/character_sheet_screen.dart`:
   - Punto critico. El archivo concentra demasiada logica.
   - Futuro refactor debe extraer widgets, services y/o view models siguiendo las referencias de buenas practicas Dart/Flutter.

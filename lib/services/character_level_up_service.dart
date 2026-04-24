@@ -57,6 +57,18 @@ class CharacterLevelUpService {
       subclassName: decision.subclassName,
       hitDie: decision.hitDie,
     );
+    if (decision.subclassName != null &&
+        decision.subclassName!.trim().isNotEmpty) {
+      character.progression =
+          character.normalizedProgression.withSubclassForClass(
+        className: decision.className,
+        subclassName: decision.subclassName!,
+      );
+      if (character.charClass.trim().toLowerCase() ==
+          decision.className.trim().toLowerCase()) {
+        character.subclass = decision.subclassName;
+      }
+    }
     character.maxHp = (character.maxHp ?? 0) + safeHpGain;
     character.currentHp = (character.currentHp ?? 0) + safeHpGain;
 

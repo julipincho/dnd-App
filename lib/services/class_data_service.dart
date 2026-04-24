@@ -156,6 +156,78 @@ class ClassDataService {
     return null;
   }
 
+  static Future<int?> getSubclassChoiceLevel(String classIndex) async {
+    final rawData = await rootBundle.loadString(_path);
+    final root = jsonDecode(rawData) as Map<String, dynamic>;
+    final classes =
+        (root["classes"] as List? ?? []).whereType<Map<String, dynamic>>();
+
+    Map<String, dynamic>? classJson;
+    for (final c in classes) {
+      final id = _norm(c["id"]?.toString() ?? "");
+      final name = _norm(c["name"]?.toString() ?? "");
+      if (id == _norm(classIndex) || name == _norm(classIndex)) {
+        classJson = c;
+        break;
+      }
+    }
+
+    if (classJson == null) return null;
+
+    final progression = (classJson["progression"] as List? ?? [])
+        .whereType<Map<String, dynamic>>();
+
+    for (final levelData in progression) {
+      if (levelData["subclassFeatureLevel"] == true) {
+        return (levelData["level"] as num?)?.toInt();
+      }
+    }
+
+    return null;
+  }
+
+  static Future<List<Map<String, String>>> getClassLevelFeatures({
+    required String classIndex,
+    required int level,
+  }) async {
+    final rawData = await rootBundle.loadString(_path);
+    final root = jsonDecode(rawData) as Map<String, dynamic>;
+    final classes =
+        (root["classes"] as List? ?? []).whereType<Map<String, dynamic>>();
+
+    Map<String, dynamic>? classJson;
+    for (final c in classes) {
+      final id = _norm(c["id"]?.toString() ?? "");
+      final name = _norm(c["name"]?.toString() ?? "");
+      if (id == _norm(classIndex) || name == _norm(classIndex)) {
+        classJson = c;
+        break;
+      }
+    }
+
+    if (classJson == null) return const [];
+
+    final progression = (classJson["progression"] as List? ?? [])
+        .whereType<Map<String, dynamic>>();
+
+    for (final levelData in progression) {
+      final currentLevel = (levelData["level"] as num?)?.toInt();
+      if (currentLevel != level) continue;
+
+      return (levelData["features"] as List? ?? [])
+          .whereType<Map<String, dynamic>>()
+          .map(
+            (feature) => {
+              "name": feature["name"]?.toString() ?? "Feature",
+              "description": feature["description"]?.toString() ?? "",
+            },
+          )
+          .toList();
+    }
+
+    return const [];
+  }
+
   static Future<Map<int, List<SubclassProgressFeature>>>
       loadSubclassProgression(
     String classIndex,

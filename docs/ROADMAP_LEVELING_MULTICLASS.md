@@ -236,10 +236,11 @@ Esto prepara el terreno sin tocar todavia el flujo completo de subida de nivel.
 - Flujo de level-up en `CharacterSheetScreen` permite elegir que clase subir.
 - Si la clase elegida es nueva, valida requisitos de multiclass antes de confirmar.
 - La hoja muestra `classProgressionLabel` cuando el personaje tiene mas de una clase.
+- Nueva pantalla dedicada `lib/screens/level_up_screen.dart` reemplaza el dialog basico de subida de nivel.
+- La pantalla de level-up muestra clase a avanzar, requisitos de multiclass, HP, features desbloqueadas y eleccion de subclase cuando el nivel de clase lo requiere.
 
 Pendientes inmediatos:
 
-- Mejorar UI dedicada para level-up/multiclass fuera de `CharacterSheetScreen`.
 - Definir estructura de spells por clase y spell slots multiclass.
 - Resolver subclases por clase en multiclass desde un flujo dedicado.
 - Ajustar mas sistemas que todavia leen `charClass` + `level` como verdad unica.

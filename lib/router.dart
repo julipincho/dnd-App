@@ -30,6 +30,7 @@ import 'screens/timeline_screen.dart';
 import 'screens/compendium_screen.dart';
 import 'screens/characters_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/level_up_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
 
@@ -201,6 +202,14 @@ final GoRouter appRouter = GoRouter(
       builder: (_, state) {
         final id = state.pathParameters['id']!;
         return CharacterSheetScreen(characterId: id);
+      },
+    ),
+
+    GoRoute(
+      path: '/level-up/:id',
+      builder: (_, state) {
+        final id = state.pathParameters['id']!;
+        return LevelUpScreen(characterId: id);
       },
     ),
 

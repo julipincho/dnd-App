@@ -5423,7 +5423,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               onOpenDiceRoller: _openDiceRoller,
               onLevelUp: () async {
                 if (!isOwnedByCurrentUser) return;
-                await _showLevelUpDialog(context, char);
+                await context.push('/level-up/${char.id}');
               },
               onGoToCampaign: () async {
                 final campaignId = char.campaignId;
