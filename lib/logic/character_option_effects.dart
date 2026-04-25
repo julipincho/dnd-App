@@ -221,10 +221,10 @@ class CharacterOptionEffects {
     int scaledBonus = 2,
     int scaledLevel = 10,
   }) {
-    final className = character.charClass.trim().toLowerCase();
-    if (className != 'artificer') return 0;
+    final artificerLevel = character.levelForClass('artificer');
+    if (artificerLevel <= 0) return 0;
 
-    return character.level >= scaledLevel ? scaledBonus : baseBonus;
+    return artificerLevel >= scaledLevel ? scaledBonus : baseBonus;
   }
 
   static int getInfusedWeaponAttackBonus({

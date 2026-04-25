@@ -181,6 +181,31 @@ Listar assets razas:
     - Pendiente: modelar spells conocidos/preparados por clase.
   - Bug corregido: Eldritch Invocations y Pact Boon ahora usan `character.levelForClass('warlock')` en `CharacterChoiceEngine`, asi Warlock funciona tambien como multiclass y no depende de `charClass`/nivel total.
     - Nota de datos: si una ficha fue guardada mientras el grant de invocaciones no aparecia, la reconciliacion pudo quitar selecciones previas; puede requerir volver a elegir esas invocaciones.
+  - Primer corte de spells por clase:
+    - `Character` persiste `knownSpellIdsByClass` y `preparedSpellIdsByClass`, con listas legacy conservadas para compatibilidad.
+    - La migracion es perezosa: al modificar spells, los spells legacy se asignan al bucket de la clase primaria antes de escribir cambios por clase.
+    - `SpellcastingRules` ahora tiene helpers por `className + classLevel` para spells conocidos, cantrips, preparacion, filtros de lista y nivel maximo aprendible.
+    - La pestaña de spells permite seleccionar la clase lanzadora activa y add/remove/prepare/replace trabaja contra esa clase, no contra `charClass + level` global.
+    - UX agregada por clase, ability por clase y subclases tipo Eldritch Knight / Arcane Trickster ya tienen primer corte implementado.
+  - Grants multiclass corregidos:
+    - Fighting Style usa niveles por clase para Fighter/Paladin/Ranger y College of Swords usa `subclassForClass('bard')`.
+    - Metamagic usa `levelForClass('sorcerer')`.
+    - Infusions y limites/bonos de infusiones usan `levelForClass('artificer')`.
+    - Battle Master maneuvers usa `levelForClass('fighter')` y `subclassForClass('fighter')`.
+    - Se retiraron prints de debug del grant de Battle Master.
+  - Spellcasting ability por clase:
+    - `Character` persiste `spellcastingAbilitiesByClass`, manteniendo `spellcastingAbility` como fallback legacy.
+    - La sheet configura la habilidad de la clase lanzadora activa.
+    - Spell Save DC, Spell Attack y modifier de la pestaña de spells usan la habilidad de la clase activa.
+    - `FeatValidationService` reconoce spellcasting si existe cualquier habilidad por clase.
+  - UI de spellcasting multiclass:
+    - La sheet muestra cards por clase lanzadora con clase/nivel, estado activo, habilidad, DC, ataque, spells seleccionados y limites de cantrips/known/prepared.
+    - Las cards reemplazan el selector segmentado anterior y sirven para cambiar la clase lanzadora activa.
+    - La lista de spells se unifico en un solo `Spellbook` por clase activa; los preparados se distinguen con check en la misma lista.
+  - Subclases lanzadoras parciales:
+    - `SpellcastingRules` reconoce `Fighter + Eldritch Knight` y `Rogue + Arcane Trickster` como third casters.
+    - La sheet las incluye en spellcasting solo si esa subclase esta presente, usa INT por defecto y muestra la subclase en la card.
+    - Pendiente fino: restricciones exactas de escuelas/excepciones de spells libres para EK/AT.
 - Limpieza de `lib/screens/character_sheet_screen.dart`:
   - Punto critico. El archivo concentra demasiada logica.
   - Futuro refactor debe extraer widgets, services y/o view models siguiendo las referencias de buenas practicas Dart/Flutter.

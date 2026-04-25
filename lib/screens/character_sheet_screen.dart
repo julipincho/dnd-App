@@ -1,4 +1,4 @@
-import 'dart:io';
+﻿import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -99,6 +99,42 @@ class _FeatureGroupData {
     required this.title,
     required this.icon,
     required this.features,
+  });
+}
+
+class _SpellcastingClassSummary {
+  final String className;
+  final String? subclassName;
+  final int classLevel;
+  final String? ability;
+  final int abilityModifier;
+  final int saveDc;
+  final int attackBonus;
+  final int selectedSpells;
+  final int? cantripsKnown;
+  final int? cantripLimit;
+  final int? knownSpells;
+  final int? knownSpellLimit;
+  final int? preparedSpells;
+  final int? preparedSpellLimit;
+  final bool isActive;
+
+  const _SpellcastingClassSummary({
+    required this.className,
+    required this.subclassName,
+    required this.classLevel,
+    required this.ability,
+    required this.abilityModifier,
+    required this.saveDc,
+    required this.attackBonus,
+    required this.selectedSpells,
+    required this.cantripsKnown,
+    required this.cantripLimit,
+    required this.knownSpells,
+    required this.knownSpellLimit,
+    required this.preparedSpells,
+    required this.preparedSpellLimit,
+    required this.isActive,
   });
 }
 
@@ -413,6 +449,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
   bool _skillsExpanded = false;
   bool _savingThrowsExpanded = false;
   bool _deathSavesExpanded = false;
+  final Map<String, String> _selectedSpellcastingClassByCharacterId = {};
   int _getTotalCharacterLevel(Character char) {
     return char.level <= 0 ? 1 : char.level;
   }
@@ -952,19 +989,83 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
 //SPELLS
   bool _isCaster(Character char) {
-    return char.spellcastingAbility != null &&
-        char.spellcastingAbility!.trim().isNotEmpty;
+    return char.hasAnySpellcastingAbility;
+  }
+
+  String _spellClassKey(String className) => className.trim().toLowerCase();
+
+  String _formatClassName(String className) {
+    final trimmed = className.trim();
+    if (trimmed.isEmpty) return 'Unknown';
+    return '${trimmed[0].toUpperCase()}${trimmed.substring(1)}';
+  }
+
+  List<String> _spellcastingClassNames(Character char) {
+    final result = <String>[];
+
+    for (final entry in char.classLevels.entries) {
+      if (entry.value <= 0) continue;
+      final progression = SpellcastingRules.getProgressionForClassAndSubclass(
+        className: entry.key,
+        subclassName: char.subclassForClass(entry.key),
+      );
+      if (progression == SpellcastingProgression.none) continue;
+      result.add(entry.key);
+    }
+
+    result.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    if (result.isEmpty && char.charClass.trim().isNotEmpty) {
+      final progression = SpellcastingRules.getProgressionForClassAndSubclass(
+        className: char.charClass,
+        subclassName: char.subclassForClass(char.charClass) ?? char.subclass,
+      );
+      if (progression != SpellcastingProgression.none) {
+        result.add(char.charClass);
+      }
+    }
+
+    return result;
+  }
+
+  String _activeSpellcastingClass(Character char) {
+    final classes = _spellcastingClassNames(char);
+    if (classes.isEmpty) return char.charClass;
+
+    final selected = _selectedSpellcastingClassByCharacterId[char.id];
+    if (selected != null) {
+      final selectedKey = _spellClassKey(selected);
+      for (final className in classes) {
+        if (_spellClassKey(className) == selectedKey) return className;
+      }
+    }
+
+    return classes.first;
+  }
+
+  int _levelForSpellcastingClass(Character char, String className) {
+    final level = char.levelForClass(className);
+    return level > 0 ? level : char.level;
+  }
+
+  List<String> _knownSpellIdsForClass(Character char, String className) {
+    return char.knownSpellIdsForClass(className);
+  }
+
+  List<String> _preparedSpellIdsForClass(Character char, String className) {
+    return char.preparedSpellIdsForClass(className);
   }
 
   Future<void> _saveSpellcastingAbility(
     BuildContext context,
     Character char,
+    String className,
     String? ability,
   ) async {
     final provider = context.read<CharacterProvider>();
 
     await provider.updateCharacterById(char.id, (ch) {
-      ch.spellcastingAbility = ability?.trim().isEmpty ?? true ? null : ability;
+      ch.setSpellcastingAbilityForClass(className, ability);
     });
 
     if (!context.mounted) return;
@@ -989,10 +1090,15 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
   Future<void> _showSpellcastingConfigDialog(
     BuildContext context,
     Character char,
+    String className,
   ) async {
-    bool enabled = (char.spellcastingAbility?.trim().isNotEmpty ?? false);
-    String? selectedAbility = _normalizedSpellcastingAbility(char) ??
-        _defaultSpellcastingAbilityForClass(char);
+    bool enabled =
+        (_normalizedSpellcastingAbilityForClass(char, className) != null);
+    String? selectedAbility = _normalizedSpellcastingAbilityForClass(
+          char,
+          className,
+        ) ??
+        _defaultSpellcastingAbilityForClassName(className);
 
     const availableAbilities = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'];
 
@@ -1001,11 +1107,14 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            final defaultAbility = _defaultSpellcastingAbilityForClass(char);
+            final defaultAbility =
+                _defaultSpellcastingAbilityForClassName(className);
 
             return AlertDialog(
               title: Text(
-                enabled ? 'Edit Spellcasting' : 'Enable Spellcasting',
+                enabled
+                    ? 'Edit ${_formatClassName(className)} Spellcasting'
+                    : 'Enable ${_formatClassName(className)} Spellcasting',
               ),
               content: SingleChildScrollView(
                 child: SizedBox(
@@ -1046,7 +1155,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                               ),
                             ),
                             child: Text(
-                              'Suggested for ${char.charClass}: $defaultAbility',
+                              'Suggested for ${_formatClassName(className)}: $defaultAbility',
                               style: const TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w600,
@@ -1072,7 +1181,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                             return DropdownMenuItem<String>(
                               value: ability,
                               child: Text(
-                                '$ability • $score (${_formatSigned(mod)})',
+                                '$ability â€¢ $score (${_formatSigned(mod)})',
                               ),
                             );
                           }).toList(),
@@ -1093,7 +1202,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                 });
                               },
                               icon: const Icon(Icons.auto_fix_high),
-                              label: Text('Use default for ${char.charClass}'),
+                              label: Text(
+                                'Use default for ${_formatClassName(className)}',
+                              ),
                             ),
                           ),
                         ],
@@ -1116,6 +1227,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     await _saveSpellcastingAbility(
                       context,
                       char,
+                      className,
                       abilityToSave,
                     );
 
@@ -1132,8 +1244,11 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     );
   }
 
-  String? _normalizedSpellcastingAbility(Character char) {
-    final raw = char.spellcastingAbility?.trim();
+  String? _normalizedSpellcastingAbilityForClass(
+    Character char,
+    String className,
+  ) {
+    final raw = char.spellcastingAbilityForClass(className)?.trim();
     if (raw == null || raw.isEmpty) return null;
 
     switch (raw.toUpperCase()) {
@@ -1149,12 +1264,17 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     }
   }
 
-  int _spellcastingAbilityModifier(
+  String? _normalizedSpellcastingAbility(Character char) {
+    return _normalizedSpellcastingAbilityForClass(char, char.charClass);
+  }
+
+  int _spellcastingAbilityModifierForClass(
     Character char,
+    String className,
     EquipmentProvider equipmentProvider,
     CompendiumProvider compendiumProvider,
   ) {
-    final ability = _normalizedSpellcastingAbility(char);
+    final ability = _normalizedSpellcastingAbilityForClass(char, className);
     if (ability == null) return 0;
 
     final score = _getCurrentAbilityScore(
@@ -1167,12 +1287,26 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     return _getAbilityModifier(score);
   }
 
-  int _spellSaveDc(
+  int _spellcastingAbilityModifier(
     Character char,
     EquipmentProvider equipmentProvider,
     CompendiumProvider compendiumProvider,
   ) {
-    final ability = _normalizedSpellcastingAbility(char);
+    return _spellcastingAbilityModifierForClass(
+      char,
+      char.charClass,
+      equipmentProvider,
+      compendiumProvider,
+    );
+  }
+
+  int _spellSaveDcForClass(
+    Character char,
+    String className,
+    EquipmentProvider equipmentProvider,
+    CompendiumProvider compendiumProvider,
+  ) {
+    final ability = _normalizedSpellcastingAbilityForClass(char, className);
     if (ability == null) return 0;
 
     final passiveBonus = CharacterEquipmentEffects.getPassiveSpellSaveDcBonus(
@@ -1183,20 +1317,35 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
     return 8 +
         _proficiencyBonus(char.level) +
-        _spellcastingAbilityModifier(
+        _spellcastingAbilityModifierForClass(
           char,
+          className,
           equipmentProvider,
           compendiumProvider,
         ) +
         passiveBonus;
   }
 
-  int _spellAttackBonus(
+  int _spellSaveDc(
     Character char,
     EquipmentProvider equipmentProvider,
     CompendiumProvider compendiumProvider,
   ) {
-    final ability = _normalizedSpellcastingAbility(char);
+    return _spellSaveDcForClass(
+      char,
+      char.charClass,
+      equipmentProvider,
+      compendiumProvider,
+    );
+  }
+
+  int _spellAttackBonusForClass(
+    Character char,
+    String className,
+    EquipmentProvider equipmentProvider,
+    CompendiumProvider compendiumProvider,
+  ) {
+    final ability = _normalizedSpellcastingAbilityForClass(char, className);
     if (ability == null) return 0;
 
     final passiveBonus = CharacterEquipmentEffects.getPassiveSpellAttackBonus(
@@ -1235,8 +1384,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     );
 
     return _proficiencyBonus(char.level) +
-        _spellcastingAbilityModifier(
+        _spellcastingAbilityModifierForClass(
           char,
+          className,
           equipmentProvider,
           compendiumProvider,
         ) +
@@ -1244,26 +1394,139 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         infusedSpellAttackBonus;
   }
 
-  int _knownSpellLimit(Character char) {
-    return SpellcastingRules.knownSpells(char);
-  }
-
-  int _knownCantripLimit(Character char) {
-    return SpellcastingRules.knownCantrips(char);
-  }
-
-  int _preparedSpellLimit(Character char) {
-    return SpellcastingRules.preparedSpellLimit(
+  int _spellAttackBonus(
+    Character char,
+    EquipmentProvider equipmentProvider,
+    CompendiumProvider compendiumProvider,
+  ) {
+    return _spellAttackBonusForClass(
       char,
-      (ability) => _getCurrentAbilityScore(char, ability),
-      _getAbilityModifier,
+      char.charClass,
+      equipmentProvider,
+      compendiumProvider,
     );
   }
 
-  String? _defaultSpellcastingAbilityForClass(Character char) {
-    switch (char.charClass.toLowerCase().trim()) {
+  int _knownSpellLimitForClass(Character char, String className) {
+    return SpellcastingRules.knownSpellsForClass(
+      className: className,
+      classLevel: _levelForSpellcastingClass(char, className),
+      subclassName: char.subclassForClass(className),
+    );
+  }
+
+  int _knownCantripLimitForClass(Character char, String className) {
+    return SpellcastingRules.knownCantripsForClass(
+      className: className,
+      classLevel: _levelForSpellcastingClass(char, className),
+      subclassName: char.subclassForClass(className),
+    );
+  }
+
+  int _preparedSpellLimitForClass(Character char, String className) {
+    return SpellcastingRules.preparedSpellLimitForClass(
+      className: className,
+      classLevel: _levelForSpellcastingClass(char, className),
+      getAbilityScore: (ability) => _getCurrentAbilityScore(char, ability),
+      getAbilityModifier: _getAbilityModifier,
+    );
+  }
+
+  List<_SpellcastingClassSummary> _buildSpellcastingClassSummaries({
+    required Character char,
+    required SpellProvider spellProvider,
+    required EquipmentProvider equipmentProvider,
+    required CompendiumProvider compendiumProvider,
+    required String activeClassName,
+  }) {
+    final summaries = <_SpellcastingClassSummary>[];
+
+    for (final className in _spellcastingClassNames(char)) {
+      final classLevel = _levelForSpellcastingClass(char, className);
+      final knownSpellIds = _knownSpellIdsForClass(char, className);
+      final preparedSpellIds = _preparedSpellIdsForClass(char, className);
+      final spells = knownSpellIds
+          .map((id) => spellProvider.getById(id))
+          .whereType<Spell>()
+          .toList();
+
+      final cantripsKnown = spells.where((spell) => spell.level == 0).length;
+      final nonCantripKnown = spells.where((spell) => spell.level > 0).length;
+      final subclassName = char.subclassForClass(className);
+      final usesKnownCantrips =
+          SpellcastingRules.usesKnownCantripsForClassAndSubclass(
+        className: className,
+        subclassName: subclassName,
+      );
+      final usesKnownSpells =
+          SpellcastingRules.usesKnownSpellsForClassAndSubclass(
+        className: className,
+        subclassName: subclassName,
+      );
+      final usesPreparedSpells =
+          SpellcastingRules.usesPreparedSpellsForClass(className);
+      final usesPreparedLimit =
+          SpellcastingRules.usesPreparedSpellLimitForClass(className);
+      final ability = _normalizedSpellcastingAbilityForClass(char, className);
+
+      summaries.add(
+        _SpellcastingClassSummary(
+          className: className,
+          subclassName: subclassName,
+          classLevel: classLevel,
+          ability: ability,
+          abilityModifier: ability == null
+              ? 0
+              : _spellcastingAbilityModifierForClass(
+                  char,
+                  className,
+                  equipmentProvider,
+                  compendiumProvider,
+                ),
+          saveDc: ability == null
+              ? 0
+              : _spellSaveDcForClass(
+                  char,
+                  className,
+                  equipmentProvider,
+                  compendiumProvider,
+                ),
+          attackBonus: ability == null
+              ? 0
+              : _spellAttackBonusForClass(
+                  char,
+                  className,
+                  equipmentProvider,
+                  compendiumProvider,
+                ),
+          selectedSpells: spells.length,
+          cantripsKnown: usesKnownCantrips ? cantripsKnown : null,
+          cantripLimit: usesKnownCantrips
+              ? _knownCantripLimitForClass(char, className)
+              : null,
+          knownSpells: usesKnownSpells ? nonCantripKnown : null,
+          knownSpellLimit: usesKnownSpells
+              ? _knownSpellLimitForClass(char, className)
+              : null,
+          preparedSpells: usesPreparedSpells ? preparedSpellIds.length : null,
+          preparedSpellLimit: usesPreparedLimit
+              ? _preparedSpellLimitForClass(char, className)
+              : null,
+          isActive:
+              _spellClassKey(className) == _spellClassKey(activeClassName),
+        ),
+      );
+    }
+
+    return summaries;
+  }
+
+  String? _defaultSpellcastingAbilityForClassName(String className) {
+    switch (className.toLowerCase().trim()) {
       case 'wizard':
       case 'artificer':
+      case 'fighter':
+      case 'rogue':
         return 'INT';
 
       case 'cleric':
@@ -1529,10 +1792,12 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
   Future<void> _showReplaceKnownSpellDialog(
     BuildContext context,
     Character char,
+    String className,
   ) async {
     final spellProvider = context.read<SpellProvider>();
 
-    final currentSpells = char.spellIds
+    final currentSpellIds = _knownSpellIdsForClass(char, className);
+    final currentSpells = currentSpellIds
         .map((id) => spellProvider.getById(id))
         .whereType<Spell>()
         .where((spell) => spell.level > 0)
@@ -1550,14 +1815,22 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
     List<Spell> getReplacementOptions() {
       const includeClassVariants = false;
+      final subclassName = char.subclassForClass(className);
 
-      return SpellcastingRules.spellsForCharacterClassAndLevel(
-        char,
-        spellProvider.spells,
+      return SpellcastingRules.spellsForClassAndLevel(
+        className: className,
+        classLevel: _levelForSpellcastingClass(char, className),
+        maxSlotLevel: SpellcastingRules.maxSpellLevelForClassLevel(
+          className: className,
+          classLevel: _levelForSpellcastingClass(char, className),
+          subclassName: subclassName,
+        ),
+        spells: spellProvider.spells,
+        subclassName: subclassName,
         includeClassVariants: includeClassVariants,
       ).where((spell) {
         return spell.level > 0 &&
-            !char.spellIds.contains(spell.id) &&
+            !currentSpellIds.contains(spell.id) &&
             spell.id != spellToRemove?.id;
       }).toList()
         ..sort((a, b) {
@@ -1590,7 +1863,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Your ${char.charClass} leveled up. You can replace one known spell.',
+                        'Your ${_formatClassName(className)} leveled up. You can replace one known spell.',
                         style: TextStyle(
                           color: Colors.white.withOpacity(0.85),
                         ),
@@ -1604,7 +1877,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         items: currentSpells.map((spell) {
                           return DropdownMenuItem<Spell>(
                             value: spell,
-                            child: Text('Lv ${spell.level} • ${spell.name}'),
+                            child: Text('Lv ${spell.level} â€¢ ${spell.name}'),
                           );
                         }).toList(),
                         onChanged: (value) {
@@ -1623,7 +1896,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         items: replacementOptions.map((spell) {
                           return DropdownMenuItem<Spell>(
                             value: spell,
-                            child: Text('Lv ${spell.level} • ${spell.name}'),
+                            child: Text('Lv ${spell.level} â€¢ ${spell.name}'),
                           );
                         }).toList(),
                         onChanged: (value) {
@@ -1656,12 +1929,14 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                           await context
                               .read<CharacterProvider>()
                               .updateCharacterById(char.id, (ch) {
-                            ch.spellIds.remove(spellToRemove!.id);
-                            ch.preparedSpellIds.remove(spellToRemove!.id);
-
-                            if (!ch.spellIds.contains(spellToAdd!.id)) {
-                              ch.spellIds.add(spellToAdd!.id);
-                            }
+                            ch.removeKnownSpellForClass(
+                              className,
+                              spellToRemove!.id,
+                            );
+                            ch.addKnownSpellForClass(
+                              className,
+                              spellToAdd!.id,
+                            );
                           });
 
                           if (!dialogContext.mounted) return;
@@ -2831,18 +3106,21 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     BuildContext context,
     Character char,
     String spellId,
+    String className,
   ) async {
     final provider = context.read<CharacterProvider>();
 
-    if (!SpellcastingRules.usesPreparedSpells(char)) {
+    if (!SpellcastingRules.usesPreparedSpellsForClass(className)) {
       return;
     }
 
-    final isAlreadyPrepared = char.preparedSpellIds.contains(spellId);
+    final preparedSpellIds = _preparedSpellIdsForClass(char, className);
+    final isAlreadyPrepared = preparedSpellIds.contains(spellId);
 
-    if (!isAlreadyPrepared && SpellcastingRules.usesPreparedSpellLimit(char)) {
-      final limit = _preparedSpellLimit(char);
-      final currentPreparedCount = char.preparedSpellIds.length;
+    if (!isAlreadyPrepared &&
+        SpellcastingRules.usesPreparedSpellLimitForClass(className)) {
+      final limit = _preparedSpellLimitForClass(char, className);
+      final currentPreparedCount = preparedSpellIds.length;
 
       if (currentPreparedCount >= limit) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2857,13 +3135,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     }
 
     await provider.updateCharacterById(char.id, (ch) {
-      if (!ch.spellIds.contains(spellId)) return;
-
-      if (ch.preparedSpellIds.contains(spellId)) {
-        ch.preparedSpellIds.remove(spellId);
-      } else {
-        ch.preparedSpellIds.add(spellId);
-      }
+      ch.togglePreparedSpellForClass(className, spellId);
     });
   }
 
@@ -2871,11 +3143,16 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     BuildContext context,
     Character char,
   ) async {
-    if (SpellcastingRules.usesPreparedSpells(char)) return;
+    final hasPreparedSpellClass = _spellcastingClassNames(char).any(
+      SpellcastingRules.usesPreparedSpellsForClass,
+    );
+    if (hasPreparedSpellClass) return;
     if (char.preparedSpellIds.isEmpty) return;
 
     await context.read<CharacterProvider>().updateCharacterById(char.id, (ch) {
       ch.preparedSpellIds.clear();
+      ch.preparedSpells.clear();
+      ch.preparedSpellIdsByClass.clear();
     });
   }
 
@@ -2883,12 +3160,12 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     BuildContext context,
     Character char,
     String spellId,
+    String className,
   ) async {
     final provider = context.read<CharacterProvider>();
 
     await provider.updateCharacterById(char.id, (ch) {
-      ch.spellIds.remove(spellId);
-      ch.preparedSpellIds.remove(spellId);
+      ch.removeKnownSpellForClass(className, spellId);
     });
   }
 
@@ -3781,9 +4058,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
         if (compendiumItem.allowsDexBonus) {
           if (compendiumItem.maxDexBonus != null) {
-            armorLabel += ' • DEX max +${compendiumItem.maxDexBonus}';
+            armorLabel += ' â€¢ DEX max +${compendiumItem.maxDexBonus}';
           } else {
-            armorLabel += ' • +DEX';
+            armorLabel += ' â€¢ +DEX';
           }
         }
 
@@ -3812,9 +4089,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
         if (item.allowsDexBonus) {
           if (item.maxDexBonus != null) {
-            armorLabel += ' • DEX max +${item.maxDexBonus}';
+            armorLabel += ' â€¢ DEX max +${item.maxDexBonus}';
           } else {
-            armorLabel += ' • +DEX';
+            armorLabel += ' â€¢ +DEX';
           }
         }
 
@@ -3826,7 +4103,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       }
     }
 
-    return parts.join(' • ');
+    return parts.join(' â€¢ ');
   }
 
   String? _buildEquipmentDescription(
@@ -4183,13 +4460,13 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       compendiumProvider,
     );
 
-    if (resolvedWeapon == null) return '—';
+    if (resolvedWeapon == null) return 'â€”';
 
     final weaponItem = resolvedWeapon.effectiveItem;
     final damageDice = weaponItem.damageDice?.trim();
 
     if (damageDice == null || damageDice.isEmpty) {
-      return '—';
+      return 'â€”';
     }
 
     final damageBonus = _calculateMainHandDamageBonus(
@@ -4387,7 +4664,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
           ),
           centerTitle: true,
           actions: [
-            // 👉 Ir a campaña (SIEMPRE disponible)
+            // ðŸ‘‰ Ir a campaÃ±a (SIEMPRE disponible)
             if (char.campaignId != null)
               IconButton(
                 icon: const Icon(Icons.flag_outlined, color: Colors.white),
@@ -4413,7 +4690,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 },
               ),
 
-            // 👉 SOLO SI ES TUYO → EDITAR
+            // ðŸ‘‰ SOLO SI ES TUYO â†’ EDITAR
             if (isOwnedByCurrentUser)
               IconButton(
                 icon: const Icon(Icons.edit, color: Colors.white),
@@ -4422,7 +4699,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 },
               ),
 
-            // 👉 SOLO SI ES TUYO → BORRAR
+            // ðŸ‘‰ SOLO SI ES TUYO â†’ BORRAR
             if (isOwnedByCurrentUser)
               IconButton(
                 icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
@@ -4885,7 +5162,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         ),
         const SizedBox(height: 6),
         Text(
-          "${char.race}${char.subrace != null ? ' (${char.subrace})' : ''} · ${char.charClass}${char.subclass != null ? ' / ${char.subclass}' : ''} · Level ${char.level}",
+          "${char.race}${char.subrace != null ? ' (${char.subrace})' : ''} Â· ${char.charClass}${char.subclass != null ? ' / ${char.subclass}' : ''} Â· Level ${char.level}",
           textAlign: isCentered ? TextAlign.center : TextAlign.start,
           style: TextStyle(
             fontSize: subtitleSize,
@@ -4907,7 +5184,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         ],
         const SizedBox(height: 4),
         Text(
-          "${char.background.name} · ${char.alignment ?? 'True Neutral'}",
+          "${char.background.name} Â· ${char.alignment ?? 'True Neutral'}",
           textAlign: isCentered ? TextAlign.center : TextAlign.start,
           style: TextStyle(
             fontSize: smallSubtitleSize,
@@ -5264,9 +5541,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
           ),
           padding: EdgeInsets.symmetric(vertical: verticalPadding),
           child: Center(
-            // 👈 CLAVE: esto centra TODO el contenido
+            // ðŸ‘ˆ CLAVE: esto centra TODO el contenido
             child: Column(
-              mainAxisSize: MainAxisSize.min, // 👈 evita que se estire raro
+              mainAxisSize: MainAxisSize.min, // ðŸ‘ˆ evita que se estire raro
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
@@ -5708,7 +5985,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                         ),
                                         const SizedBox(height: 4),
                                         Text(
-                                          '${item.displayCategory} • ${item.damageDiceOneHanded ?? '—'} ${item.damageType ?? ''}'
+                                          '${item.displayCategory} â€¢ ${item.damageDiceOneHanded ?? 'â€”'} ${item.damageType ?? ''}'
                                               .trim(),
                                           style: TextStyle(
                                             color:
@@ -5907,7 +6184,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            '${infusions.length} selected • $activeInfusedCount / $activeInfusedLimit active',
+            '${infusions.length} selected â€¢ $activeInfusedCount / $activeInfusedLimit active',
             style: TextStyle(
               color: Colors.white.withOpacity(0.65),
               fontSize: 13,
@@ -6128,32 +6405,59 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final isLargeTablet = screenWidth >= 900;
     final maxWidth = isLargeTablet ? 1000.0 : 850.0;
 
+    final activeSpellcastingClass = _activeSpellcastingClass(char);
+    final activeSpellcastingClassLevel = _levelForSpellcastingClass(
+      char,
+      activeSpellcastingClass,
+    );
     final hasSpellcasting = _isCaster(char);
-    final spellcastingAbilityKey = _normalizedSpellcastingAbility(char);
-    final spellcastingAbilityModifier = _spellcastingAbilityModifier(
+    final spellcastingAbilityKey = _normalizedSpellcastingAbilityForClass(
       char,
+      activeSpellcastingClass,
+    );
+    final spellcastingAbilityModifier = _spellcastingAbilityModifierForClass(
+      char,
+      activeSpellcastingClass,
       equipmentProvider,
       compendiumProvider,
     );
-    final spellSaveDc = _spellSaveDc(
+    final spellSaveDc = _spellSaveDcForClass(
       char,
+      activeSpellcastingClass,
       equipmentProvider,
       compendiumProvider,
     );
 
-    final spellAttackBonus = _spellAttackBonus(
+    final spellAttackBonus = _spellAttackBonusForClass(
       char,
+      activeSpellcastingClass,
       equipmentProvider,
       compendiumProvider,
     );
-    final usesPreparedLimit = SpellcastingRules.usesPreparedSpellLimit(char);
-    final usesPreparedSpells = SpellcastingRules.usesPreparedSpells(char);
-    final preparedSpellLimit =
-        usesPreparedLimit ? _preparedSpellLimit(char) : 0;
+    final usesPreparedLimit = SpellcastingRules.usesPreparedSpellLimitForClass(
+      activeSpellcastingClass,
+    );
+    final usesPreparedSpells = SpellcastingRules.usesPreparedSpellsForClass(
+      activeSpellcastingClass,
+    );
+    final preparedSpellLimit = usesPreparedLimit
+        ? _preparedSpellLimitForClass(char, activeSpellcastingClass)
+        : 0;
     final preparedSpellLimitLabel =
-        SpellcastingRules.preparedSpellLimitLabel(char);
+        SpellcastingRules.preparedSpellLimitLabelForClass(
+      activeSpellcastingClass,
+    );
 
-    final selectedSpells = char.spellIds
+    final selectedSpellIds = _knownSpellIdsForClass(
+      char,
+      activeSpellcastingClass,
+    );
+    final preparedSpellIds = _preparedSpellIdsForClass(
+      char,
+      activeSpellcastingClass,
+    );
+
+    final selectedSpells = selectedSpellIds
         .map((id) => spellProvider.getById(id))
         .whereType<Spell>()
         .toList()
@@ -6163,17 +6467,31 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         return a.name.toLowerCase().compareTo(b.name.toLowerCase());
       });
 
-    final usesKnownSpells = SpellcastingRules.usesKnownSpells(char);
-    final usesKnownCantrips = SpellcastingRules.usesKnownCantrips(char);
-    final knownSpellLimit = usesKnownSpells ? _knownSpellLimit(char) : 0;
-    final knownCantripLimit = usesKnownCantrips ? _knownCantripLimit(char) : 0;
+    final activeSpellcastingSubclass =
+        char.subclassForClass(activeSpellcastingClass);
+    final usesKnownSpells =
+        SpellcastingRules.usesKnownSpellsForClassAndSubclass(
+      className: activeSpellcastingClass,
+      subclassName: activeSpellcastingSubclass,
+    );
+    final usesKnownCantrips =
+        SpellcastingRules.usesKnownCantripsForClassAndSubclass(
+      className: activeSpellcastingClass,
+      subclassName: activeSpellcastingSubclass,
+    );
+    final knownSpellLimit = usesKnownSpells
+        ? _knownSpellLimitForClass(char, activeSpellcastingClass)
+        : 0;
+    final knownCantripLimit = usesKnownCantrips
+        ? _knownCantripLimitForClass(char, activeSpellcastingClass)
+        : 0;
 
     final selectedCantrips =
         selectedSpells.where((spell) => spell.level == 0).length;
     final selectedNonCantripSpells =
         selectedSpells.where((spell) => spell.level > 0).length;
 
-    final preparedSpells = char.preparedSpellIds
+    final preparedSpells = preparedSpellIds
         .map((id) => spellProvider.getById(id))
         .whereType<Spell>()
         .toList()
@@ -6188,13 +6506,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       spellsByLevel.putIfAbsent(spell.level, () => []).add(spell);
     }
 
-    final preparedByLevel = <int, List<Spell>>{};
-    for (final spell in preparedSpells) {
-      preparedByLevel.putIfAbsent(spell.level, () => []).add(spell);
-    }
-
     final sortedLevels = spellsByLevel.keys.toList()..sort();
-    final preparedLevels = preparedByLevel.keys.toList()..sort();
 
     final slotLevels = List.generate(9, (index) => index + 1)
         .where((level) => _slotMaxForLevel(char, level) > 0)
@@ -6220,6 +6532,13 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     }
     final totalPactMagicRemainingSlots =
         totalPactMagicMaxSlots - totalPactMagicUsedSlots;
+    final spellcastingClassSummaries = _buildSpellcastingClassSummaries(
+      char: char,
+      spellProvider: spellProvider,
+      equipmentProvider: equipmentProvider,
+      compendiumProvider: compendiumProvider,
+      activeClassName: activeSpellcastingClass,
+    );
     final spellcastingSummaryItems = [
       CharacterSpellcastingSummaryItem(
         label: 'Spellcasting Ability',
@@ -6241,31 +6560,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         icon: Icons.auto_awesome_outlined,
       ),
       CharacterSpellcastingSummaryItem(
-        label: 'Selected Spells',
-        value: '${selectedSpells.length}',
-        icon: Icons.menu_book_outlined,
-      ),
-      if (usesKnownCantrips)
-        CharacterSpellcastingSummaryItem(
-          label: 'Cantrips Known',
-          value: '$selectedCantrips / $knownCantripLimit',
-          icon: Icons.blur_circular_outlined,
-        ),
-      if (usesKnownSpells)
-        CharacterSpellcastingSummaryItem(
-          label: 'Spells Known',
-          value: '$selectedNonCantripSpells / $knownSpellLimit',
-          icon: Icons.library_books_outlined,
-        ),
-      if (usesPreparedSpells)
-        CharacterSpellcastingSummaryItem(
-          label: 'Prepared Spells',
-          value: usesPreparedLimit
-              ? '${preparedSpells.length} / $preparedSpellLimit'
-              : '${preparedSpells.length}',
-          icon: Icons.checklist_outlined,
-        ),
-      CharacterSpellcastingSummaryItem(
         label: 'Remaining Slots',
         value: '$totalRemainingSlots',
         icon: Icons.battery_charging_full_outlined,
@@ -6278,7 +6572,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         ),
     ];
     final spellcastingClassName =
-        '${char.charClass[0].toUpperCase()}${char.charClass.substring(1)}';
+        '${_formatClassName(activeSpellcastingClass)} $activeSpellcastingClassLevel';
 
     String levelLabel(int level) {
       if (level == 0) return 'Cantrips';
@@ -6287,7 +6581,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
     Widget buildSpellChip(Spell spell) {
       final isPrepared =
-          usesPreparedSpells && char.preparedSpellIds.contains(spell.id);
+          usesPreparedSpells && preparedSpellIds.contains(spell.id);
 
       return ActionChip(
         label: Row(
@@ -6324,14 +6618,20 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               ),
             ),
             builder: (_) {
-              final preparedNow = usesPreparedSpells &&
-                  char.preparedSpellIds.contains(spell.id);
+              final preparedNow =
+                  usesPreparedSpells && preparedSpellIds.contains(spell.id);
               final usesPreparedLimitNow = usesPreparedSpells &&
-                  SpellcastingRules.usesPreparedSpellLimit(char);
-              final preparedLimitNow =
-                  usesPreparedLimitNow ? _preparedSpellLimit(char) : 0;
+                  SpellcastingRules.usesPreparedSpellLimitForClass(
+                    activeSpellcastingClass,
+                  );
+              final preparedLimitNow = usesPreparedLimitNow
+                  ? _preparedSpellLimitForClass(
+                      char,
+                      activeSpellcastingClass,
+                    )
+                  : 0;
               final preparedCountNow =
-                  usesPreparedSpells ? char.preparedSpellIds.length : 0;
+                  usesPreparedSpells ? preparedSpellIds.length : 0;
               final canPrepareMore = !usesPreparedSpells ||
                   !usesPreparedLimitNow ||
                   preparedNow ||
@@ -6381,7 +6681,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       _buildSpellDetailRow(
                         'Components',
                         spell.components.isEmpty
-                            ? '—'
+                            ? 'â€”'
                             : spell.components.join(', '),
                       ),
                       _buildSpellDetailRow('Duration', spell.duration),
@@ -6419,6 +6719,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                             context,
                                             char,
                                             spell.id,
+                                            activeSpellcastingClass,
                                           );
 
                                           if (context.mounted) {
@@ -6444,6 +6745,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                       context,
                                       char,
                                       spell.id,
+                                      activeSpellcastingClass,
                                     );
 
                                     if (context.mounted) {
@@ -6479,20 +6781,45 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 isLargeTablet: isLargeTablet,
                 isOwnedByCurrentUser: isOwnedByCurrentUser,
                 hasSpellcasting: hasSpellcasting,
-                canReplaceKnownSpell:
-                    SpellcastingRules.canReplaceKnownSpellOnLevelUp(char),
-                canReplaceSpell: char.spellIds.isNotEmpty,
+                canReplaceKnownSpell: SpellcastingRules
+                    .canReplaceKnownSpellOnLevelUpForClassAndSubclass(
+                  className: activeSpellcastingClass,
+                  subclassName: activeSpellcastingSubclass,
+                ),
+                canReplaceSpell: selectedSpellIds.isNotEmpty,
                 className: spellcastingClassName,
                 summaryItems: spellcastingSummaryItems,
-                onConfigureSpellcasting: () =>
-                    _showSpellcastingConfigDialog(context, char),
+                onConfigureSpellcasting: () => _showSpellcastingConfigDialog(
+                  context,
+                  char,
+                  activeSpellcastingClass,
+                ),
                 onManageSlots: () => _showEditSpellSlotsDialog(context, char),
                 onReplaceSpell: () => _showReplaceKnownSpellDialog(
                   context,
                   char,
+                  activeSpellcastingClass,
                 ),
-                onAddSpell: () => _openSpellSelector(context, char),
+                onAddSpell: () => _openSpellSelector(
+                  context,
+                  char,
+                  activeSpellcastingClass,
+                ),
               ),
+              if (spellcastingClassSummaries.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                _buildSpellcastingClassOverview(
+                  summaries: spellcastingClassSummaries,
+                  isTablet: isTablet,
+                  isLargeTablet: isLargeTablet,
+                  onSelectClass: (className) {
+                    setState(() {
+                      _selectedSpellcastingClassByCharacterId[char.id] =
+                          className;
+                    });
+                  },
+                ),
+              ],
               const SizedBox(height: 20),
               if (MulticlassSpellcastingService.hasAutoSlots(char)) ...[
                 Row(
@@ -6663,110 +6990,91 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 ),
                 const SizedBox(height: 12),
               ],
-              if (usesPreparedSpells && usesPreparedLimit)
-                _spellSection(
-                  title: 'Preparation Rules',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Prepared: ${preparedSpells.length} / $preparedSpellLimit',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      if (preparedSpellLimitLabel != null) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          'Rule: $preparedSpellLimitLabel',
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.7),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              if (usesKnownSpells)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: _spellSection(
-                    title: 'Known Spell Rules',
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+              _spellSection(
+                title: '${_formatClassName(activeSpellcastingClass)} Spellbook',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
                       children: [
-                        Text(
-                          'Spells Known: $selectedNonCantripSpells / $knownSpellLimit',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                          ),
+                        _progressSpellPill(
+                          label: 'Selected',
+                          current: selectedSpells.length,
+                          max: null,
                         ),
-                        if (usesKnownCantrips) ...[
-                          const SizedBox(height: 6),
-                          Text(
-                            'Cantrips Known: $selectedCantrips / $knownCantripLimit',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.8),
-                            ),
+                        if (usesKnownCantrips)
+                          _progressSpellPill(
+                            label: 'Cantrips',
+                            current: selectedCantrips,
+                            max: knownCantripLimit,
                           ),
-                        ],
+                        if (usesKnownSpells)
+                          _progressSpellPill(
+                            label: 'Known',
+                            current: selectedNonCantripSpells,
+                            max: knownSpellLimit,
+                          ),
+                        if (usesPreparedSpells)
+                          _progressSpellPill(
+                            label: 'Prepared',
+                            current: preparedSpells.length,
+                            max: usesPreparedLimit ? preparedSpellLimit : null,
+                          ),
                       ],
                     ),
-                  ),
-                ),
-              const SizedBox(height: 12),
-              if (usesPreparedSpells) ...[
-                const SizedBox(height: 12),
-                if (preparedSpells.isEmpty)
-                  _spellSection(
-                    title: 'Prepared Spells',
-                    child: const Text(
-                      'No prepared spells yet.',
-                      style: TextStyle(color: Colors.white70),
-                    ),
-                  )
-                else
-                  ...preparedLevels.map((level) {
-                    final spells = preparedByLevel[level]!;
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _spellSection(
-                        title: 'Prepared • ${levelLabel(level)}',
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: spells.map(buildSpellChip).toList(),
+                    if (usesPreparedSpells &&
+                        usesPreparedLimit &&
+                        preparedSpellLimitLabel != null) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        'Preparation: $preparedSpellLimitLabel',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.62),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                    );
-                  }),
-              ],
-              const SizedBox(height: 12),
-              if (selectedSpells.isEmpty)
-                _spellSection(
-                  title: 'Selected Spells',
-                  child: const Text(
-                    'No spells selected yet.',
-                    style: TextStyle(color: Colors.white70),
-                  ),
-                )
-              else
-                ...sortedLevels.map((level) {
-                  final spells = spellsByLevel[level]!;
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: _spellSection(
-                      title: levelLabel(level),
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: spells.map(buildSpellChip).toList(),
+                    ],
+                    const SizedBox(height: 14),
+                    if (selectedSpells.isEmpty)
+                      const Text(
+                        'No spells selected yet.',
+                        style: TextStyle(color: Colors.white70),
+                      )
+                    else
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: sortedLevels.map((level) {
+                          final spells = spellsByLevel[level]!;
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  levelLabel(level),
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: spells.map(buildSpellChip).toList(),
+                                ),
+                              ],
+                            ),
+                          );
+                        }).toList(),
                       ),
-                    ),
-                  );
-                }),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -6864,13 +7172,332 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               ),
             ),
             TextSpan(
-              text: value.isEmpty ? '—' : value,
+              text: value.isEmpty ? 'â€”' : value,
               style: TextStyle(
                 color: Colors.white.withOpacity(0.85),
                 fontSize: 14,
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSpellcastingClassOverview({
+    required List<_SpellcastingClassSummary> summaries,
+    required bool isTablet,
+    required bool isLargeTablet,
+    required ValueChanged<String> onSelectClass,
+  }) {
+    return _spellSection(
+      title: 'Spellcasting Classes',
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final columns = isLargeTablet ? 2 : 1;
+          final width = constraints.maxWidth;
+          final cardWidth = columns == 1 ? width : (width - 12) / columns;
+
+          return Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: summaries.map((summary) {
+              return SizedBox(
+                width: cardWidth,
+                child: _buildSpellcastingClassCard(
+                  summary: summary,
+                  isTablet: isTablet,
+                  onTap: () => onSelectClass(summary.className),
+                ),
+              );
+            }).toList(),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildSpellcastingClassCard({
+    required _SpellcastingClassSummary summary,
+    required bool isTablet,
+    required VoidCallback onTap,
+  }) {
+    final borderColor = summary.isActive
+        ? Colors.deepPurpleAccent.withValues(alpha: 0.85)
+        : Colors.deepPurpleAccent.withValues(alpha: 0.18);
+    final backgroundColor =
+        summary.isActive ? const Color(0xFF292133) : const Color(0xFF202028);
+    final abilityLabel = summary.ability == null
+        ? 'Not set'
+        : '${summary.ability} ${_formatSigned(summary.abilityModifier)}';
+    final detailLabel = (summary.subclassName?.trim().isNotEmpty ?? false)
+        ? '${summary.subclassName!.trim()} - $abilityLabel'
+        : abilityLabel;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: backgroundColor,
+          borderRadius: BorderRadius.circular(14),
+          border:
+              Border.all(color: borderColor, width: summary.isActive ? 1.4 : 1),
+          boxShadow: summary.isActive
+              ? [
+                  BoxShadow(
+                    color: Colors.deepPurpleAccent.withValues(alpha: 0.16),
+                    blurRadius: 18,
+                    offset: const Offset(0, 8),
+                  ),
+                ]
+              : const [],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: Colors.deepPurpleAccent.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    _spellcastingClassIcon(summary.className),
+                    color: Colors.white,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(
+                            '${_formatClassName(summary.className)} ${summary.classLevel}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: isTablet ? 17 : 16,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          if (summary.isActive)
+                            _compactSpellBadge(
+                              label: 'Active',
+                              color: Colors.deepPurpleAccent,
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        detailLabel,
+                        style: TextStyle(
+                          color: summary.ability == null
+                              ? Colors.orangeAccent
+                              : Colors.white.withValues(alpha: 0.72),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  summary.isActive
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_unchecked,
+                  color: summary.isActive
+                      ? Colors.deepPurpleAccent
+                      : Colors.white38,
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: _spellcastingMetricTile(
+                    label: 'DC',
+                    value: summary.ability == null ? '-' : '${summary.saveDc}',
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _spellcastingMetricTile(
+                    label: 'Attack',
+                    value: summary.ability == null
+                        ? '-'
+                        : _formatSigned(summary.attackBonus),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _spellcastingMetricTile(
+                    label: 'Spells',
+                    value: '${summary.selectedSpells}',
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (summary.cantripsKnown != null)
+                  _progressSpellPill(
+                    label: 'Cantrips',
+                    current: summary.cantripsKnown!,
+                    max: summary.cantripLimit,
+                  ),
+                if (summary.knownSpells != null)
+                  _progressSpellPill(
+                    label: 'Known',
+                    current: summary.knownSpells!,
+                    max: summary.knownSpellLimit,
+                  ),
+                if (summary.preparedSpells != null)
+                  _progressSpellPill(
+                    label: 'Prepared',
+                    current: summary.preparedSpells!,
+                    max: summary.preparedSpellLimit,
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  IconData _spellcastingClassIcon(String className) {
+    switch (className.trim().toLowerCase()) {
+      case 'artificer':
+        return Icons.construction_outlined;
+      case 'bard':
+        return Icons.music_note_outlined;
+      case 'cleric':
+        return Icons.church_outlined;
+      case 'druid':
+        return Icons.eco_outlined;
+      case 'paladin':
+        return Icons.shield_outlined;
+      case 'ranger':
+        return Icons.explore_outlined;
+      case 'sorcerer':
+        return Icons.flare_outlined;
+      case 'warlock':
+        return Icons.dark_mode_outlined;
+      case 'wizard':
+        return Icons.menu_book_outlined;
+      default:
+        return Icons.auto_awesome_outlined;
+    }
+  }
+
+  Widget _spellcastingMetricTile({
+    required String label,
+    required String value,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.55),
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _progressSpellPill({
+    required String label,
+    required int current,
+    required int? max,
+  }) {
+    final overLimit = max != null && current > max;
+    final value = max == null ? '$current' : '$current / $max';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: overLimit
+            ? Colors.orangeAccent.withValues(alpha: 0.16)
+            : Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: overLimit
+              ? Colors.orangeAccent.withValues(alpha: 0.55)
+              : Colors.white.withValues(alpha: 0.08),
+        ),
+      ),
+      child: Text(
+        '$label $value',
+        style: TextStyle(
+          color: overLimit ? Colors.orangeAccent : Colors.white70,
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+
+  Widget _compactSpellBadge({
+    required String label,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.45)),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
         ),
       ),
     );
@@ -8496,7 +9123,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         ),
                       ),
 
-                      // 🔒 SOLO SI ES TUYO → MENÚ
+                      // ðŸ”’ SOLO SI ES TUYO â†’ MENÃš
                       if (isOwnedByCurrentUser)
                         PopupMenuButton<String>(
                           icon: const Icon(
@@ -8562,7 +9189,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     ),
                   ],
 
-                  // 🔹 MENSAJE SOLO LECTURA
+                  // ðŸ”¹ MENSAJE SOLO LECTURA
                   if (!isOwnedByCurrentUser) ...[
                     const SizedBox(height: 8),
                     Text(
@@ -9759,6 +10386,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     BuildContext context,
     Character char,
     String spellId,
+    String className,
   ) async {
     final provider = context.read<CharacterProvider>();
     final spellProvider = context.read<SpellProvider>();
@@ -9766,20 +10394,30 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
     if (spell == null) return;
 
-    final selectedSpells = char.spellIds
+    final selectedSpellIds = _knownSpellIdsForClass(char, className);
+    final selectedSpells = selectedSpellIds
         .map((id) => spellProvider.getById(id))
         .whereType<Spell>()
         .toList();
 
-    if (SpellcastingRules.usesKnownSpells(char)) {
+    final subclassName = char.subclassForClass(className);
+
+    if (SpellcastingRules.usesKnownSpellsForClassAndSubclass(
+      className: className,
+      subclassName: subclassName,
+    )) {
       final nonCantripSelected =
           selectedSpells.where((s) => s.level > 0).length;
       final cantripSelected = selectedSpells.where((s) => s.level == 0).length;
 
-      final knownSpellLimit = _knownSpellLimit(char);
-      final knownCantripLimit = _knownCantripLimit(char);
+      final knownSpellLimit = _knownSpellLimitForClass(char, className);
+      final knownCantripLimit = _knownCantripLimitForClass(char, className);
 
-      if (spell.level == 0 && SpellcastingRules.usesKnownCantrips(char)) {
+      if (spell.level == 0 &&
+          SpellcastingRules.usesKnownCantripsForClassAndSubclass(
+            className: className,
+            subclassName: subclassName,
+          )) {
         if (cantripSelected >= knownCantripLimit) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -9807,20 +10445,30 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     }
 
     await provider.updateCharacterById(char.id, (ch) {
-      if (!ch.spellIds.contains(spellId)) {
-        ch.spellIds.add(spellId);
-      }
+      ch.addKnownSpellForClass(className, spellId);
     });
   }
 
-  void _openSpellSelector(BuildContext context, Character char) {
+  void _openSpellSelector(
+    BuildContext context,
+    Character char,
+    String className,
+  ) {
     final spellProvider = context.read<SpellProvider>();
 
     const includeClassVariants = false;
+    final subclassName = char.subclassForClass(className);
 
-    final filteredSpells = SpellcastingRules.spellsForCharacterClassAndLevel(
-      char,
-      spellProvider.spells,
+    final filteredSpells = SpellcastingRules.spellsForClassAndLevel(
+      className: className,
+      classLevel: _levelForSpellcastingClass(char, className),
+      maxSlotLevel: SpellcastingRules.maxSpellLevelForClassLevel(
+        className: className,
+        classLevel: _levelForSpellcastingClass(char, className),
+        subclassName: subclassName,
+      ),
+      spells: spellProvider.spells,
+      subclassName: subclassName,
       includeClassVariants: includeClassVariants,
     )..sort((a, b) {
         final levelCompare = a.level.compareTo(b.level);
@@ -9838,9 +10486,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       builder: (_) {
         return _SpellSelectorModal(
           spells: filteredSpells,
-          excludedSpellIds: char.spellIds.toSet(),
+          excludedSpellIds: _knownSpellIdsForClass(char, className).toSet(),
           onSelect: (spell) async {
-            await _addSpellToCharacter(context, char, spell.id);
+            await _addSpellToCharacter(context, char, spell.id, className);
 
             if (context.mounted) {
               Navigator.pop(context);
@@ -10225,7 +10873,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                                 .trim()
                                                 .isEmpty
                                             ? selectedEquipmentEntry!.source
-                                            : '${selectedEquipmentEntry!.displayCategory} • ${selectedEquipmentEntry!.source}',
+                                            : '${selectedEquipmentEntry!.displayCategory} â€¢ ${selectedEquipmentEntry!.source}',
                                         style: TextStyle(
                                           color: Colors.white.withOpacity(0.68),
                                           fontSize: 12,

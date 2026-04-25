@@ -54,8 +54,11 @@ class Character {
   // Sprint 2: spellcasting base
   // -----------------------------
   String? spellcastingAbility;
+  Map<String, String> spellcastingAbilitiesByClass;
   List<String> knownSpells;
   List<String> preparedSpells;
+  Map<String, List<String>> knownSpellIdsByClass;
+  Map<String, List<String>> preparedSpellIdsByClass;
   Map<String, int> spellSlots;
   Map<String, int> pactMagicSlots;
 
@@ -144,8 +147,11 @@ class Character {
     this.backstory,
     this.notes,
     this.spellcastingAbility,
+    Map<String, String>? spellcastingAbilitiesByClass,
     List<String>? knownSpells,
     List<String>? preparedSpells,
+    Map<String, List<String>>? knownSpellIdsByClass,
+    Map<String, List<String>>? preparedSpellIdsByClass,
     Map<String, int>? spellSlots,
     Map<String, int>? pactMagicSlots,
     int? deathSaveSuccesses,
@@ -192,8 +198,17 @@ class Character {
         resources = resources ?? [],
         savingThrows = savingThrows ?? [],
         inventory = inventory ?? [],
+        spellcastingAbilitiesByClass = _normalizeSpellcastingAbilitiesByClass(
+          spellcastingAbilitiesByClass ?? const {},
+        ),
         knownSpells = knownSpells ?? [],
         preparedSpells = preparedSpells ?? [],
+        knownSpellIdsByClass = _normalizeSpellIdsByClass(
+          knownSpellIdsByClass ?? const {},
+        ),
+        preparedSpellIdsByClass = _normalizeSpellIdsByClass(
+          preparedSpellIdsByClass ?? const {},
+        ),
         deathSaveSuccesses = deathSaveSuccesses ?? 0,
         deathSaveFailures = deathSaveFailures ?? 0,
         selectedOptionGroups = selectedOptionGroups ?? [],
@@ -269,8 +284,11 @@ class Character {
       backstory: '',
       notes: '',
       spellcastingAbility: null,
+      spellcastingAbilitiesByClass: const {},
       knownSpells: const [],
       preparedSpells: const [],
+      knownSpellIdsByClass: const {},
+      preparedSpellIdsByClass: const {},
       spellSlots: const {},
       deathSaveSuccesses: 0,
       deathSaveFailures: 0,
@@ -363,6 +381,12 @@ class Character {
             ?.map((e) => e.toString())
             .toList() ??
         [];
+    final knownSpellIdsByClass = _parseSpellIdsByClass(
+      json['knownSpellIdsByClass'],
+    );
+    final preparedSpellIdsByClass = _parseSpellIdsByClass(
+      json['preparedSpellIdsByClass'],
+    );
 
     final features = (json['features'] as List?)
             ?.map(
@@ -468,6 +492,9 @@ class Character {
       backstory: json['backstory']?.toString() ?? '',
       notes: json['notes']?.toString() ?? '',
       spellcastingAbility: json['spellcastingAbility']?.toString(),
+      spellcastingAbilitiesByClass: _parseSpellcastingAbilitiesByClass(
+        json['spellcastingAbilitiesByClass'],
+      ),
       knownSpells:
           (json['knownSpells'] as List?)?.map((e) => e.toString()).toList() ??
               [],
@@ -475,6 +502,8 @@ class Character {
               ?.map((e) => e.toString())
               .toList() ??
           [],
+      knownSpellIdsByClass: knownSpellIdsByClass,
+      preparedSpellIdsByClass: preparedSpellIdsByClass,
       spellSlots: spellSlots,
       pactMagicSlots: pactMagicSlots,
       features: features,
@@ -583,8 +612,11 @@ class Character {
       'backstory': backstory,
       'notes': notes,
       'spellcastingAbility': spellcastingAbility,
+      'spellcastingAbilitiesByClass': spellcastingAbilitiesByClass,
       'knownSpells': knownSpells,
       'preparedSpells': preparedSpells,
+      'knownSpellIdsByClass': knownSpellIdsByClass,
+      'preparedSpellIdsByClass': preparedSpellIdsByClass,
       'spellIds': spellIds,
       'preparedSpellIds': preparedSpellIds,
       'spellSlots': spellSlots,
@@ -742,4 +774,260 @@ class Character {
 
   CharacterInventoryItem? get equippedAccessory2 =>
       _findInventoryItemById(equippedAccessory2ItemId);
+
+  static Map<String, List<String>> _parseSpellIdsByClass(dynamic raw) {
+    if (raw is! Map) return {};
+
+    return _normalizeSpellIdsByClass(
+      raw.map((key, value) {
+        final ids = value is List
+            ? value.map((e) => e.toString()).toList()
+            : <String>[];
+        return MapEntry(key.toString(), ids);
+      }),
+    );
+  }
+
+  static Map<String, List<String>> _normalizeSpellIdsByClass(
+    Map<String, List<String>> value,
+  ) {
+    final result = <String, List<String>>{};
+
+    for (final entry in value.entries) {
+      final key = _spellClassKey(entry.key);
+      if (key.isEmpty) continue;
+
+      final ids = <String>[];
+      for (final id in entry.value) {
+        final normalizedId = id.trim();
+        if (normalizedId.isEmpty || ids.contains(normalizedId)) continue;
+        ids.add(normalizedId);
+      }
+
+      if (ids.isNotEmpty) {
+        result[key] = ids;
+      }
+    }
+
+    return result;
+  }
+
+  static String _spellClassKey(String className) {
+    return className.trim().toLowerCase();
+  }
+
+  static Map<String, String> _parseSpellcastingAbilitiesByClass(dynamic raw) {
+    if (raw is! Map) return {};
+
+    return _normalizeSpellcastingAbilitiesByClass(
+      raw.map((key, value) => MapEntry(key.toString(), value.toString())),
+    );
+  }
+
+  static Map<String, String> _normalizeSpellcastingAbilitiesByClass(
+    Map<String, String> value,
+  ) {
+    final result = <String, String>{};
+
+    for (final entry in value.entries) {
+      final key = _spellClassKey(entry.key);
+      final ability = _normalizeAbility(entry.value);
+      if (key.isEmpty || ability == null) continue;
+      result[key] = ability;
+    }
+
+    return result;
+  }
+
+  static String? _normalizeAbility(String? value) {
+    final raw = value?.trim().toUpperCase();
+    switch (raw) {
+      case 'STR':
+      case 'DEX':
+      case 'CON':
+      case 'INT':
+      case 'WIS':
+      case 'CHA':
+        return raw;
+      default:
+        return null;
+    }
+  }
+
+  String? spellcastingAbilityForClass(String className) {
+    final key = _spellClassKey(className);
+    final classAbility = spellcastingAbilitiesByClass[key];
+    if (classAbility != null) return classAbility;
+
+    if (key == _spellClassKey(charClass)) {
+      return _normalizeAbility(spellcastingAbility);
+    }
+
+    return null;
+  }
+
+  bool get hasAnySpellcastingAbility {
+    return _normalizeAbility(spellcastingAbility) != null ||
+        spellcastingAbilitiesByClass.isNotEmpty;
+  }
+
+  void setSpellcastingAbilityForClass(String className, String? ability) {
+    final key = _spellClassKey(className);
+    if (key.isEmpty) return;
+
+    final normalizedAbility = _normalizeAbility(ability);
+    if (normalizedAbility == null) {
+      spellcastingAbilitiesByClass.remove(key);
+    } else {
+      spellcastingAbilitiesByClass[key] = normalizedAbility;
+    }
+
+    if (key == _spellClassKey(charClass)) {
+      spellcastingAbility = normalizedAbility;
+    } else if (spellcastingAbility == null && normalizedAbility != null) {
+      spellcastingAbility = normalizedAbility;
+    }
+  }
+
+  List<String> knownSpellIdsForClass(String className) {
+    final key = _spellClassKey(className);
+    final classIds = knownSpellIdsByClass[key];
+    if (classIds != null) return List.unmodifiable(classIds);
+
+    if (knownSpellIdsByClass.isEmpty && key == _spellClassKey(charClass)) {
+      return List.unmodifiable(spellIds);
+    }
+
+    return const [];
+  }
+
+  List<String> preparedSpellIdsForClass(String className) {
+    final key = _spellClassKey(className);
+    final classIds = preparedSpellIdsByClass[key];
+    if (classIds != null) return List.unmodifiable(classIds);
+
+    if (preparedSpellIdsByClass.isEmpty && key == _spellClassKey(charClass)) {
+      return List.unmodifiable(preparedSpellIds);
+    }
+
+    return const [];
+  }
+
+  void addKnownSpellForClass(String className, String spellId) {
+    final key = _spellClassKey(className);
+    final normalizedId = spellId.trim();
+    if (key.isEmpty || normalizedId.isEmpty) return;
+
+    _ensureLegacySpellBucketsForPrimary();
+
+    final ids = knownSpellIdsByClass.putIfAbsent(key, () => []);
+    if (!ids.contains(normalizedId)) {
+      ids.add(normalizedId);
+    }
+
+    _syncLegacySpellLists();
+  }
+
+  void removeKnownSpellForClass(String className, String spellId) {
+    final key = _spellClassKey(className);
+    final normalizedId = spellId.trim();
+    if (key.isEmpty || normalizedId.isEmpty) return;
+
+    _ensureLegacySpellBucketsForPrimary();
+
+    knownSpellIdsByClass[key]?.remove(normalizedId);
+    preparedSpellIdsByClass[key]?.remove(normalizedId);
+    _removeEmptySpellClassBuckets();
+    _syncLegacySpellLists();
+  }
+
+  void togglePreparedSpellForClass(String className, String spellId) {
+    final key = _spellClassKey(className);
+    final normalizedId = spellId.trim();
+    if (key.isEmpty || normalizedId.isEmpty) return;
+
+    _ensureLegacySpellBucketsForPrimary();
+
+    final knownIds = knownSpellIdsByClass[key];
+    if (knownIds != null && !knownIds.contains(normalizedId)) return;
+    if (knownIds == null && !spellIds.contains(normalizedId)) return;
+
+    final ids = preparedSpellIdsByClass.putIfAbsent(key, () => []);
+    if (ids.contains(normalizedId)) {
+      ids.remove(normalizedId);
+    } else {
+      ids.add(normalizedId);
+    }
+
+    _removeEmptySpellClassBuckets();
+    _syncLegacySpellLists();
+  }
+
+  void removePreparedSpellForClass(String className, String spellId) {
+    final key = _spellClassKey(className);
+    final normalizedId = spellId.trim();
+    if (key.isEmpty || normalizedId.isEmpty) return;
+
+    _ensureLegacySpellBucketsForPrimary();
+
+    preparedSpellIdsByClass[key]?.remove(normalizedId);
+    _removeEmptySpellClassBuckets();
+    _syncLegacySpellLists();
+  }
+
+  void clearPreparedSpellsForClass(String className) {
+    _ensureLegacySpellBucketsForPrimary();
+    preparedSpellIdsByClass.remove(_spellClassKey(className));
+    _syncLegacySpellLists();
+  }
+
+  void _ensureLegacySpellBucketsForPrimary() {
+    final primaryKey = _spellClassKey(charClass);
+    if (primaryKey.isEmpty) return;
+
+    if (knownSpellIdsByClass.isEmpty && spellIds.isNotEmpty) {
+      knownSpellIdsByClass[primaryKey] = [...spellIds];
+    }
+
+    if (preparedSpellIdsByClass.isEmpty && preparedSpellIds.isNotEmpty) {
+      preparedSpellIdsByClass[primaryKey] = [...preparedSpellIds];
+    }
+  }
+
+  void _removeEmptySpellClassBuckets() {
+    knownSpellIdsByClass.removeWhere((_, ids) => ids.isEmpty);
+    preparedSpellIdsByClass.removeWhere((_, ids) => ids.isEmpty);
+  }
+
+  void _syncLegacySpellLists() {
+    final allKnown = <String>[];
+    for (final ids in knownSpellIdsByClass.values) {
+      for (final id in ids) {
+        if (!allKnown.contains(id)) allKnown.add(id);
+      }
+    }
+
+    final allPrepared = <String>[];
+    for (final ids in preparedSpellIdsByClass.values) {
+      for (final id in ids) {
+        if (!allPrepared.contains(id)) allPrepared.add(id);
+      }
+    }
+
+    if (allKnown.isNotEmpty || knownSpellIdsByClass.isNotEmpty) {
+      spellIds
+        ..clear()
+        ..addAll(allKnown);
+      knownSpells
+        ..clear()
+        ..addAll(allKnown);
+    }
+
+    preparedSpellIds
+      ..clear()
+      ..addAll(allPrepared);
+    preparedSpells
+      ..clear()
+      ..addAll(allPrepared);
+  }
 }

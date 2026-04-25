@@ -173,10 +173,7 @@ void clearInvalidInfusions(
 }
 
 int getArtificerActiveInfusedItemsLimit(Character character) {
-  final className = character.charClass.trim().toLowerCase();
-  if (className != 'artificer') return 0;
-
-  final level = character.level;
+  final level = character.levelForClass('artificer');
 
   if (level < 2) return 0;
   if (level < 6) return 2;

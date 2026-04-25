@@ -33,21 +33,13 @@ class CharacterChoiceEngine {
     Character character,
   ) {
     final grants = <CharacterChoiceGrant>[];
-    final className = character.charClass.trim().toLowerCase();
-    final subclassName = character.subclass?.trim().toLowerCase() ?? '';
-    final level = character.level;
-    print('--- MANEUVER GRANT DEBUG ---');
-    print('charClass raw: "${character.charClass}"');
-    print('subclass raw: "${character.subclass}"');
-    print('level raw: ${character.level}');
+    final fighterLevel = character.levelForClass('fighter');
+    final fighterSubclass =
+        character.subclassForClass('fighter')?.trim().toLowerCase() ?? '';
 
-    print('className normalized: "$className"');
-    print('subclassName normalized: "$subclassName"');
-    print('level normalized: $level');
-    if (className == 'fighter' &&
-        subclassName == 'battle master' &&
-        level >= 3) {
-      print('Battle Master maneuver grant ADDED');
+    if (fighterSubclass != 'battle master') return grants;
+
+    if (fighterLevel >= 3) {
       grants.add(
         CharacterChoiceGrant(
           choiceId: 'subclass_fighter_battle_master_maneuvers_lvl3',
@@ -63,9 +55,7 @@ class CharacterChoiceEngine {
       );
     }
 
-    if (className == 'fighter' &&
-        subclassName == 'battle master' &&
-        level >= 7) {
+    if (fighterLevel >= 7) {
       grants.add(
         CharacterChoiceGrant(
           choiceId: 'subclass_fighter_battle_master_maneuvers_lvl7',
@@ -81,9 +71,7 @@ class CharacterChoiceEngine {
       );
     }
 
-    if (className == 'fighter' &&
-        subclassName == 'battle master' &&
-        level >= 10) {
+    if (fighterLevel >= 10) {
       grants.add(
         CharacterChoiceGrant(
           choiceId: 'subclass_fighter_battle_master_maneuvers_lvl10',
@@ -99,9 +87,7 @@ class CharacterChoiceEngine {
       );
     }
 
-    if (className == 'fighter' &&
-        subclassName == 'battle master' &&
-        level >= 15) {
+    if (fighterLevel >= 15) {
       grants.add(
         CharacterChoiceGrant(
           choiceId: 'subclass_fighter_battle_master_maneuvers_lvl15',
@@ -135,11 +121,9 @@ class CharacterChoiceEngine {
     Character character,
   ) {
     final grants = <CharacterChoiceGrant>[];
-    final className = character.charClass.trim().toLowerCase();
-    final level = character.level;
-    final subclassName = character.subclass?.trim().toLowerCase();
 
-    if (className == 'fighter' && level >= 1) {
+    final fighterLevel = character.levelForClass('fighter');
+    if (fighterLevel >= 1) {
       grants.add(
         CharacterChoiceGrant(
           choiceId: 'class_fighter_fighting_style_lvl1',
@@ -155,7 +139,8 @@ class CharacterChoiceEngine {
       );
     }
 
-    if (className == 'paladin' && level >= 2) {
+    final paladinLevel = character.levelForClass('paladin');
+    if (paladinLevel >= 2) {
       grants.add(
         CharacterChoiceGrant(
           choiceId: 'class_paladin_fighting_style_lvl2',
@@ -171,7 +156,8 @@ class CharacterChoiceEngine {
       );
     }
 
-    if (className == 'ranger' && level >= 2) {
+    final rangerLevel = character.levelForClass('ranger');
+    if (rangerLevel >= 2) {
       grants.add(
         CharacterChoiceGrant(
           choiceId: 'class_ranger_fighting_style_lvl2',
@@ -187,9 +173,10 @@ class CharacterChoiceEngine {
       );
     }
 
-    if (className == 'bard' &&
-        subclassName == 'college of swords' &&
-        level >= 3) {
+    final bardLevel = character.levelForClass('bard');
+    final bardSubclass =
+        character.subclassForClass('bard')?.trim().toLowerCase() ?? '';
+    if (bardSubclass == 'college of swords' && bardLevel >= 3) {
       grants.add(
         CharacterChoiceGrant(
           choiceId: 'subclass_bard_college_of_swords_fighting_style_lvl3',
@@ -216,10 +203,9 @@ class CharacterChoiceEngine {
     Character character,
   ) {
     final grants = <CharacterChoiceGrant>[];
-    final className = character.charClass.trim().toLowerCase();
-    final level = character.level;
+    final level = character.levelForClass('sorcerer');
 
-    if (className != 'sorcerer') return grants;
+    if (level < 3) return grants;
 
     if (level >= 3) {
       grants.add(
@@ -414,10 +400,7 @@ class CharacterChoiceEngine {
     Character character,
   ) {
     final grants = <CharacterChoiceGrant>[];
-    final className = character.charClass.trim().toLowerCase();
-    final level = character.level;
-
-    if (className != 'artificer') return grants;
+    final level = character.levelForClass('artificer');
 
     final count = _getArtificerInfusionsKnown(level);
     if (count <= 0) return grants;

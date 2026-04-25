@@ -44,6 +44,8 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
   List<DndBackground> backgrounds = [];
   DndBackground? selectedBackground;
   DndClass? _loadedClassData;
+  bool _backgroundsLoaded = false;
+  String? _backgroundsLoadError;
 
   final List<String> alignments = [
     "Lawful Good",
@@ -235,10 +237,6 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
 
     try {
       character = provider.getCharacterById(widget.characterId);
-      if (character != null) {
-        character!.featSelections ??= <String, dynamic>{};
-        provider.selectCharacterByObject(character!);
-      }
     } catch (_) {
       character = null;
     }
@@ -258,7 +256,6 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
 
     if (character == null) return;
 
-    provider.selectCharacterByObject(character!);
     _portraitPath = character!.portraitPath;
 
     selectedAlignment = alignments.contains(character!.alignment)
@@ -278,19 +275,60 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
   }
 
   Future<void> _loadBackgrounds(String currentBg) async {
-    final list = await DndDataService.getBackgrounds();
+    try {
+      final list = await DndDataService.getBackgrounds();
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    setState(() {
-      backgrounds = list;
-      if (backgrounds.isNotEmpty) {
-        selectedBackground = backgrounds.firstWhere(
-          (bg) => bg.name == currentBg,
-          orElse: () => backgrounds.first,
-        );
+      setState(() {
+        backgrounds = _dedupeBackgrounds(list);
+        selectedBackground = _resolveSelectedBackground(currentBg);
+        _backgroundsLoaded = true;
+        _backgroundsLoadError = null;
+      });
+    } catch (e, stackTrace) {
+      debugPrint('Error loading backgrounds for edit screen: $e');
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) return;
+
+      setState(() {
+        backgrounds = const [];
+        selectedBackground = null;
+        _backgroundsLoaded = true;
+        _backgroundsLoadError = 'Background options could not be loaded.';
+      });
+    }
+  }
+
+  List<DndBackground> _dedupeBackgrounds(List<DndBackground> source) {
+    final seen = <String>{};
+    final result = <DndBackground>[];
+
+    for (final background in source) {
+      final key = background.index.trim().isNotEmpty
+          ? background.index.trim().toLowerCase()
+          : background.name.trim().toLowerCase();
+      if (key.isEmpty || seen.contains(key)) continue;
+      seen.add(key);
+      result.add(background);
+    }
+
+    return result;
+  }
+
+  DndBackground? _resolveSelectedBackground(String currentBg) {
+    if (backgrounds.isEmpty) return null;
+
+    final normalizedCurrent = currentBg.trim().toLowerCase();
+    for (final background in backgrounds) {
+      if (background.name.trim().toLowerCase() == normalizedCurrent ||
+          background.index.trim().toLowerCase() == normalizedCurrent) {
+        return background;
       }
-    });
+    }
+
+    return backgrounds.first;
   }
 
   Future<void> _loadClassData() async {
@@ -442,14 +480,13 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                       ? () async {
                           final provider = context.read<CharacterProvider>();
 
-                          provider.update((ch) {
-                            ch.classSkills = List<String>.from(selectedSkills);
-                          });
-
-                          final userId = context.read<AuthProvider>().userId;
-                          if (userId == null) return;
-
-                          await provider.saveCharacter(userId);
+                          await provider.updateCharacterById(
+                            widget.characterId,
+                            (ch) {
+                              ch.classSkills =
+                                  List<String>.from(selectedSkills);
+                            },
+                          );
 
                           if (!mounted) return;
 
@@ -1671,7 +1708,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
       }
     }
 
-    provider.update((ch) {
+    await provider.updateCharacterById(character!.id, (ch) {
       ch.name = _nameController.text.trim();
       ch.maxHp = maxHp;
       ch.currentHp = safeCurrentHp;
@@ -1688,7 +1725,6 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
           : _notesController.text.trim();
     });
 
-    await provider.saveCharacter(userId);
     if (!mounted) return;
     context.go('/character/${widget.characterId}');
   }
@@ -1747,6 +1783,65 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
         ),
       ),
       child: child,
+    );
+  }
+
+  Widget _buildBackgroundField() {
+    if (backgrounds.isEmpty) {
+      return TextFormField(
+        enabled: false,
+        initialValue: character?.background.name ?? 'Unknown',
+        style: const TextStyle(color: Colors.white70),
+        decoration: _inputDecoration(
+          'Background',
+          hint: _backgroundsLoadError ?? 'No background options available.',
+        ),
+      );
+    }
+
+    return DropdownButtonFormField<DndBackground>(
+      value:
+          backgrounds.contains(selectedBackground) ? selectedBackground : null,
+      dropdownColor: const Color(0xFF1E1E22),
+      style: const TextStyle(color: Colors.white),
+      decoration: _inputDecoration('Background'),
+      items: backgrounds
+          .map(
+            (bg) => DropdownMenuItem(
+              value: bg,
+              child: Text(
+                bg.name,
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
+          )
+          .toList(),
+      onChanged: (val) {
+        setState(() => selectedBackground = val);
+      },
+    );
+  }
+
+  Widget _buildAlignmentField() {
+    return DropdownButtonFormField<String>(
+      value: alignments.contains(selectedAlignment) ? selectedAlignment : null,
+      dropdownColor: const Color(0xFF1E1E22),
+      style: const TextStyle(color: Colors.white),
+      decoration: _inputDecoration('Alignment'),
+      items: alignments
+          .map(
+            (alignment) => DropdownMenuItem(
+              value: alignment,
+              child: Text(
+                alignment,
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
+          )
+          .toList(),
+      onChanged: (val) {
+        setState(() => selectedAlignment = val);
+      },
     );
   }
 
@@ -2155,7 +2250,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
         backgroundColor: const Color(0xFF121214),
         elevation: 2,
       ),
-      body: backgrounds.isEmpty
+      body: !_backgroundsLoaded
           ? const Center(child: CircularProgressIndicator())
           : SafeArea(
               child: SingleChildScrollView(
@@ -2322,113 +2417,18 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Expanded(
-                                      child: DropdownButtonFormField<
-                                          DndBackground>(
-                                        value: selectedBackground,
-                                        dropdownColor: const Color(0xFF1E1E22),
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                        ),
-                                        decoration:
-                                            _inputDecoration("Background"),
-                                        items: backgrounds
-                                            .map(
-                                              (bg) => DropdownMenuItem(
-                                                value: bg,
-                                                child: Text(
-                                                  bg.name,
-                                                  style: const TextStyle(
-                                                    color: Colors.white,
-                                                  ),
-                                                ),
-                                              ),
-                                            )
-                                            .toList(),
-                                        onChanged: (val) {
-                                          setState(
-                                            () => selectedBackground = val,
-                                          );
-                                        },
-                                      ),
+                                      child: _buildBackgroundField(),
                                     ),
                                     const SizedBox(width: 16),
                                     Expanded(
-                                      child: DropdownButtonFormField<String>(
-                                        value: selectedAlignment,
-                                        dropdownColor: const Color(0xFF1E1E22),
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                        ),
-                                        decoration:
-                                            _inputDecoration("Alignment"),
-                                        items: alignments
-                                            .map(
-                                              (a) => DropdownMenuItem(
-                                                value: a,
-                                                child: Text(
-                                                  a,
-                                                  style: const TextStyle(
-                                                    color: Colors.white,
-                                                  ),
-                                                ),
-                                              ),
-                                            )
-                                            .toList(),
-                                        onChanged: (val) {
-                                          setState(
-                                            () => selectedAlignment = val,
-                                          );
-                                        },
-                                      ),
+                                      child: _buildAlignmentField(),
                                     ),
                                   ],
                                 )
                               else ...[
-                                DropdownButtonFormField<DndBackground>(
-                                  value: selectedBackground,
-                                  dropdownColor: const Color(0xFF1E1E22),
-                                  style: const TextStyle(color: Colors.white),
-                                  decoration: _inputDecoration("Background"),
-                                  items: backgrounds
-                                      .map(
-                                        (bg) => DropdownMenuItem(
-                                          value: bg,
-                                          child: Text(
-                                            bg.name,
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                            ),
-                                          ),
-                                        ),
-                                      )
-                                      .toList(),
-                                  onChanged: (val) {
-                                    setState(() => selectedBackground = val);
-                                  },
-                                ),
+                                _buildBackgroundField(),
                                 const SizedBox(height: 16),
-                                DropdownButtonFormField<String>(
-                                  value: selectedAlignment,
-                                  dropdownColor: const Color(0xFF1E1E22),
-                                  style: const TextStyle(color: Colors.white),
-                                  decoration: _inputDecoration("Alignment"),
-                                  items: alignments
-                                      .map(
-                                        (a) => DropdownMenuItem(
-                                          value: a,
-                                          child: Text(
-                                            a,
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                            ),
-                                          ),
-                                        ),
-                                      )
-                                      .toList(),
-                                  onChanged: (val) {
-                                    setState(() => selectedAlignment = val);
-                                  },
-                                ),
+                                _buildAlignmentField(),
                               ],
                             ],
                           ),

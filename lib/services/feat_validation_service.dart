@@ -42,10 +42,7 @@ class FeatValidationService {
 
       if (prereq['spellcasting'] == true ||
           prereq['spellcasting2020'] == true) {
-        final hasSpellcasting = character.spellcastingAbility != null &&
-            character.spellcastingAbility!.trim().isNotEmpty;
-
-        if (!hasSpellcasting) {
+        if (!character.hasAnySpellcastingAbility) {
           errors.add('Requires spellcasting');
         }
       }

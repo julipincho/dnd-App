@@ -263,10 +263,40 @@ Esto prepara el terreno sin tocar todavia el flujo completo de subida de nivel.
   - `CharacterChoiceEngine` ahora calcula Eldritch Invocations y Pact Boon con `character.levelForClass('warlock')`.
   - Antes dependia de `character.charClass == warlock` y `character.level`, por lo que un personaje que tomaba Warlock como multiclass no recibia grants de invocaciones, y un Warlock primario multiclass podia usar nivel total por error.
   - Si una ficha se guardo mientras faltaban esos grants, las selecciones reconciliadas pudieron haberse removido y puede requerir volver a elegir invocaciones.
+- Primer corte de spells por clase:
+  - `Character` ahora persiste `knownSpellIdsByClass` y `preparedSpellIdsByClass`, manteniendo `spellIds`, `knownSpells`, `preparedSpellIds` y `preparedSpells` como compatibilidad legacy.
+  - Al modificar spells desde la sheet, los spells legacy se migran de forma perezosa al bucket de la clase primaria antes de escribir nuevas clases.
+  - `SpellcastingRules` expone calculos por `className + classLevel` para limites de spells conocidos, cantrips, preparacion y nivel maximo aprendible.
+  - La pestaña de spells permite cambiar la clase lanzadora activa en multiclass y gestiona seleccion/preparacion/reemplazo dentro de esa clase.
+  - Los slots siguen usando el calculo multiclass compartido/Pact Magic separado; los spells conocidos/preparados ya no dependen solamente de `charClass + level`.
+
+- Correccion de grants multiclass de opciones de clase:
+  - Fighting Style ahora usa niveles por clase para Fighter, Paladin y Ranger.
+  - College of Swords lee `subclassForClass('bard')` y nivel de Bard, no la clase primaria.
+  - Metamagic usa `levelForClass('sorcerer')`.
+  - Infusions usa `levelForClass('artificer')`.
+  - Battle Master maneuvers usa `levelForClass('fighter')` y `subclassForClass('fighter')`.
+  - Los limites/bonos de infusiones activas y escalado de infusiones usan nivel real de Artificer.
+  - Se retiraron prints de debug del grant de Battle Master.
+- Primer corte de spellcasting ability por clase:
+  - `Character` persiste `spellcastingAbilitiesByClass`, manteniendo `spellcastingAbility` como fallback legacy.
+  - La configuracion de spellcasting en la sheet guarda la habilidad de la clase lanzadora activa.
+  - Spell Save DC, Spell Attack y modifier de la pestaña de spells usan la habilidad de la clase activa.
+  - Las validaciones de feats que requieren spellcasting reconocen cualquier habilidad configurada por clase.
+
+- Pulido UI de spellcasting multiclass:
+  - La pestaña de spells ahora muestra cards por clase lanzadora en lugar de un selector segmentado basico.
+  - Cada card muestra clase/nivel, estado activo, habilidad configurada, Spell Save DC, Spell Attack, cantidad de spells seleccionados y limites de cantrips/known/prepared.
+  - El cambio de clase activa queda integrado en esas cards, manteniendo la gestion de spells por clase.
+  - La lista de spells se unifico en un solo `Spellbook` por clase activa: los spells preparados se distinguen con check, evitando listas separadas de preparados/seleccionados y reduciendo informacion repetida.
+- Subclases lanzadoras parciales:
+  - `SpellcastingRules` distingue `Fighter + Eldritch Knight` y `Rogue + Arcane Trickster` como third casters sin convertir a todos los Fighter/Rogue en lanzadores.
+  - Estas subclases usan INT, limites de cantrips/spells known por nivel de clase y lista de spells basada en Wizard/subclass data.
+  - La sheet las incluye en las cards de spellcasting por clase y muestra la subclase que habilita esa magia.
 
 Pendientes inmediatos:
 
-- Definir estructura de spells conocidos/preparados por clase.
+- Afinar restricciones avanzadas de escuela para Eldritch Knight / Arcane Trickster si se quiere modelar exactamente las excepciones de spells libres por nivel.
 - Resolver subclases por clase en multiclass desde un flujo dedicado.
-- Ajustar mas sistemas que todavia leen `charClass` + `level` como verdad unica, especialmente otros grants de opciones de clase como Fighting Style, Metamagic e Infusions.
+- Revisar el resto de sistemas que todavia puedan leer `charClass` + `level` como verdad unica fuera de grants principales.
 - Continuar saneamiento de `CharacterSheetScreen` con extracciones incrementales: spellcasting UI, inventario/equipo, features/opciones y recursos.
