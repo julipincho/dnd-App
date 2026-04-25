@@ -240,6 +240,7 @@ Listar assets razas:
   - Shared UI: se agrego `lib/features/characters/presentation/character_sheet/widgets/character_sheet_meta_chip.dart` para chips visuales reutilizables en la sheet.
   - Spellcasting UI: se extrajo la cabecera/resumen a `lib/features/characters/presentation/character_sheet/widgets/character_spellcasting_summary_section.dart`; la sheet conserva calculos, slots, listas y dialogos.
   - Spell selector UI: se extrajo el modal de seleccion de conjuros a `lib/features/characters/presentation/character_sheet/widgets/character_spell_selector_modal.dart`; la sheet conserva el filtrado/reglas y solo abre el modal.
+  - Spellbook UI: se extrajo el render del libro de conjuros activo a `lib/features/characters/presentation/character_sheet/widgets/character_spellbook_section.dart`; la sheet conserva el modal de detalle y las acciones de prepare/remove.
   - Saneamiento adicional: se quitaron restos muertos del flujo anterior de AC/opciones de personaje que ya no eran llamados por la UI actual.
   - Bug corregido: `CharacterProvider.getCharacterById` ahora tambien busca en `campaignCharacters`, para que el DM pueda modificar personajes de campana que no estan en su lista personal.
   - Bug corregido: al guardar cambios sobre personajes de campana de otro usuario, `CharacterProvider` conserva la sesion activa del usuario actual y refresca tambien los personajes de campana.

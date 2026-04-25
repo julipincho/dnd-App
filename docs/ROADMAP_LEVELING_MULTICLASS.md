@@ -343,3 +343,5 @@ Pendientes inmediatos:
 - Se eliminaron prints de debug del calculo de ataque/dano de main hand.
 - Se extrajo el modal de seleccion de conjuros a `lib/features/characters/presentation/character_sheet/widgets/character_spell_selector_modal.dart`.
 - `CharacterSheetScreen` conserva las reglas/filtros de spells y delega la UI del selector.
+- Se extrajo el render del Spellbook activo a `lib/features/characters/presentation/character_sheet/widgets/character_spellbook_section.dart`.
+- `CharacterSheetScreen` conserva el modal de detalle y las acciones de prepare/remove.

@@ -35,6 +35,7 @@ import 'package:stitch_app/features/characters/presentation/character_sheet/widg
 import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_feats_section.dart';
 import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_options_section.dart';
 import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_overview_tab.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_spellbook_section.dart';
 import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_spellcasting_summary_section.dart';
 import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_spell_selector_modal.dart';
 import '../services/character_pact_service.dart';
@@ -5976,13 +5977,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         return a.name.toLowerCase().compareTo(b.name.toLowerCase());
       });
 
-    final spellsByLevel = <int, List<Spell>>{};
-    for (final spell in selectedSpells) {
-      spellsByLevel.putIfAbsent(spell.level, () => []).add(spell);
-    }
-
-    final sortedLevels = spellsByLevel.keys.toList()..sort();
-
     final slotLevels = List.generate(9, (index) => index + 1)
         .where((level) => _slotMaxForLevel(char, level) > 0)
         .toList();
@@ -6054,190 +6048,157 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       return 'Level $level';
     }
 
-    Widget buildSpellChip(Spell spell) {
-      final isPrepared =
-          usesPreparedSpells && preparedSpellIds.contains(spell.id);
-
-      return ActionChip(
-        label: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (isPrepared) ...[
-              const Icon(
-                Icons.check_circle,
-                size: 16,
-                color: Colors.white,
-              ),
-              const SizedBox(width: 6),
-            ],
-            Flexible(
-              child: Text(
-                spell.name,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
+    void showSpellDetail(Spell spell) {
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: const Color(0xFF202028),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(20),
+          ),
         ),
-        backgroundColor: isPrepared
-            ? Colors.deepPurpleAccent.withOpacity(0.35)
-            : const Color(0xFF2A2A35),
-        labelStyle: const TextStyle(color: Colors.white),
-        onPressed: () {
-          showModalBottomSheet(
-            context: context,
-            isScrollControlled: true,
-            backgroundColor: const Color(0xFF202028),
-            shape: const RoundedRectangleBorder(
-              borderRadius: BorderRadius.vertical(
-                top: Radius.circular(20),
-              ),
-            ),
-            builder: (_) {
-              final preparedNow =
-                  usesPreparedSpells && preparedSpellIds.contains(spell.id);
-              final usesPreparedLimitNow = usesPreparedSpells &&
-                  SpellcastingRules.usesPreparedSpellLimitForClass(
-                    activeSpellcastingClass,
-                  );
-              final preparedLimitNow = usesPreparedLimitNow
-                  ? _preparedSpellLimitForClass(
-                      char,
-                      activeSpellcastingClass,
-                    )
-                  : 0;
-              final preparedCountNow =
-                  usesPreparedSpells ? preparedSpellIds.length : 0;
-              final canPrepareMore = !usesPreparedSpells ||
-                  !usesPreparedLimitNow ||
-                  preparedNow ||
-                  preparedCountNow < preparedLimitNow;
+        builder: (_) {
+          final preparedNow =
+              usesPreparedSpells && preparedSpellIds.contains(spell.id);
+          final usesPreparedLimitNow = usesPreparedSpells &&
+              SpellcastingRules.usesPreparedSpellLimitForClass(
+                activeSpellcastingClass,
+              );
+          final preparedLimitNow = usesPreparedLimitNow
+              ? _preparedSpellLimitForClass(
+                  char,
+                  activeSpellcastingClass,
+                )
+              : 0;
+          final preparedCountNow =
+              usesPreparedSpells ? preparedSpellIds.length : 0;
+          final canPrepareMore = !usesPreparedSpells ||
+              !usesPreparedLimitNow ||
+              preparedNow ||
+              preparedCountNow < preparedLimitNow;
 
-              return Padding(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    spell.name,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
-                      Text(
-                        spell.name,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      _buildSpellMetaChip(levelLabel(spell.level)),
+                      _buildSpellMetaChip(spell.school),
+                      if (spell.source.isNotEmpty)
+                        _buildSpellMetaChip(spell.source),
+                    ],
+                  ),
+                  if (usesPreparedSpells && usesPreparedLimitNow) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      'Prepared: $preparedCountNow / $preparedLimitNow',
+                      style: TextStyle(
+                        color: canPrepareMore
+                            ? Colors.white70
+                            : Colors.orangeAccent,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
                       ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _buildSpellMetaChip(levelLabel(spell.level)),
-                          _buildSpellMetaChip(spell.school),
-                          if (spell.source.isNotEmpty)
-                            _buildSpellMetaChip(spell.source),
-                        ],
-                      ),
-                      if (usesPreparedSpells && usesPreparedLimitNow) ...[
-                        const SizedBox(height: 10),
-                        Text(
-                          'Prepared: $preparedCountNow / $preparedLimitNow',
-                          style: TextStyle(
-                            color: canPrepareMore
-                                ? Colors.white70
-                                : Colors.orangeAccent,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 16),
-                      _buildSpellDetailRow('Casting Time', spell.castingTime),
-                      _buildSpellDetailRow('Range', spell.range),
-                      _buildSpellDetailRow(
-                        'Components',
-                        spell.components.isEmpty
-                            ? 'â€”'
-                            : spell.components.join(', '),
-                      ),
-                      _buildSpellDetailRow('Duration', spell.duration),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'Description',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        spell.description.isEmpty
-                            ? 'No description available.'
-                            : spell.description,
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.88),
-                          height: 1.45,
-                          fontSize: 14,
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          if (usesPreparedSpells)
-                            FilledButton.icon(
-                              onPressed:
-                                  (isOwnedByCurrentUser && canPrepareMore)
-                                      ? () async {
-                                          await _togglePreparedSpell(
-                                            context,
-                                            char,
-                                            spell.id,
-                                            activeSpellcastingClass,
-                                          );
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  _buildSpellDetailRow('Casting Time', spell.castingTime),
+                  _buildSpellDetailRow('Range', spell.range),
+                  _buildSpellDetailRow(
+                    'Components',
+                    spell.components.isEmpty
+                        ? '-'
+                        : spell.components.join(', '),
+                  ),
+                  _buildSpellDetailRow('Duration', spell.duration),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Description',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    spell.description.isEmpty
+                        ? 'No description available.'
+                        : spell.description,
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.88),
+                      height: 1.45,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      if (usesPreparedSpells)
+                        FilledButton.icon(
+                          onPressed: (isOwnedByCurrentUser && canPrepareMore)
+                              ? () async {
+                                  await _togglePreparedSpell(
+                                    context,
+                                    char,
+                                    spell.id,
+                                    activeSpellcastingClass,
+                                  );
 
-                                          if (context.mounted) {
-                                            Navigator.pop(context);
-                                          }
-                                        }
-                                      : null,
-                              icon: Icon(
-                                preparedNow
-                                    ? Icons.check_box_outlined
-                                    : Icons.check_box_outline_blank,
-                              ),
-                              label: Text(
-                                preparedNow
-                                    ? 'Unprepare Spell'
-                                    : 'Prepare Spell',
-                              ),
-                            ),
-                          TextButton.icon(
-                            onPressed: isOwnedByCurrentUser
-                                ? () async {
-                                    await _removeSpellFromCharacter(
-                                      context,
-                                      char,
-                                      spell.id,
-                                      activeSpellcastingClass,
-                                    );
-
-                                    if (context.mounted) {
-                                      Navigator.pop(context);
-                                    }
+                                  if (context.mounted) {
+                                    Navigator.pop(context);
                                   }
-                                : null,
-                            icon: const Icon(Icons.delete_outline),
-                            label: const Text('Remove Spell'),
+                                }
+                              : null,
+                          icon: Icon(
+                            preparedNow
+                                ? Icons.check_box_outlined
+                                : Icons.check_box_outline_blank,
                           ),
-                        ],
+                          label: Text(
+                            preparedNow ? 'Unprepare Spell' : 'Prepare Spell',
+                          ),
+                        ),
+                      TextButton.icon(
+                        onPressed: isOwnedByCurrentUser
+                            ? () async {
+                                await _removeSpellFromCharacter(
+                                  context,
+                                  char,
+                                  spell.id,
+                                  activeSpellcastingClass,
+                                );
+
+                                if (context.mounted) {
+                                  Navigator.pop(context);
+                                }
+                              }
+                            : null,
+                        icon: const Icon(Icons.delete_outline),
+                        label: const Text('Remove Spell'),
                       ),
                     ],
                   ),
-                ),
-              );
-            },
+                ],
+              ),
+            ),
           );
         },
       );
@@ -6465,90 +6426,22 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 ),
                 const SizedBox(height: 12),
               ],
-              _spellSection(
+              CharacterSpellbookSection(
                 title: '${_formatClassName(activeSpellcastingClass)} Spellbook',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _progressSpellPill(
-                          label: 'Selected',
-                          current: selectedSpells.length,
-                          max: null,
-                        ),
-                        if (usesKnownCantrips)
-                          _progressSpellPill(
-                            label: 'Cantrips',
-                            current: selectedCantrips,
-                            max: knownCantripLimit,
-                          ),
-                        if (usesKnownSpells)
-                          _progressSpellPill(
-                            label: 'Known',
-                            current: selectedNonCantripSpells,
-                            max: knownSpellLimit,
-                          ),
-                        if (usesPreparedSpells)
-                          _progressSpellPill(
-                            label: 'Prepared',
-                            current: preparedSpells.length,
-                            max: usesPreparedLimit ? preparedSpellLimit : null,
-                          ),
-                      ],
-                    ),
-                    if (usesPreparedSpells &&
-                        usesPreparedLimit &&
-                        preparedSpellLimitLabel != null) ...[
-                      const SizedBox(height: 10),
-                      Text(
-                        'Preparation: $preparedSpellLimitLabel',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.62),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 14),
-                    if (selectedSpells.isEmpty)
-                      const Text(
-                        'No spells selected yet.',
-                        style: TextStyle(color: Colors.white70),
-                      )
-                    else
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: sortedLevels.map((level) {
-                          final spells = spellsByLevel[level]!;
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  levelLabel(level),
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  children: spells.map(buildSpellChip).toList(),
-                                ),
-                              ],
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                  ],
-                ),
+                spells: selectedSpells,
+                usesKnownCantrips: usesKnownCantrips,
+                usesKnownSpells: usesKnownSpells,
+                usesPreparedSpells: usesPreparedSpells,
+                usesPreparedLimit: usesPreparedLimit,
+                preparedSpellIds: preparedSpellIds.toSet(),
+                selectedCantrips: selectedCantrips,
+                selectedNonCantripSpells: selectedNonCantripSpells,
+                knownCantripLimit: knownCantripLimit,
+                knownSpellLimit: knownSpellLimit,
+                preparedSpellsCount: preparedSpells.length,
+                preparedSpellLimit: preparedSpellLimit,
+                preparedSpellLimitLabel: preparedSpellLimitLabel,
+                onSpellTap: showSpellDetail,
               ),
             ],
           ),
@@ -6647,7 +6540,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               ),
             ),
             TextSpan(
-              text: value.isEmpty ? 'â€”' : value,
+              text: value.isEmpty ? '-' : value,
               style: TextStyle(
                 color: Colors.white.withOpacity(0.85),
                 fontSize: 14,
