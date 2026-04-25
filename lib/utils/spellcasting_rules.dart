@@ -69,6 +69,116 @@ class SpellcastingRules {
             normalizedSubclass.contains('arcane trickster'));
   }
 
+  static bool isThirdCasterSubclass({
+    required String className,
+    String? subclassName,
+  }) {
+    return _isThirdCasterSubclass(
+      className: className,
+      subclassName: subclassName,
+    );
+  }
+
+  static Set<String> restrictedSchoolsForThirdCaster({
+    required String className,
+    String? subclassName,
+  }) {
+    if (!_isThirdCasterSubclass(
+      className: className,
+      subclassName: subclassName,
+    )) {
+      return const {};
+    }
+
+    switch (className.toLowerCase().trim()) {
+      case 'fighter':
+        return const {'ABJURATION', 'EVOCATION'};
+      case 'rogue':
+        return const {'ENCHANTMENT', 'ILLUSION'};
+      default:
+        return const {};
+    }
+  }
+
+  static int unrestrictedThirdCasterSpellLimit({
+    required String className,
+    required int classLevel,
+    String? subclassName,
+  }) {
+    if (!_isThirdCasterSubclass(
+      className: className,
+      subclassName: subclassName,
+    )) {
+      return 0;
+    }
+
+    final level = classLevel.clamp(1, 20);
+    var count = 0;
+    if (level >= 3) count++;
+    if (level >= 8) count++;
+    if (level >= 14) count++;
+    if (level >= 20) count++;
+    return count;
+  }
+
+  static bool isRestrictedThirdCasterSchool({
+    required String className,
+    required Spell spell,
+    String? subclassName,
+  }) {
+    final allowedSchools = restrictedSchoolsForThirdCaster(
+      className: className,
+      subclassName: subclassName,
+    );
+    if (allowedSchools.isEmpty) return false;
+    return allowedSchools.contains(spell.school.trim().toUpperCase());
+  }
+
+  static bool canLearnThirdCasterSpell({
+    required String className,
+    required int classLevel,
+    required String? subclassName,
+    required Spell spell,
+    required Iterable<Spell> currentKnownSpells,
+    String? replacingSpellId,
+  }) {
+    if (!_isThirdCasterSubclass(
+      className: className,
+      subclassName: subclassName,
+    )) {
+      return true;
+    }
+
+    if (spell.level == 0) return true;
+
+    if (isRestrictedThirdCasterSchool(
+      className: className,
+      subclassName: subclassName,
+      spell: spell,
+    )) {
+      return true;
+    }
+
+    final freeLimit = unrestrictedThirdCasterSpellLimit(
+      className: className,
+      classLevel: classLevel,
+      subclassName: subclassName,
+    );
+    final currentFreeCount = currentKnownSpells.where((knownSpell) {
+      if (knownSpell.level == 0) return false;
+      if (replacingSpellId != null && knownSpell.id == replacingSpellId) {
+        return false;
+      }
+      return !isRestrictedThirdCasterSchool(
+        className: className,
+        subclassName: subclassName,
+        spell: knownSpell,
+      );
+    }).length;
+
+    return currentFreeCount < freeLimit;
+  }
+
   static bool usesKnownSpells(Character char) {
     return usesKnownSpellsForClassAndSubclass(
       className: char.charClass,
@@ -885,6 +995,8 @@ class SpellcastingRules {
     required List<Spell> spells,
     String? subclassName,
     bool includeClassVariants = false,
+    Iterable<Spell> currentKnownSpells = const [],
+    String? replacingSpellId,
   }) {
     final normalizedClassName = className.toLowerCase().trim();
     final isThirdCaster = _isThirdCasterSubclass(
@@ -920,12 +1032,22 @@ class SpellcastingRules {
         );
         if (knownLimit <= 0) return false;
 
-        return spell.level <=
+        final withinKnownLevel = spell.level <=
             _maxKnownSpellLevelForClassLevel(
               className: normalizedClassName,
               classLevel: classLevel,
               subclassName: subclassName,
             );
+        if (!withinKnownLevel) return false;
+
+        return canLearnThirdCasterSpell(
+          className: normalizedClassName,
+          classLevel: classLevel,
+          subclassName: subclassName,
+          spell: spell,
+          currentKnownSpells: currentKnownSpells,
+          replacingSpellId: replacingSpellId,
+        );
       }
 
       return spell.level <= maxSlotLevel;

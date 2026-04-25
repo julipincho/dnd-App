@@ -205,7 +205,29 @@ Listar assets razas:
   - Subclases lanzadoras parciales:
     - `SpellcastingRules` reconoce `Fighter + Eldritch Knight` y `Rogue + Arcane Trickster` como third casters.
     - La sheet las incluye en spellcasting solo si esa subclase esta presente, usa INT por defecto y muestra la subclase en la card.
-    - Pendiente fino: restricciones exactas de escuelas/excepciones de spells libres para EK/AT.
+    - Restricciones de escuela implementadas para selector, reemplazo y guardado:
+      - Eldritch Knight usa Abjuration/Evocation, con picks libres en Fighter 3/8/14/20.
+      - Arcane Trickster usa Enchantment/Illusion, con picks libres en Rogue 3/8/14/20.
+  - Mantenimiento de subclases por clase:
+    - `EditCharacterScreen` muestra `Class Progression` con cards por clase/nivel/subclase.
+    - Si una clase secundaria ya deberia tener subclase y falta, permite asignarla desde esa card.
+    - Guarda en `Character.progression.withSubclassForClass`; solo actualiza `character.subclass` si la clase editada es la primaria.
+    - Despues de asignar, sincroniza features/recursos.
+  - Auditoria `charClass` / `level`:
+    - `FeatValidationService` ahora interpreta prerequisitos alternativos.
+    - Soporta prerequisitos de nivel total y de nivel por clase con `character.levelForClass`.
+    - El requisito de spellcasting usa progresion real de clase/subclase ademas de habilidades configuradas.
+    - Soporta prerequisitos de background basicos.
+  - Proficiencies multiclass:
+    - `CharacterMulticlassProficiencyService` calcula proficiencia de armas desde la progresion completa.
+    - La clase inicial usa proficiencias iniciales; clases posteriores usan proficiencias de multiclass 5e 2014.
+    - La sheet ya no calcula armas solo por `charClass`.
+    - `LevelUpScreen` pide una skill proficiency al entrar por primera vez a Bard, Ranger o Rogue si quedan opciones elegibles.
+    - `CharacterLevelUpService` persiste esas skills en `character.classSkills` sin duplicar.
+  - Saneamiento de ataques de armas:
+    - `CharacterWeaponAttackService` extrae calculos de main hand attack/damage desde `CharacterSheetScreen`.
+    - La sheet conserva wrappers para UI/rolls, pero delega ability, proficiencia, bonus, texto de dano y parsing de dados.
+    - Se quitaron prints de debug del calculo de ataque/dano de main hand.
 - Limpieza de `lib/screens/character_sheet_screen.dart`:
   - Punto critico. El archivo concentra demasiada logica.
   - Futuro refactor debe extraer widgets, services y/o view models siguiendo las referencias de buenas practicas Dart/Flutter.
@@ -217,6 +239,7 @@ Listar assets razas:
   - Class Options UI: se extrajo el contenido/cards a `lib/features/characters/presentation/character_sheet/widgets/character_options_section.dart`; la sheet conserva dialogos, guardado y reglas.
   - Shared UI: se agrego `lib/features/characters/presentation/character_sheet/widgets/character_sheet_meta_chip.dart` para chips visuales reutilizables en la sheet.
   - Spellcasting UI: se extrajo la cabecera/resumen a `lib/features/characters/presentation/character_sheet/widgets/character_spellcasting_summary_section.dart`; la sheet conserva calculos, slots, listas y dialogos.
+  - Spell selector UI: se extrajo el modal de seleccion de conjuros a `lib/features/characters/presentation/character_sheet/widgets/character_spell_selector_modal.dart`; la sheet conserva el filtrado/reglas y solo abre el modal.
   - Saneamiento adicional: se quitaron restos muertos del flujo anterior de AC/opciones de personaje que ya no eran llamados por la UI actual.
   - Bug corregido: `CharacterProvider.getCharacterById` ahora tambien busca en `campaignCharacters`, para que el DM pueda modificar personajes de campana que no estan en su lista personal.
   - Bug corregido: al guardar cambios sobre personajes de campana de otro usuario, `CharacterProvider` conserva la sesion activa del usuario actual y refresca tambien los personajes de campana.

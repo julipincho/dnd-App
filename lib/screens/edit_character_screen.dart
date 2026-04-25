@@ -44,6 +44,8 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
   List<DndBackground> backgrounds = [];
   DndBackground? selectedBackground;
   DndClass? _loadedClassData;
+  final Map<String, DndClass?> _progressionClassData = {};
+  final Map<String, int?> _subclassChoiceLevelsByClass = {};
   bool _backgroundsLoaded = false;
   String? _backgroundsLoadError;
 
@@ -271,6 +273,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
 
     _loadBackgrounds(character!.background.name);
     _loadClassData();
+    _loadProgressionClassData();
     _loadFeats();
   }
 
@@ -348,6 +351,39 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
         _loadedClassData = null;
       });
     }
+  }
+
+  Future<void> _loadProgressionClassData() async {
+    if (character == null) return;
+
+    final classNames = character!.classLevels.keys
+        .where((className) => className.trim().isNotEmpty)
+        .toList();
+
+    if (classNames.isEmpty && character!.charClass.trim().isNotEmpty) {
+      classNames.add(character!.charClass);
+    }
+
+    final classDataByName = <String, DndClass?>{};
+    final choiceLevelsByClass = <String, int?>{};
+
+    for (final className in classNames) {
+      final key = _normalizeClassName(className);
+      classDataByName[key] = await ClassDataService.loadClass(className);
+      choiceLevelsByClass[key] =
+          await ClassDataService.getSubclassChoiceLevel(className);
+    }
+
+    if (!mounted) return;
+
+    setState(() {
+      _progressionClassData
+        ..clear()
+        ..addAll(classDataByName);
+      _subclassChoiceLevelsByClass
+        ..clear()
+        ..addAll(choiceLevelsByClass);
+    });
   }
 
   Future<void> _loadFeats() async {
@@ -1501,14 +1537,24 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
     );
   }
 
-  Future<void> _showAssignSubclassDialog() async {
+  Future<void> _showAssignSubclassDialog({String? className}) async {
     if (character == null) return;
 
+    final targetClassName = className ?? character!.charClass;
     final hasSubclass =
-        character!.subclass != null && character!.subclass!.trim().isNotEmpty;
+        character!.subclassForClass(targetClassName)?.trim().isNotEmpty ??
+            false;
     if (hasSubclass) return;
 
-    final classData = _loadedClassData;
+    final classKey = _normalizeClassName(targetClassName);
+    var classData = _progressionClassData[classKey];
+    classData ??= classKey == _normalizeClassName(character!.charClass)
+        ? _loadedClassData
+        : null;
+    classData ??= await ClassDataService.loadClass(targetClassName);
+
+    if (!mounted) return;
+
     if (classData == null || classData.subclasses.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -1517,12 +1563,13 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
       );
       return;
     }
+    final selectedClassData = classData;
 
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) {
+      builder: (dialogContext) {
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
@@ -1571,7 +1618,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: Text(
-                      'Choose a subclass for ${character!.charClass}. Once assigned, it cannot be changed from this screen.',
+                      'Choose a subclass for $targetClassName. Once assigned, it cannot be changed from this screen.',
                       style: TextStyle(
                         color: Colors.white.withOpacity(0.70),
                         height: 1.4,
@@ -1583,10 +1630,10 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                     child: ListView.separated(
                       shrinkWrap: true,
                       padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                      itemCount: classData.subclasses.length,
+                      itemCount: selectedClassData.subclasses.length,
                       separatorBuilder: (_, __) => const SizedBox(height: 10),
                       itemBuilder: (_, index) {
-                        final subclass = classData.subclasses[index];
+                        final subclass = selectedClassData.subclasses[index];
 
                         return Material(
                           color: Colors.transparent,
@@ -1599,12 +1646,22 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                               await provider.updateCharacterById(
                                 character!.id,
                                 (ch) {
-                                  final alreadyHasSubclass =
-                                      ch.subclass != null &&
-                                          ch.subclass!.trim().isNotEmpty;
+                                  final alreadyHasSubclass = ch
+                                          .subclassForClass(targetClassName)
+                                          ?.trim()
+                                          .isNotEmpty ??
+                                      false;
 
                                   if (alreadyHasSubclass) return;
-                                  ch.setSubclassForPrimaryClass(subclass.name);
+                                  ch.progression = ch.normalizedProgression
+                                      .withSubclassForClass(
+                                    className: targetClassName,
+                                    subclassName: subclass.name,
+                                  );
+                                  if (_normalizeClassName(ch.charClass) ==
+                                      _normalizeClassName(targetClassName)) {
+                                    ch.subclass = subclass.name;
+                                  }
                                 },
                               );
 
@@ -1617,9 +1674,10 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                                 character = provider
                                     .getCharacterById(widget.characterId);
                               });
+                              await _loadProgressionClassData();
 
-                              if (!context.mounted) return;
-                              Navigator.pop(context);
+                              if (!dialogContext.mounted) return;
+                              Navigator.pop(dialogContext);
                             },
                             child: Container(
                               padding: const EdgeInsets.all(14),
@@ -1848,15 +1906,19 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
   Widget _buildSubclassEditorCard() {
     if (character == null) return const SizedBox.shrink();
 
-    final hasSubclass =
-        character!.subclass != null && character!.subclass!.trim().isNotEmpty;
+    final classEntries = character!.classLevels.entries.toList()
+      ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
+
+    if (classEntries.isEmpty && character!.charClass.trim().isNotEmpty) {
+      classEntries.add(MapEntry(character!.charClass, character!.level));
+    }
 
     return _buildSectionCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            "Subclass",
+            "Class Progression",
             style: TextStyle(
               color: Colors.white,
               fontSize: 18,
@@ -1865,42 +1927,129 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            hasSubclass
-                ? "This character already has a subclass assigned."
-                : "Assign a subclass only if this legacy character is missing one.",
+            "Review subclasses per class. Use this only to repair legacy or manually edited characters.",
             style: TextStyle(
               color: Colors.white.withOpacity(0.70),
               height: 1.4,
             ),
           ),
           const SizedBox(height: 14),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: const Color(0xFF202028),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: Colors.white.withOpacity(0.08),
+          if (classEntries.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFF202028),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: Colors.white.withOpacity(0.08),
+                ),
+              ),
+              child: const Text(
+                'No class progression found.',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            )
+          else
+            ...classEntries.map(
+              (entry) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _buildClassProgressionSubclassTile(
+                  className: entry.key,
+                  classLevel: entry.value,
+                ),
               ),
             ),
-            child: Text(
-              hasSubclass
-                  ? character!.subclass!.trim()
-                  : 'No subclass assigned',
-              style: TextStyle(
-                color: hasSubclass ? Colors.white : Colors.white70,
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-              ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildClassProgressionSubclassTile({
+    required String className,
+    required int classLevel,
+  }) {
+    final classKey = _normalizeClassName(className);
+    final classData = _progressionClassData[classKey];
+    final choiceLevel = _subclassChoiceLevelsByClass[classKey];
+    final subclassName = character!.subclassForClass(className)?.trim();
+    final hasSubclass = subclassName != null && subclassName.isNotEmpty;
+    final hasSubclassOptions = classData?.subclasses.isNotEmpty ?? false;
+    final canAssign = !hasSubclass &&
+        hasSubclassOptions &&
+        choiceLevel != null &&
+        classLevel >= choiceLevel;
+
+    String status;
+    Color statusColor;
+
+    if (hasSubclass) {
+      status = subclassName;
+      statusColor = Colors.white;
+    } else if (!hasSubclassOptions && classData == null) {
+      status = 'Loading subclass data...';
+      statusColor = Colors.white60;
+    } else if (!hasSubclassOptions) {
+      status = 'No subclass options found';
+      statusColor = Colors.white60;
+    } else if (choiceLevel == null) {
+      status = 'Subclass choice level unknown';
+      statusColor = Colors.amberAccent;
+    } else if (classLevel < choiceLevel) {
+      status = 'Subclass available at $className $choiceLevel';
+      statusColor = Colors.white60;
+    } else {
+      status = 'Missing subclass';
+      statusColor = Colors.amberAccent;
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF202028),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: canAssign
+              ? Colors.deepPurpleAccent.withOpacity(0.38)
+              : Colors.white.withOpacity(0.08),
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$className $classLevel',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  status,
+                  style: TextStyle(
+                    color: statusColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 16),
-          if (!hasSubclass)
+          if (canAssign)
             OutlinedButton.icon(
-              onPressed: _showAssignSubclassDialog,
-              icon: const Icon(Icons.auto_awesome_outlined),
-              label: const Text('Assign Subclass'),
+              onPressed: () => _showAssignSubclassDialog(className: className),
+              icon: const Icon(Icons.auto_awesome_outlined, size: 18),
+              label: const Text('Assign'),
             ),
         ],
       ),

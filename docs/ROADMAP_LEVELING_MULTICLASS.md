@@ -293,10 +293,53 @@ Esto prepara el terreno sin tocar todavia el flujo completo de subida de nivel.
   - `SpellcastingRules` distingue `Fighter + Eldritch Knight` y `Rogue + Arcane Trickster` como third casters sin convertir a todos los Fighter/Rogue en lanzadores.
   - Estas subclases usan INT, limites de cantrips/spells known por nivel de clase y lista de spells basada en Wizard/subclass data.
   - La sheet las incluye en las cards de spellcasting por clase y muestra la subclase que habilita esa magia.
+  - Las restricciones de escuela ya se aplican en selector, reemplazo y guardado:
+    - Eldritch Knight usa Abjuration/Evocation, con picks libres en Fighter 3/8/14/20.
+    - Arcane Trickster usa Enchantment/Illusion, con picks libres en Rogue 3/8/14/20.
 
 Pendientes inmediatos:
 
-- Afinar restricciones avanzadas de escuela para Eldritch Knight / Arcane Trickster si se quiere modelar exactamente las excepciones de spells libres por nivel.
-- Resolver subclases por clase en multiclass desde un flujo dedicado.
-- Revisar el resto de sistemas que todavia puedan leer `charClass` + `level` como verdad unica fuera de grants principales.
 - Continuar saneamiento de `CharacterSheetScreen` con extracciones incrementales: spellcasting UI, inventario/equipo, features/opciones y recursos.
+
+## Mantenimiento / Correccion de Progresion
+
+- `EditCharacterScreen` ahora muestra una seccion `Class Progression` con una card por clase del personaje.
+- Cada card muestra nivel por clase, subclase actual o estado pendiente.
+- Si una clase ya alcanzo su nivel de subclase y no tiene subclase guardada, se ofrece `Assign`.
+- La asignacion escribe en `Character.progression.withSubclassForClass`, y solo sincroniza `character.subclass` cuando la clase editada es la primaria.
+- Al asignar una subclase se re-sincronizan features/recursos y se recarga la data de progresion.
+
+## Auditoria `charClass` / `level`
+
+- Se revisaron servicios/reglas principales para usos monoclass residuales.
+- `FeatValidationService` ahora:
+  - Interpreta prerequisitos alternativos en lugar de tratarlos todos como un unico bloque rigido.
+  - Soporta prerequisitos de nivel total y de nivel por clase, usando `character.levelForClass`.
+  - Reconoce spellcasting desde la progresion real del personaje, no solo desde una habilidad configurada manualmente.
+  - Soporta prerequisitos de background basicos.
+- Los usos de `character.level` para proficiency bonus y nivel total se mantienen como validos.
+- Los helpers legacy de `SpellcastingRules` siguen existiendo por compatibilidad, pero los flujos multiclass activos usan los helpers por clase/subclase.
+
+## Proficiencies Multiclass
+
+- Se agrego `CharacterMulticlassProficiencyService`.
+- La sheet calcula proficiencia de armas desde la progresion completa:
+  - Clase inicial usa proficiencias iniciales.
+  - Clases tomadas luego usan proficiencias de multiclass 5e 2014.
+  - Proficiencias raciales, de feats y Pact of the Blade se mantienen.
+- `LevelUpScreen` ahora solicita una skill proficiency al entrar por primera vez a Bard, Ranger o Rogue si quedan opciones elegibles.
+- `CharacterLevelUpService` persiste esas skills en `character.classSkills` evitando duplicados.
+
+## Saneamiento de `CharacterSheetScreen`
+
+- Se extrajo logica de ataques/dano de armas a `CharacterWeaponAttackService`.
+- La sheet conserva wrappers para UI/rolls, pero los calculos de:
+  - ability usada para ataque,
+  - proficiencia de arma,
+  - bonus de ataque,
+  - bonus/texto de dano,
+  - parsing de dados de dano,
+  viven en service.
+- Se eliminaron prints de debug del calculo de ataque/dano de main hand.
+- Se extrajo el modal de seleccion de conjuros a `lib/features/characters/presentation/character_sheet/widgets/character_spell_selector_modal.dart`.
+- `CharacterSheetScreen` conserva las reglas/filtros de spells y delega la UI del selector.

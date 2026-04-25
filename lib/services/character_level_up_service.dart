@@ -6,12 +6,14 @@ class CharacterLevelUpDecision {
   final int hpGain;
   final String? subclassName;
   final int? hitDie;
+  final List<String> skillProficiencies;
 
   const CharacterLevelUpDecision({
     required this.className,
     required this.hpGain,
     this.subclassName,
     this.hitDie,
+    this.skillProficiencies = const [],
   });
 }
 
@@ -69,12 +71,17 @@ class CharacterLevelUpService {
         character.subclass = decision.subclassName;
       }
     }
+    for (final skill in decision.skillProficiencies) {
+      _addUnique(character.classSkills, skill);
+    }
     character.maxHp = (character.maxHp ?? 0) + safeHpGain;
     character.currentHp = (character.currentHp ?? 0) + safeHpGain;
 
     final newClassLevel = character.levelForClass(decision.className);
     final notes = <String>[
       if (isNewClass) 'Multiclassed into ${decision.className}.',
+      if (decision.skillProficiencies.isNotEmpty)
+        'Gained skill proficiency: ${decision.skillProficiencies.join(', ')}.',
       if (_levelGrantsAbilityScoreImprovement(newClassLevel))
         '${decision.className} $newClassLevel grants an Ability Score Improvement.',
     ];
@@ -93,5 +100,13 @@ class CharacterLevelUpService {
         classLevel == 12 ||
         classLevel == 16 ||
         classLevel == 19;
+  }
+
+  static void _addUnique(List<String> values, String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return;
+    final key = trimmed.toLowerCase();
+    if (values.any((entry) => entry.trim().toLowerCase() == key)) return;
+    values.add(trimmed);
   }
 }

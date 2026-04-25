@@ -6,6 +6,7 @@ import '../models/character.dart';
 import '../models/dnd_class.dart';
 import '../providers/character_provider.dart';
 import '../services/character_level_up_service.dart';
+import '../services/character_multiclass_proficiency_service.dart';
 import '../services/character_spell_slot_service.dart';
 import '../services/class_data_service.dart';
 import '../services/dnd_data_service.dart';
@@ -35,6 +36,7 @@ class _LevelUpScreenState extends State<LevelUpScreen> {
   String _hpMethod = 'average';
   int _hpGain = 1;
   bool _rollLocked = false;
+  String? _selectedMulticlassSkill;
 
   @override
   void initState() {
@@ -112,6 +114,27 @@ class _LevelUpScreenState extends State<LevelUpScreen> {
         selectedClass.subclasses.isNotEmpty;
   }
 
+  bool _needsMulticlassSkillChoice(Character character) {
+    final selectedClass = _selectedClass;
+    if (selectedClass == null) return false;
+    if (character.levelForClass(selectedClass.name) > 0) return false;
+    return _availableMulticlassSkillOptions(character).isNotEmpty;
+  }
+
+  List<String> _availableMulticlassSkillOptions(Character character) {
+    final selectedClass = _selectedClass;
+    if (selectedClass == null) return const [];
+
+    final ownedSkills = character.classSkills
+        .map((skill) => skill.trim().toLowerCase())
+        .toSet();
+
+    return CharacterMulticlassProficiencyService.multiclassSkillOptionsForClass(
+            selectedClass.name)
+        .where((skill) => !ownedSkills.contains(skill.trim().toLowerCase()))
+        .toList();
+  }
+
   int _averageHpGain(Character character, int hitDie) {
     final conScore =
         (character.stats['CON'] ?? 10) + (character.racialBonuses['CON'] ?? 0);
@@ -133,6 +156,7 @@ class _LevelUpScreenState extends State<LevelUpScreen> {
     setState(() {
       _selectedClass = cls;
       _selectedSubclass = null;
+      _selectedMulticlassSkill = null;
       _hpMethod = 'average';
       _rollLocked = false;
       _hpGain = _averageHpGain(character, cls.hitDie);
@@ -152,6 +176,14 @@ class _LevelUpScreenState extends State<LevelUpScreen> {
       return;
     }
 
+    if (_needsMulticlassSkillChoice(character) &&
+        _selectedMulticlassSkill == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Choose a multiclass skill proficiency.')),
+      );
+      return;
+    }
+
     setState(() => _saving = true);
 
     final provider = context.read<CharacterProvider>();
@@ -163,6 +195,9 @@ class _LevelUpScreenState extends State<LevelUpScreen> {
           subclassName: _selectedSubclass?.name,
           hpGain: _hpGain,
           hitDie: selectedClass.hitDie,
+          skillProficiencies: [
+            if (_selectedMulticlassSkill != null) _selectedMulticlassSkill!,
+          ],
         ),
       );
     });
@@ -214,8 +249,10 @@ class _LevelUpScreenState extends State<LevelUpScreen> {
       targetClassName: selectedClass.name,
     );
     final needsSubclass = _needsSubclassChoice(character);
+    final needsMulticlassSkill = _needsMulticlassSkillChoice(character);
     final canConfirm = (!isNewClass || validation.canMulticlass) &&
-        (!needsSubclass || _selectedSubclass != null);
+        (!needsSubclass || _selectedSubclass != null) &&
+        (!needsMulticlassSkill || _selectedMulticlassSkill != null);
 
     return Scaffold(
       backgroundColor: const Color(0xFF0C0916),
@@ -303,6 +340,19 @@ class _LevelUpScreenState extends State<LevelUpScreen> {
               ),
             ),
           if (needsSubclass) const SizedBox(height: 14),
+          if (needsMulticlassSkill)
+            _SectionPanel(
+              title: 'Multiclass Proficiency',
+              child: _MulticlassSkillPicker(
+                className: selectedClass.name,
+                options: _availableMulticlassSkillOptions(character),
+                selectedSkill: _selectedMulticlassSkill,
+                onChanged: (skill) {
+                  setState(() => _selectedMulticlassSkill = skill);
+                },
+              ),
+            ),
+          if (needsMulticlassSkill) const SizedBox(height: 14),
           _SectionPanel(
             title: 'Hit Points',
             child: Column(
@@ -546,6 +596,49 @@ class _SubclassPicker extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+class _MulticlassSkillPicker extends StatelessWidget {
+  final String className;
+  final List<String> options;
+  final String? selectedSkill;
+  final ValueChanged<String> onChanged;
+
+  const _MulticlassSkillPicker({
+    required this.className,
+    required this.options,
+    required this.selectedSkill,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (options.isEmpty) {
+      return Text(
+        'No eligible skill proficiencies remain for $className.',
+        style: TextStyle(color: Colors.white.withValues(alpha: 0.66)),
+      );
+    }
+
+    return DropdownButtonFormField<String>(
+      value: selectedSkill,
+      decoration: const InputDecoration(
+        labelText: 'Skill proficiency',
+      ),
+      items: options
+          .map(
+            (skill) => DropdownMenuItem(
+              value: skill,
+              child: Text(skill),
+            ),
+          )
+          .toList(),
+      onChanged: (value) {
+        if (value == null) return;
+        onChanged(value);
+      },
     );
   }
 }

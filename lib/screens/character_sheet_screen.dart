@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -36,6 +36,7 @@ import 'package:stitch_app/features/characters/presentation/character_sheet/widg
 import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_options_section.dart';
 import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_overview_tab.dart';
 import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_spellcasting_summary_section.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_spell_selector_modal.dart';
 import '../services/character_pact_service.dart';
 import '../services/character_spell_slot_service.dart';
 import '../logic/character_option_effects.dart';
@@ -49,6 +50,7 @@ import '../models/character_feature.dart';
 import '../providers/campaign_provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/character_inventory_service.dart';
+import '../services/character_weapon_attack_service.dart';
 import '../services/multiclass_spellcasting_service.dart';
 import '../services/supabase_storage_service.dart';
 import '../utils/image_path_utils.dart';
@@ -138,310 +140,6 @@ class _SpellcastingClassSummary {
   });
 }
 
-class _SpellSelectorModal extends StatefulWidget {
-  final List<Spell> spells;
-  final Set<String> excludedSpellIds;
-  final Function(Spell) onSelect;
-
-  const _SpellSelectorModal({
-    required this.spells,
-    required this.excludedSpellIds,
-    required this.onSelect,
-  });
-
-  @override
-  State<_SpellSelectorModal> createState() => _SpellSelectorModalState();
-}
-
-class _SpellSelectorModalState extends State<_SpellSelectorModal> {
-  String query = '';
-  int? selectedLevel;
-
-  List<Spell> get _filteredSpells {
-    final normalizedQuery = query.trim().toLowerCase();
-
-    final filtered = widget.spells.where((spell) {
-      final notAlreadyAdded = !widget.excludedSpellIds.contains(spell.id);
-
-      final matchesQuery = normalizedQuery.isEmpty ||
-          spell.name.toLowerCase().contains(normalizedQuery) ||
-          spell.school.toLowerCase().contains(normalizedQuery);
-
-      final matchesLevel =
-          selectedLevel == null || spell.level == selectedLevel;
-
-      return notAlreadyAdded && matchesQuery && matchesLevel;
-    }).toList();
-
-    filtered.sort((a, b) {
-      final levelCompare = a.level.compareTo(b.level);
-      if (levelCompare != 0) return levelCompare;
-      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
-    });
-
-    return filtered;
-  }
-
-  Widget _buildSpellMetaChip(String label) {
-    IconData icon;
-
-    if (label.contains('Level') || label == 'Cantrips') {
-      icon = Icons.auto_awesome;
-    } else if (label.contains('action')) {
-      icon = Icons.flash_on;
-    } else {
-      icon = Icons.circle;
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.deepPurpleAccent.withOpacity(0.18),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 12, color: Colors.white70),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 12,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _levelLabel(int? level) {
-    if (level == null) return 'All levels';
-    if (level == 0) return 'Cantrips';
-    return 'Level $level';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final filtered = _filteredSpells;
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.only(
-          left: 16,
-          right: 16,
-          top: 16,
-          bottom: bottomInset + 16,
-        ),
-        child: SizedBox(
-          height: MediaQuery.of(context).size.height * 0.82,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 42,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: Colors.white24,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Add Spell',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                '${filtered.length} available result${filtered.length == 1 ? '' : 's'}',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.68),
-                  fontSize: 13,
-                ),
-              ),
-              const SizedBox(height: 14),
-              TextField(
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  hintText: 'Search by name or school...',
-                  hintStyle: TextStyle(color: Colors.white.withOpacity(0.45)),
-                  prefixIcon: const Icon(Icons.search, color: Colors.white70),
-                  filled: true,
-                  fillColor: const Color(0xFF2A2A35),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide.none,
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-                onChanged: (value) {
-                  setState(() {
-                    query = value;
-                  });
-                },
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                height: 42,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: ChoiceChip(
-                        label: const Text('All levels'),
-                        selected: selectedLevel == null,
-                        onSelected: (_) {
-                          setState(() {
-                            selectedLevel = null;
-                          });
-                        },
-                      ),
-                    ),
-                    ...List.generate(10, (index) {
-                      final level = index;
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: ChoiceChip(
-                          label: Text(_levelLabel(level)),
-                          selected: selectedLevel == level,
-                          onSelected: (_) {
-                            setState(() {
-                              selectedLevel = level;
-                            });
-                          },
-                        ),
-                      );
-                    }),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 14),
-              Expanded(
-                child: filtered.isEmpty
-                    ? Center(
-                        child: Text(
-                          'No spells found with the current filters.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.7),
-                            fontSize: 14,
-                          ),
-                        ),
-                      )
-                    : ListView.separated(
-                        itemCount: filtered.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 8),
-                        itemBuilder: (context, index) {
-                          final spell = filtered[index];
-
-                          return Material(
-                            color: const Color(0xFF202028),
-                            borderRadius: BorderRadius.circular(14),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(14),
-                              onTap: () => widget.onSelect(spell),
-                              child: Padding(
-                                padding: const EdgeInsets.all(14),
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Container(
-                                      width: 44,
-                                      height: 44,
-                                      decoration: BoxDecoration(
-                                        color: Colors.deepPurpleAccent
-                                            .withOpacity(0.18),
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      alignment: Alignment.center,
-                                      child: Text(
-                                        spell.level == 0
-                                            ? 'C'
-                                            : '${spell.level}',
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            spell.name,
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 15,
-                                              fontWeight: FontWeight.w700,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Wrap(
-                                            spacing: 8,
-                                            runSpacing: 6,
-                                            children: [
-                                              _buildSpellMetaChip(
-                                                _levelLabel(spell.level),
-                                              ),
-                                              _buildSpellMetaChip(
-                                                spell.school,
-                                              ),
-                                              if (spell.castingTime.isNotEmpty)
-                                                _buildSpellMetaChip(
-                                                  spell.castingTime,
-                                                ),
-                                            ],
-                                          ),
-                                          if (spell.description.isNotEmpty) ...[
-                                            const SizedBox(height: 8),
-                                            Text(
-                                              spell.description,
-                                              maxLines: 2,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: TextStyle(
-                                                color: Colors.white
-                                                    .withOpacity(0.72),
-                                                fontSize: 13,
-                                                height: 1.35,
-                                              ),
-                                            ),
-                                          ],
-                                        ],
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    const Icon(
-                                      Icons.add_circle_outline,
-                                      color: Colors.white70,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
   final List<DiceRollResult> _diceLog = [];
   List<FeatData> _allFeats = [];
@@ -449,6 +147,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
   bool _skillsExpanded = false;
   bool _savingThrowsExpanded = false;
   bool _deathSavesExpanded = false;
+  final ScrollController _skillsScrollController = ScrollController();
   final Map<String, String> _selectedSpellcastingClassByCharacterId = {};
   int _getTotalCharacterLevel(Character char) {
     return char.level <= 0 ? 1 : char.level;
@@ -926,6 +625,12 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         spellProvider.loadSpells();
       }
     });
+  }
+
+  @override
+  void dispose() {
+    _skillsScrollController.dispose();
+    super.dispose();
   }
 
   int _abilityMod(int score) => ((score - 10) / 2).floor();
@@ -1828,6 +1533,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         spells: spellProvider.spells,
         subclassName: subclassName,
         includeClassVariants: includeClassVariants,
+        currentKnownSpells: currentSpells,
+        replacingSpellId: spellToRemove?.id,
       ).where((spell) {
         return spell.level > 0 &&
             !currentSpellIds.contains(spell.id) &&
@@ -2879,8 +2586,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
   }) {
     final totalSkills = _skillAbilityMap.length;
     final double expandedBodyHeight = isLargeTablet ? 440 : 395;
-    debugPrint('classSkills => ${char.classSkills}');
-    debugPrint('savingThrows => ${char.savingThrows}');
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
@@ -2940,8 +2645,10 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
             SizedBox(
               height: expandedBodyHeight,
               child: Scrollbar(
+                controller: _skillsScrollController,
                 thumbVisibility: true,
                 child: SingleChildScrollView(
+                  controller: _skillsScrollController,
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -4152,158 +3859,23 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         _isHandHeldFocus(item!.equipmentItem!);
   }
 
-  int _getWeaponAttackAbilityModifier(
-    Character char,
-    CharacterInventoryItem weaponItem,
-    EquipmentProvider equipmentProvider,
-    CompendiumProvider compendiumProvider,
-  ) {
-    final strMod = _getAbilityModifier(
-      _getCurrentAbilityScore(
-        char,
-        'STR',
-        equipmentProvider: equipmentProvider,
-        compendiumProvider: compendiumProvider,
-      ),
-    );
-
-    final dexMod = _getAbilityModifier(
-      _getCurrentAbilityScore(
-        char,
-        'DEX',
-        equipmentProvider: equipmentProvider,
-        compendiumProvider: compendiumProvider,
-      ),
-    );
-
-    final chaMod = _getAbilityModifier(
-      _getCurrentAbilityScore(
-        char,
-        'CHA',
-        equipmentProvider: equipmentProvider,
-        compendiumProvider: compendiumProvider,
-      ),
-    );
-
-    if (weaponItem.isPactWeapon && char.hasPactOfTheBlade) {
-      return chaMod;
-    }
-
-    if (weaponItem.isRanged) {
-      return dexMod;
-    }
-
-    if (weaponItem.isFinesse) {
-      return dexMod > strMod ? dexMod : strMod;
-    }
-
-    return strMod;
-  }
-
   String _getWeaponAttackAbilityLabel(
     Character char,
     CharacterInventoryItem weaponItem,
     EquipmentProvider equipmentProvider,
     CompendiumProvider compendiumProvider,
   ) {
-    final strMod = _getAbilityModifier(
-      _getCurrentAbilityScore(
+    return CharacterWeaponAttackService.attackAbilityLabel(
+      character: char,
+      weaponItem: weaponItem,
+      getAbilityScore: (ability) => _getCurrentAbilityScore(
         char,
-        'STR',
+        ability,
         equipmentProvider: equipmentProvider,
         compendiumProvider: compendiumProvider,
       ),
+      getAbilityModifier: _getAbilityModifier,
     );
-
-    final dexMod = _getAbilityModifier(
-      _getCurrentAbilityScore(
-        char,
-        'DEX',
-        equipmentProvider: equipmentProvider,
-        compendiumProvider: compendiumProvider,
-      ),
-    );
-
-    if (weaponItem.isPactWeapon && char.hasPactOfTheBlade) {
-      return 'CHA';
-    }
-
-    if (weaponItem.isRanged) {
-      return 'DEX';
-    }
-
-    if (weaponItem.isFinesse) {
-      return dexMod > strMod ? 'DEX' : 'STR';
-    }
-
-    return 'STR';
-  }
-
-  bool _isProficientWithWeapon(
-    Character char,
-    CharacterInventoryItem weaponItem,
-    EquipmentCompendiumItem? equipmentItem,
-  ) {
-    if (weaponItem.isPactWeapon && char.hasPactOfTheBlade) {
-      return true;
-    }
-
-    final weaponName = weaponItem.name.trim().toLowerCase();
-
-    bool listContainsWeapon(List<String> proficiencies) {
-      return proficiencies.any(
-        (entry) => entry.trim().toLowerCase() == weaponName,
-      );
-    }
-
-    // Racial / feat proficiencies by explicit weapon name
-    if (listContainsWeapon(char.racialWeaponProficiencies)) {
-      return true;
-    }
-
-    if (listContainsWeapon(char.featWeaponProficiencies)) {
-      return true;
-    }
-
-    final weaponCategory = equipmentItem?.weaponCategory?.trim().toLowerCase();
-
-    if (weaponCategory == null || weaponCategory.isEmpty) {
-      return true; // fallback temporal
-    }
-
-    final isSimple = weaponCategory == 'simple';
-    final isMartial = weaponCategory == 'martial';
-
-    final className = char.charClass.trim().toLowerCase();
-
-    switch (className) {
-      case 'barbarian':
-      case 'fighter':
-      case 'paladin':
-      case 'ranger':
-        return isSimple || isMartial;
-
-      case 'bard':
-      case 'cleric':
-      case 'druid':
-      case 'monk':
-      case 'sorcerer':
-      case 'warlock':
-      case 'wizard':
-      case 'artificer':
-        return isSimple;
-
-      case 'rogue':
-        if (isSimple) return true;
-
-        return weaponName == 'hand crossbow' ||
-            weaponName == 'longsword' ||
-            weaponName == 'rapier' ||
-            weaponName == 'shortsword';
-
-      default:
-        return true;
-    }
   }
 
   int? _calculateMainHandAttackBonus(
@@ -4319,51 +3891,18 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
     if (resolvedWeapon == null) return null;
 
-    final weaponItem = resolvedWeapon.effectiveItem;
-    final abilityMod = _getWeaponAttackAbilityModifier(
-      char,
-      weaponItem,
-      equipmentProvider,
-      compendiumProvider,
-    );
-    final proficiency = _isProficientWithWeapon(
-      char,
-      weaponItem,
-      resolvedWeapon.equipmentItem,
-    )
-        ? _getProficiencyBonusFromEngine(char)
-        : 0;
-
-    final itemAttackBonus = resolvedWeapon.equipmentItem?.attackBonus ?? 0;
-
-    final optionAttackBonus =
-        CharacterOptionEffects.getMainHandAttackBonusFromOptions(
+    return CharacterWeaponAttackService.mainHandAttackBonus(
       character: char,
-      isRangedWeapon: weaponItem.isRanged,
+      resolvedWeapon: resolvedWeapon,
+      getAbilityScore: (ability) => _getCurrentAbilityScore(
+        char,
+        ability,
+        equipmentProvider: equipmentProvider,
+        compendiumProvider: compendiumProvider,
+      ),
+      getAbilityModifier: _getAbilityModifier,
+      proficiencyBonus: _getProficiencyBonusFromEngine(char),
     );
-    final pactAttackBonus = CharacterOptionEffects.getPactWeaponAttackBonus(
-      character: char,
-      weaponItem: weaponItem,
-      equipmentItem: resolvedWeapon.equipmentItem,
-    );
-    final infusedWeaponAttackBonus =
-        CharacterOptionEffects.getInfusedWeaponAttackBonus(
-      character: char,
-      weaponItem: weaponItem,
-    );
-    print('--- ATTACK BONUS DEBUG ---');
-    print('Weapon: ${weaponItem.name}');
-    print('isRangedWeapon: ${weaponItem.isRanged}');
-    print('Selected fighting styles: '
-        '${CharacterOptionEffects.getSelectedFightingStyleIds(char)}');
-    print('Option attack bonus: $optionAttackBonus');
-
-    return abilityMod +
-        proficiency +
-        itemAttackBonus +
-        optionAttackBonus +
-        pactAttackBonus +
-        infusedWeaponAttackBonus;
   }
 
   int? _calculateMainHandDamageBonus(
@@ -4379,74 +3918,23 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
     if (resolvedWeapon == null) return null;
 
-    final weaponItem = resolvedWeapon.effectiveItem;
-
-    final abilityMod = _getWeaponAttackAbilityModifier(
-      char,
-      weaponItem,
-      equipmentProvider,
-      compendiumProvider,
-    );
-
-    final itemDamageBonus = resolvedWeapon.equipmentItem?.damageBonus ?? 0;
-
-    final conditionalDamageBonus =
-        CharacterEquipmentEffects.getMainHandConditionalDamageBonus(
-      char: char,
-      equipmentItems: equipmentProvider.items,
-      compendiumEntries: compendiumProvider.entries,
-    );
-
     final hasOffHandWeaponEquipped = char.equippedOffHandItemId != null &&
         char.equippedOffHandItemId!.trim().isNotEmpty;
 
-    final isMeleeWeapon = !weaponItem.isRanged;
-    final isOneHandedMeleeWeapon =
-        !weaponItem.isTwoHanded && !weaponItem.isRanged;
-
-    final optionDamageBonus =
-        CharacterOptionEffects.getMainHandDamageBonusFromOptions(
+    return CharacterWeaponAttackService.mainHandDamageBonus(
       character: char,
-      isMeleeWeapon: isMeleeWeapon,
-      isOneHandedMeleeWeapon: isOneHandedMeleeWeapon,
+      resolvedWeapon: resolvedWeapon,
       hasOffHandWeaponEquipped: hasOffHandWeaponEquipped,
-    );
-
-    final chaMod = _getAbilityModifier(
-      _getCurrentAbilityScore(
+      equipmentItems: equipmentProvider.items,
+      compendiumEntries: compendiumProvider.entries,
+      getAbilityScore: (ability) => _getCurrentAbilityScore(
         char,
-        'CHA',
+        ability,
         equipmentProvider: equipmentProvider,
         compendiumProvider: compendiumProvider,
       ),
+      getAbilityModifier: _getAbilityModifier,
     );
-
-    final pactDamageBonus = CharacterOptionEffects.getPactWeaponDamageBonus(
-      character: char,
-      weaponItem: weaponItem,
-      equipmentItem: resolvedWeapon.equipmentItem,
-      charismaModifier: chaMod,
-    );
-    final infusedWeaponDamageBonus =
-        CharacterOptionEffects.getInfusedWeaponDamageBonus(
-      character: char,
-      weaponItem: weaponItem,
-    );
-    print('--- DAMAGE BONUS DEBUG ---');
-    print('Weapon: ${weaponItem.name}');
-    print('Ability mod: $abilityMod');
-    print('Item damage bonus: $itemDamageBonus');
-    print('Conditional damage bonus: $conditionalDamageBonus');
-    print('Option damage bonus: $optionDamageBonus');
-    print('CHA mod: $chaMod');
-    print('Pact damage bonus: $pactDamageBonus');
-
-    return abilityMod +
-        itemDamageBonus +
-        conditionalDamageBonus +
-        optionDamageBonus +
-        pactDamageBonus +
-        infusedWeaponDamageBonus;
   }
 
   String _buildMainHandDamageText(
@@ -4460,13 +3948,13 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       compendiumProvider,
     );
 
-    if (resolvedWeapon == null) return 'â€”';
+    if (resolvedWeapon == null) return '-';
 
     final weaponItem = resolvedWeapon.effectiveItem;
     final damageDice = weaponItem.damageDice?.trim();
 
     if (damageDice == null || damageDice.isEmpty) {
-      return 'â€”';
+      return '-';
     }
 
     final damageBonus = _calculateMainHandDamageBonus(
@@ -4476,16 +3964,11 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         ) ??
         0;
 
-    final damageType = weaponItem.damageType?.trim();
-    final bonusText = damageBonus == 0
-        ? ''
-        : (damageBonus > 0 ? ' + $damageBonus' : ' - ${damageBonus.abs()}');
-
-    if (damageType != null && damageType.isNotEmpty) {
-      return '$damageDice$bonusText $damageType';
-    }
-
-    return '$damageDice$bonusText';
+    return CharacterWeaponAttackService.damageText(
+      weaponItem: weaponItem,
+      damageBonus: damageBonus,
+      fallback: '-',
+    );
   }
 
   Future<void> _rollMainHandAttack(
@@ -4516,19 +3999,11 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
   }
 
   int _parseDiceSides(String damageDice) {
-    final normalized = damageDice.trim().toLowerCase();
-    final match = RegExp(r'^(\d+)d(\d+)$').firstMatch(normalized);
-
-    if (match == null) return 0;
-    return int.tryParse(match.group(2) ?? '') ?? 0;
+    return CharacterWeaponAttackService.parseDiceSides(damageDice);
   }
 
   int _parseDiceCount(String damageDice) {
-    final normalized = damageDice.trim().toLowerCase();
-    final match = RegExp(r'^(\d+)d(\d+)$').firstMatch(normalized);
-
-    if (match == null) return 0;
-    return int.tryParse(match.group(1) ?? '') ?? 0;
+    return CharacterWeaponAttackService.parseDiceCount(damageDice);
   }
 
   Future<void> _rollMainHandDamage(
@@ -5162,7 +4637,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         ),
         const SizedBox(height: 6),
         Text(
-          "${char.race}${char.subrace != null ? ' (${char.subrace})' : ''} Â· ${char.charClass}${char.subclass != null ? ' / ${char.subclass}' : ''} Â· Level ${char.level}",
+          "${char.race}${char.subrace != null ? ' (${char.subrace})' : ''} - ${char.charClass}${char.subclass != null ? ' / ${char.subclass}' : ''} - Level ${char.level}",
           textAlign: isCentered ? TextAlign.center : TextAlign.start,
           style: TextStyle(
             fontSize: subtitleSize,
@@ -5184,7 +4659,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         ],
         const SizedBox(height: 4),
         Text(
-          "${char.background.name} Â· ${char.alignment ?? 'True Neutral'}",
+          "${char.background.name} - ${char.alignment ?? 'True Neutral'}",
           textAlign: isCentered ? TextAlign.center : TextAlign.start,
           style: TextStyle(
             fontSize: smallSubtitleSize,
@@ -10401,6 +9876,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         .toList();
 
     final subclassName = char.subclassForClass(className);
+    final classLevel = _levelForSpellcastingClass(char, className);
 
     if (SpellcastingRules.usesKnownSpellsForClassAndSubclass(
       className: className,
@@ -10442,6 +9918,35 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
           return;
         }
       }
+
+      if (!SpellcastingRules.canLearnThirdCasterSpell(
+        className: className,
+        classLevel: classLevel,
+        subclassName: subclassName,
+        spell: spell,
+        currentKnownSpells: selectedSpells,
+      )) {
+        final schools = SpellcastingRules.restrictedSchoolsForThirdCaster(
+          className: className,
+          subclassName: subclassName,
+        ).join(' or ');
+        final freeLimit = SpellcastingRules.unrestrictedThirdCasterSpellLimit(
+          className: className,
+          classLevel: classLevel,
+          subclassName: subclassName,
+        );
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              schools.isEmpty
+                  ? 'This spell is not available for this class.'
+                  : 'Choose $schools spells, except for $freeLimit unrestricted pick${freeLimit == 1 ? '' : 's'} at this class level.',
+            ),
+          ),
+        );
+        return;
+      }
     }
 
     await provider.updateCharacterById(char.id, (ch) {
@@ -10458,6 +9963,10 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
     const includeClassVariants = false;
     final subclassName = char.subclassForClass(className);
+    final currentSpells = _knownSpellIdsForClass(char, className)
+        .map((id) => spellProvider.getById(id))
+        .whereType<Spell>()
+        .toList();
 
     final filteredSpells = SpellcastingRules.spellsForClassAndLevel(
       className: className,
@@ -10470,6 +9979,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       spells: spellProvider.spells,
       subclassName: subclassName,
       includeClassVariants: includeClassVariants,
+      currentKnownSpells: currentSpells,
     )..sort((a, b) {
         final levelCompare = a.level.compareTo(b.level);
         if (levelCompare != 0) return levelCompare;
@@ -10484,7 +9994,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (_) {
-        return _SpellSelectorModal(
+        return CharacterSpellSelectorModal(
           spells: filteredSpells,
           excludedSpellIds: _knownSpellIdsForClass(char, className).toSet(),
           onSelect: (spell) async {
