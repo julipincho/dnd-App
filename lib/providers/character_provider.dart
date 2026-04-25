@@ -52,7 +52,11 @@ class CharacterProvider extends ChangeNotifier {
     try {
       return _characters.firstWhere((c) => c.id == id);
     } catch (_) {
-      return null;
+      try {
+        return _campaignCharacters.firstWhere((c) => c.id == id);
+      } catch (_) {
+        return null;
+      }
     }
   }
 
@@ -788,23 +792,23 @@ class CharacterProvider extends ChangeNotifier {
     Character character, {
     String? explicitUserId,
   }) async {
-    final resolvedUserId = _resolveUserId(
+    final resolvedOwnerUserId = _resolveUserId(
       character,
       explicitUserId: explicitUserId,
     );
 
-    if (resolvedUserId == null || resolvedUserId.isEmpty) {
+    if (resolvedOwnerUserId == null || resolvedOwnerUserId.isEmpty) {
       debugPrint(
         'CharacterProvider._saveAndRefreshCharacter: missing userId for ${character.id}',
       );
       return;
     }
 
-    character.ownerUserId = resolvedUserId;
-    _activeUserId = resolvedUserId;
+    final refreshUserId = _activeUserId ?? resolvedOwnerUserId;
 
+    character.ownerUserId = resolvedOwnerUserId;
     await _cloudRepo.saveCharacter(character);
-    await loadCharacters(resolvedUserId);
+    await loadCharacters(refreshUserId);
 
     if ((character.campaignId ?? '').isNotEmpty) {
       await loadCampaignCharacters(character.campaignId!);

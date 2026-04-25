@@ -171,9 +171,31 @@ Listar assets razas:
   - Primer corte implementado: `CharacterProgression`, `CharacterClassLevel`, `MulticlassRulesService`, `CharacterLevelUpService`, features/recursos por nivel de clase y level-up con selector de clase.
   - Decision de producto: al multiclassear, validar solo requisitos de la nueva clase elegida. No bloquear por no cumplir requisitos de clases que el personaje ya tiene.
   - `lib/screens/level_up_screen.dart` reemplaza el dialog basico de level-up. Muestra progreso, requisitos, HP, features desbloqueadas y permite elegir subclase cuando el nivel de clase lo requiere.
+  - Limpieza inicial aplicada en `lib/screens/character_sheet_screen.dart`: se elimino el flujo legacy de level-up y la logica de slots de conjuro se extrajo a `lib/services/character_spell_slot_service.dart`.
+  - Spellcasting multiclass: primer corte agregado en `lib/services/multiclass_spellcasting_service.dart`.
+    - Calcula slots compartidos desde `Character.progression` en vez de `charClass + level`.
+    - Full casters suman nivel completo; Paladin/Ranger medio nivel hacia abajo; Artificer medio nivel hacia arriba; Eldritch Knight/Arcane Trickster un tercio; Warlock queda como Pact Magic separado en el resultado.
+    - El auto-fill de slots en level-up y sheet ya usa este servicio.
+    - `Character` persiste `pactMagicSlots` separado de `spellSlots`.
+    - La sheet renderiza una seccion independiente de Pact Magic Slots con spend/recover/recover all.
+    - Pendiente: modelar spells conocidos/preparados por clase.
+  - Bug corregido: Eldritch Invocations y Pact Boon ahora usan `character.levelForClass('warlock')` en `CharacterChoiceEngine`, asi Warlock funciona tambien como multiclass y no depende de `charClass`/nivel total.
+    - Nota de datos: si una ficha fue guardada mientras el grant de invocaciones no aparecia, la reconciliacion pudo quitar selecciones previas; puede requerir volver a elegir esas invocaciones.
 - Limpieza de `lib/screens/character_sheet_screen.dart`:
   - Punto critico. El archivo concentra demasiada logica.
   - Futuro refactor debe extraer widgets, services y/o view models siguiendo las referencias de buenas practicas Dart/Flutter.
+  - Proximo saneamiento sugerido: extraer por partes spellcasting UI, inventario/equipo, features/opciones y recursos sin mezclar refactors grandes.
+  - Inventario: se extrajo resolucion de items/equipment a `lib/services/character_inventory_service.dart`.
+  - Inventario UI: se extrajo el tab visual a `lib/features/characters/presentation/character_sheet/widgets/character_inventory_tab.dart`; `CharacterSheetScreen` conserva callbacks/orquestacion.
+  - Equipment UI: se extrajo la grilla visual de equipo a `lib/features/characters/presentation/character_sheet/widgets/character_equipment_section.dart`; la sheet conserva resolucion y callbacks de equip/unequip.
+  - Feats UI: se extrajo la seccion visual a `lib/features/characters/presentation/character_sheet/widgets/character_feats_section.dart`; la sheet prepara datos y abre el detalle.
+  - Class Options UI: se extrajo el contenido/cards a `lib/features/characters/presentation/character_sheet/widgets/character_options_section.dart`; la sheet conserva dialogos, guardado y reglas.
+  - Shared UI: se agrego `lib/features/characters/presentation/character_sheet/widgets/character_sheet_meta_chip.dart` para chips visuales reutilizables en la sheet.
+  - Spellcasting UI: se extrajo la cabecera/resumen a `lib/features/characters/presentation/character_sheet/widgets/character_spellcasting_summary_section.dart`; la sheet conserva calculos, slots, listas y dialogos.
+  - Saneamiento adicional: se quitaron restos muertos del flujo anterior de AC/opciones de personaje que ya no eran llamados por la UI actual.
+  - Bug corregido: `CharacterProvider.getCharacterById` ahora tambien busca en `campaignCharacters`, para que el DM pueda modificar personajes de campana que no estan en su lista personal.
+  - Bug corregido: al guardar cambios sobre personajes de campana de otro usuario, `CharacterProvider` conserva la sesion activa del usuario actual y refresca tambien los personajes de campana.
+  - Bug corregido: `Add item` ya no queda deshabilitado solo porque no existan items en el compendio de campana; se puede usar armory/manual.
 
 ## Preferencias del Usuario
 

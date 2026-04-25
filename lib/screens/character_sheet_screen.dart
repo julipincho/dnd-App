@@ -8,7 +8,6 @@ import '../models/spell.dart';
 import '../models/character.dart';
 import '../models/character_inventory_item.dart';
 import '../models/compendium_entry.dart';
-import '../models/dnd_class.dart';
 import '../models/journal_entry.dart';
 import '../models/session.dart';
 import '../providers/app_role_provider.dart';
@@ -17,7 +16,6 @@ import '../providers/compendium_provider.dart';
 import '../providers/journal_entry_provider.dart';
 import '../providers/session_provider.dart';
 import '../providers/spell_provider.dart';
-import '../screens/compendium_entry_detail_screen.dart';
 import '../widgets/linked_compendium_text.dart';
 import '../utils/spellcasting_rules.dart';
 import 'package:stitch_app/core/rules/rule_engine.dart';
@@ -32,10 +30,14 @@ import '../models/character_option_definition.dart';
 import '../models/character_option_category.dart';
 import '../core/rules/character_choice_engine.dart';
 import '../models/character_available_options_engine.dart';
-import '../models/character_option_selection_helper.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_inventory_tab.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_equipment_section.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_feats_section.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_options_section.dart';
 import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_overview_tab.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_spellcasting_summary_section.dart';
 import '../services/character_pact_service.dart';
-import '../services/character_level_up_service.dart';
+import '../services/character_spell_slot_service.dart';
 import '../logic/character_option_effects.dart';
 import '../models/character_selected_option_group.dart';
 import '../services/character_infusion_service.dart';
@@ -43,11 +45,11 @@ import '../models/feat_data.dart';
 import '../services/feat_data_service.dart';
 import '../features/characters/models/resolved_inventory_item.dart';
 import '../services/race_sync_service.dart';
-import '../services/dnd_data_service.dart';
-import '../services/multiclass_rules_service.dart';
 import '../models/character_feature.dart';
 import '../providers/campaign_provider.dart';
 import '../providers/auth_provider.dart';
+import '../services/character_inventory_service.dart';
+import '../services/multiclass_spellcasting_service.dart';
 import '../services/supabase_storage_service.dart';
 import '../utils/image_path_utils.dart';
 
@@ -431,7 +433,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final Map<String, List<CharacterChoiceGrant>> grouped = {};
     for (final grant in grants) {
       final key =
-          '${grant.category.key}__${grant.sourceId ?? ''}__${grant.sourceName ?? ''}';
+          '${grant.category.key}__${grant.sourceId}__${grant.sourceName ?? ''}';
 
       grouped.putIfAbsent(key, () => []);
       grouped[key]!.add(grant);
@@ -934,10 +936,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     }
   }
 
-  String _formatModifier(int modifier) {
-    return modifier >= 0 ? '+$modifier' : '$modifier';
-  }
-
   int _proficiencyBonus(int level) {
     return 2 + ((level - 1) ~/ 4);
   }
@@ -979,7 +977,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     await _clearPreparedSpellsIfUnsupported(context, updatedChar);
 
     if ((ability != null && ability.trim().isNotEmpty) &&
-        SpellcastingRules.isAutoSlotClass(updatedChar)) {
+        MulticlassSpellcastingService.hasAutoSlots(updatedChar)) {
       await _applyAutoSpellSlots(
         context,
         updatedChar,
@@ -2895,33 +2893,27 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
   }
 
   int _slotMaxForLevel(Character char, int level) {
-    final maxKey = '${level}_max';
-    final legacyKey = '$level';
-
-    if (char.spellSlots.containsKey(maxKey)) {
-      return char.spellSlots[maxKey] ?? 0;
-    }
-
-    return char.spellSlots[legacyKey] ?? 0;
+    return CharacterSpellSlotService.slotMaxForLevel(char, level);
   }
 
   int _slotUsedForLevel(Character char, int level) {
-    final usedKey = '${level}_used';
-    return char.spellSlots[usedKey] ?? 0;
+    return CharacterSpellSlotService.slotUsedForLevel(char, level);
   }
 
-  int _slotRemainingForLevel(Character char, int level) {
-    final max = _slotMaxForLevel(char, level);
-    final used = _slotUsedForLevel(char, level);
-    final remaining = max - used;
-    return remaining < 0 ? 0 : remaining;
+  int _pactMagicSlotMaxForLevel(Character char, int level) {
+    return CharacterSpellSlotService.pactMagicSlotMaxForLevel(char, level);
+  }
+
+  int _pactMagicSlotUsedForLevel(Character char, int level) {
+    return CharacterSpellSlotService.pactMagicSlotUsedForLevel(char, level);
   }
 
   bool _hasAnySpellSlots(Character char) {
-    for (var level = 1; level <= 9; level++) {
-      if (_slotMaxForLevel(char, level) > 0) return true;
-    }
-    return false;
+    return CharacterSpellSlotService.hasAnySpellSlots(char);
+  }
+
+  bool _hasAnyPactMagicSlots(Character char) {
+    return CharacterSpellSlotService.hasAnyPactMagicSlots(char);
   }
 
   Future<void> _spendSpellSlot(
@@ -2932,18 +2924,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final provider = context.read<CharacterProvider>();
 
     await provider.updateCharacterById(char.id, (ch) {
-      final max = _slotMaxForLevel(ch, level);
-      final currentUsed = _slotUsedForLevel(ch, level);
-
-      if (max <= 0) return;
-      if (currentUsed >= max) return;
-
-      ch.spellSlots['${level}_max'] = max;
-      ch.spellSlots['${level}_used'] = currentUsed + 1;
-
-      if (ch.spellSlots.containsKey('$level')) {
-        ch.spellSlots.remove('$level');
-      }
+      CharacterSpellSlotService.spendSlot(ch, level);
     });
   }
 
@@ -2955,18 +2936,31 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final provider = context.read<CharacterProvider>();
 
     await provider.updateCharacterById(char.id, (ch) {
-      final max = _slotMaxForLevel(ch, level);
-      final currentUsed = _slotUsedForLevel(ch, level);
+      CharacterSpellSlotService.recoverSlot(ch, level);
+    });
+  }
 
-      if (max <= 0) return;
+  Future<void> _spendPactMagicSlot(
+    BuildContext context,
+    Character char,
+    int level,
+  ) async {
+    final provider = context.read<CharacterProvider>();
 
-      final newUsed = currentUsed - 1;
-      ch.spellSlots['${level}_max'] = max;
-      ch.spellSlots['${level}_used'] = newUsed < 0 ? 0 : newUsed;
+    await provider.updateCharacterById(char.id, (ch) {
+      CharacterSpellSlotService.spendPactMagicSlot(ch, level);
+    });
+  }
 
-      if (ch.spellSlots.containsKey('$level')) {
-        ch.spellSlots.remove('$level');
-      }
+  Future<void> _recoverPactMagicSlot(
+    BuildContext context,
+    Character char,
+    int level,
+  ) async {
+    final provider = context.read<CharacterProvider>();
+
+    await provider.updateCharacterById(char.id, (ch) {
+      CharacterSpellSlotService.recoverPactMagicSlot(ch, level);
     });
   }
 
@@ -2977,17 +2971,18 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final provider = context.read<CharacterProvider>();
 
     await provider.updateCharacterById(char.id, (ch) {
-      for (var level = 1; level <= 9; level++) {
-        final max = _slotMaxForLevel(ch, level);
-        if (max > 0) {
-          ch.spellSlots['${level}_max'] = max;
-          ch.spellSlots['${level}_used'] = 0;
-        }
+      CharacterSpellSlotService.recoverAllSlots(ch);
+    });
+  }
 
-        if (ch.spellSlots.containsKey('$level')) {
-          ch.spellSlots.remove('$level');
-        }
-      }
+  Future<void> _recoverAllPactMagicSlots(
+    BuildContext context,
+    Character char,
+  ) async {
+    final provider = context.read<CharacterProvider>();
+
+    await provider.updateCharacterById(char.id, (ch) {
+      CharacterSpellSlotService.recoverAllPactMagicSlots(ch);
     });
   }
 
@@ -3000,29 +2995,11 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final provider = context.read<CharacterProvider>();
 
     await provider.updateCharacterById(char.id, (ch) {
-      final keysToRemove = ch.spellSlots.keys
-          .where(
-            (key) =>
-                RegExp(r'^\d+$').hasMatch(key) ||
-                RegExp(r'^\d+_max$').hasMatch(key) ||
-                RegExp(r'^\d+_used$').hasMatch(key),
-          )
-          .toList();
-
-      for (final key in keysToRemove) {
-        ch.spellSlots.remove(key);
-      }
-
-      for (var level = 1; level <= 9; level++) {
-        final max = maxByLevel[level] ?? 0;
-        final rawUsed = usedByLevel[level] ?? 0;
-        final safeUsed = rawUsed.clamp(0, max);
-
-        if (max > 0) {
-          ch.spellSlots['${level}_max'] = max;
-          ch.spellSlots['${level}_used'] = safeUsed;
-        }
-      }
+      CharacterSpellSlotService.applyManualSlotState(
+        ch,
+        maxByLevel: maxByLevel,
+        usedByLevel: usedByLevel,
+      );
     });
   }
 
@@ -3196,574 +3173,11 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final provider = context.read<CharacterProvider>();
 
     await provider.updateCharacterById(char.id, (ch) {
-      final autoState = SpellcastingRules.buildAutoSpellSlotState(
-        char: ch,
+      CharacterSpellSlotService.applyAutoSlotState(
+        ch,
         preserveUsed: preserveUsed,
       );
-
-      final keysToRemove = ch.spellSlots.keys
-          .where(
-            (key) =>
-                RegExp(r'^\d+$').hasMatch(key) ||
-                RegExp(r'^\d+_max$').hasMatch(key) ||
-                RegExp(r'^\d+_used$').hasMatch(key),
-          )
-          .toList();
-
-      for (final key in keysToRemove) {
-        ch.spellSlots.remove(key);
-      }
-
-      ch.spellSlots.addAll(autoState);
     });
-  }
-
-  Future<void> _levelUpCharacter(
-    BuildContext context,
-    Character char,
-    int hpGain,
-    String className,
-    int hitDie,
-  ) async {
-    final provider = context.read<CharacterProvider>();
-
-    await provider.updateCharacterById(char.id, (ch) {
-      CharacterLevelUpService.applyLevelUp(
-        character: ch,
-        decision: CharacterLevelUpDecision(
-          className: className,
-          hpGain: hpGain,
-          hitDie: hitDie,
-        ),
-      );
-    });
-
-    await provider.syncFeaturesAndResources(char.id);
-
-    if (!context.mounted) return;
-
-    final updatedChar = context
-        .read<CharacterProvider>()
-        .characters
-        .firstWhere((c) => c.id == char.id);
-
-    if (SpellcastingRules.isAutoSlotClass(updatedChar)) {
-      await _applyAutoSpellSlots(
-        context,
-        updatedChar,
-        preserveUsed: true,
-      );
-    }
-  }
-
-  int _calculateLevelUpHpGainForHitDie(Character char, int hitDie) {
-    final conScore =
-        (char.stats['CON'] ?? 10) + (char.racialBonuses['CON'] ?? 0);
-    final conModifier = _abilityMod(conScore);
-
-    final hpGain = ((hitDie / 2).floor() + 1) + conModifier;
-    return hpGain < 1 ? 1 : hpGain;
-  }
-
-  int _rollLevelUpHpGainForHitDie(Character char, int hitDie) {
-    final conScore =
-        (char.stats['CON'] ?? 10) + (char.racialBonuses['CON'] ?? 0);
-    final conModifier = _abilityMod(conScore);
-
-    final rolledValue = 1 + (DateTime.now().microsecondsSinceEpoch % hitDie);
-    final hpGain = rolledValue + conModifier;
-
-    return hpGain < 1 ? 1 : hpGain;
-  }
-
-  bool _levelGrantsAbilityScoreImprovement(int level) {
-    return level == 4 ||
-        level == 8 ||
-        level == 12 ||
-        level == 16 ||
-        level == 19;
-  }
-
-  Future<void> _applyAbilityScoreImprovement(
-    BuildContext context,
-    Character char, {
-    required Map<String, int> increases,
-  }) async {
-    final provider = context.read<CharacterProvider>();
-
-    await provider.updateCharacterById(char.id, (ch) {
-      for (final entry in increases.entries) {
-        final abilityKey = entry.key;
-        final increase = entry.value;
-
-        final currentValue = ch.stats[abilityKey] ?? 10;
-        final newValue = currentValue + increase;
-
-        ch.stats[abilityKey] = newValue > 20 ? 20 : newValue;
-      }
-    });
-  }
-
-  Future<void> _showAbilityScoreImprovementDialog(
-    BuildContext context,
-    Character char,
-  ) async {
-    String selectedMode = 'plus2';
-    String selectedAbility = 'STR';
-    String firstAbility = 'STR';
-    String secondAbility = 'DEX';
-
-    List<DropdownMenuItem<String>> buildAbilityOptions() {
-      return [
-        'STR',
-        'DEX',
-        'CON',
-        'INT',
-        'WIS',
-        'CHA',
-      ].map((ability) {
-        final score = _getCurrentAbilityScore(char, ability);
-        final modifier = _getAbilityModifier(score);
-        final label = _getAbilityLabel(ability);
-
-        return DropdownMenuItem<String>(
-          value: ability,
-          child: Text(
-            '$label ($score) (${_formatModifier(modifier)})',
-          ),
-        );
-      }).toList();
-    }
-
-    Map<String, int> buildPreviewIncreases() {
-      if (selectedMode == 'plus2') {
-        return {selectedAbility: 2};
-      }
-
-      if (firstAbility == secondAbility) {
-        return {};
-      }
-
-      return {
-        firstAbility: 1,
-        secondAbility: 1,
-      };
-    }
-
-    await showDialog(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            final duplicateSelection =
-                selectedMode == 'plus1plus1' && firstAbility == secondAbility;
-
-            final previewIncreases = buildPreviewIncreases();
-
-            return AlertDialog(
-              title: const Text('Ability Score Improvement'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Choose how to apply this improvement.',
-                    ),
-                    const SizedBox(height: 16),
-                    RadioListTile<String>(
-                      contentPadding: EdgeInsets.zero,
-                      value: 'plus2',
-                      groupValue: selectedMode,
-                      title: const Text('+2 to one ability'),
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setDialogState(() {
-                          selectedMode = value;
-                        });
-                      },
-                    ),
-                    if (selectedMode == 'plus2') ...[
-                      const SizedBox(height: 8),
-                      DropdownButtonFormField<String>(
-                        value: selectedAbility,
-                        decoration: const InputDecoration(
-                          labelText: 'Ability Score',
-                        ),
-                        items: buildAbilityOptions(),
-                        onChanged: (value) {
-                          if (value == null) return;
-                          setDialogState(() {
-                            selectedAbility = value;
-                          });
-                        },
-                      ),
-                    ],
-                    const SizedBox(height: 10),
-                    RadioListTile<String>(
-                      contentPadding: EdgeInsets.zero,
-                      value: 'plus1plus1',
-                      groupValue: selectedMode,
-                      title: const Text('+1 to two different abilities'),
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setDialogState(() {
-                          selectedMode = value;
-                        });
-                      },
-                    ),
-                    if (selectedMode == 'plus1plus1') ...[
-                      const SizedBox(height: 8),
-                      DropdownButtonFormField<String>(
-                        value: firstAbility,
-                        decoration: const InputDecoration(
-                          labelText: 'First ability',
-                        ),
-                        items: buildAbilityOptions(),
-                        onChanged: (value) {
-                          if (value == null) return;
-                          setDialogState(() {
-                            firstAbility = value;
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        value: secondAbility,
-                        decoration: const InputDecoration(
-                          labelText: 'Second ability',
-                        ),
-                        items: buildAbilityOptions(),
-                        onChanged: (value) {
-                          if (value == null) return;
-                          setDialogState(() {
-                            secondAbility = value;
-                          });
-                        },
-                      ),
-                      if (duplicateSelection) ...[
-                        const SizedBox(height: 10),
-                        const Text(
-                          'Choose two different abilities.',
-                          style: TextStyle(
-                            color: Colors.redAccent,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ],
-                    const SizedBox(height: 18),
-                    const Divider(),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Preview',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    if (previewIncreases.isEmpty && duplicateSelection)
-                      const Text(
-                        'Select two different abilities to see the preview.',
-                        style: TextStyle(fontSize: 13),
-                      )
-                    else
-                      ...previewIncreases.entries.map((entry) {
-                        final ability = entry.key;
-                        final increase = entry.value;
-                        final current = _getCurrentAbilityScore(char, ability);
-                        final updated = current + increase;
-                        final currentMod = _getAbilityModifier(current);
-                        final updatedMod = _getAbilityModifier(updated);
-
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Text(
-                            '${_getAbilityLabel(ability)}: '
-                            '$current (${_formatModifier(currentMod)})'
-                            ' → '
-                            '$updated (${_formatModifier(updatedMod)})',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        );
-                      }),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: duplicateSelection
-                      ? null
-                      : () async {
-                          final increases = buildPreviewIncreases();
-
-                          await _applyAbilityScoreImprovement(
-                            context,
-                            char,
-                            increases: increases,
-                          );
-
-                          if (!dialogContext.mounted) return;
-                          Navigator.pop(dialogContext);
-                        },
-                  child: const Text('Apply'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Future<void> _showLevelUpDialog(
-    BuildContext context,
-    Character char,
-  ) async {
-    final currentLevel = char.level;
-    final newLevel = currentLevel + 1;
-    final classes = await DndDataService.getAllClasses();
-    if (!context.mounted) return;
-    if (classes.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No class data available.')),
-      );
-      return;
-    }
-
-    await showDialog(
-      context: context,
-      builder: (dialogContext) {
-        DndClass selectedClass = classes.firstWhere(
-          (cls) => cls.name.toLowerCase() == char.charClass.toLowerCase(),
-          orElse: () => classes.first,
-        );
-        String selectedMethod = 'average';
-        int hpGain = _calculateLevelUpHpGainForHitDie(
-          char,
-          selectedClass.hitDie,
-        );
-        bool rollLocked = false;
-
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            final currentClassLevel = char.levelForClass(selectedClass.name);
-            final newClassLevel = currentClassLevel + 1;
-            final isNewClass = currentClassLevel == 0;
-            final validation = MulticlassRulesService.validateEntry(
-              character: char,
-              targetClassName: selectedClass.name,
-            );
-            final canConfirm = !isNewClass || validation.canMulticlass;
-            final grantsAsi =
-                _levelGrantsAbilityScoreImprovement(newClassLevel);
-
-            return AlertDialog(
-              title: const Text('Level Up'),
-              content: SingleChildScrollView(
-                child: SizedBox(
-                  width: 360,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Current Level: $currentLevel'),
-                      const SizedBox(height: 8),
-                      Text('New Level: $newLevel'),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<DndClass>(
-                        value: selectedClass,
-                        decoration: const InputDecoration(
-                          labelText: 'Class to level',
-                        ),
-                        items: classes
-                            .map(
-                              (cls) => DropdownMenuItem<DndClass>(
-                                value: cls,
-                                child: Text(
-                                  '${cls.name} ${char.levelForClass(cls.name) + 1}',
-                                ),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: rollLocked
-                            ? null
-                            : (value) {
-                                if (value == null) return;
-                                setDialogState(() {
-                                  selectedClass = value;
-                                  selectedMethod = 'average';
-                                  hpGain = _calculateLevelUpHpGainForHitDie(
-                                    char,
-                                    selectedClass.hitDie,
-                                  );
-                                });
-                              },
-                      ),
-                      if (isNewClass) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          validation.canMulticlass
-                              ? 'Multiclass requirements met: ${validation.requirementsLabel}'
-                              : 'Requirements missing: ${validation.unmetRequirements.join(', ')}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: validation.canMulticlass
-                                ? Colors.green
-                                : Colors.redAccent,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                      if (grantsAsi) ...[
-                        const SizedBox(height: 8),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: Colors.orange.withOpacity(0.12),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                              color: Colors.orange.withOpacity(0.35),
-                            ),
-                          ),
-                          child: Text(
-                            '${selectedClass.name} $newClassLevel grants an Ability Score Improvement. '
-                            'After leveling up, you should assign your stat increase.',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.orange,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 16),
-                      const Text(
-                        'HP Method',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 8),
-                      RadioListTile<String>(
-                        contentPadding: EdgeInsets.zero,
-                        value: 'average',
-                        groupValue: selectedMethod,
-                        title: Text('Take Average (d${selectedClass.hitDie})'),
-                        onChanged: rollLocked
-                            ? null
-                            : (value) {
-                                if (value == null) return;
-                                setDialogState(() {
-                                  selectedMethod = value;
-                                  hpGain = _calculateLevelUpHpGainForHitDie(
-                                    char,
-                                    selectedClass.hitDie,
-                                  );
-                                });
-                              },
-                      ),
-                      RadioListTile<String>(
-                        contentPadding: EdgeInsets.zero,
-                        value: 'roll',
-                        groupValue: selectedMethod,
-                        title: Text('Roll d${selectedClass.hitDie}'),
-                        onChanged: rollLocked
-                            ? null
-                            : (value) {
-                                if (value == null) return;
-                                setDialogState(() {
-                                  selectedMethod = value;
-                                  hpGain = _rollLevelUpHpGainForHitDie(
-                                    char,
-                                    selectedClass.hitDie,
-                                  );
-                                  rollLocked = true;
-                                });
-                              },
-                      ),
-                      const SizedBox(height: 8),
-                      Text('HP Gain: +$hpGain'),
-                      if (rollLocked) ...[
-                        const SizedBox(height: 10),
-                        const Text(
-                          'Hit die rolled. This choice is now locked.',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.orange,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: !canConfirm
-                      ? null
-                      : () async {
-                          Navigator.pop(dialogContext);
-
-                          await _levelUpCharacter(
-                            context,
-                            char,
-                            hpGain,
-                            selectedClass.name,
-                            selectedClass.hitDie,
-                          );
-
-                          if (!context.mounted) return;
-
-                          final updatedChar = context
-                              .read<CharacterProvider>()
-                              .characters
-                              .firstWhere((c) => c.id == char.id);
-
-                          if (_levelGrantsAbilityScoreImprovement(
-                              newClassLevel)) {
-                            await _showAbilityScoreImprovementDialog(
-                              context,
-                              updatedChar,
-                            );
-                          }
-
-                          if (!context.mounted) return;
-
-                          final refreshedChar = context
-                              .read<CharacterProvider>()
-                              .characters
-                              .firstWhere((c) => c.id == char.id);
-
-                          if (SpellcastingRules.canReplaceKnownSpellOnLevelUp(
-                                refreshedChar,
-                              ) &&
-                              refreshedChar.spellIds.isNotEmpty) {
-                            await _showReplaceKnownSpellDialog(
-                              context,
-                              refreshedChar,
-                            );
-                          }
-                        },
-                  child: const Text('Confirm'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
   }
 
   Future<void> _updateCharacterHp(
@@ -3796,17 +3210,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       ch.deathSaveSuccesses = 0;
       ch.deathSaveFailures = 0;
 
-      for (var level = 1; level <= 9; level++) {
-        final max = _slotMaxForLevel(ch, level);
-        if (max > 0) {
-          ch.spellSlots['${level}_max'] = max;
-          ch.spellSlots['${level}_used'] = 0;
-        }
-
-        if (ch.spellSlots.containsKey('$level')) {
-          ch.spellSlots.remove('$level');
-        }
-      }
+      CharacterSpellSlotService.recoverAllSlots(ch);
 
       for (final resource in ch.resources) {
         final isShortRest = resource.rechargeType == 'shortRest';
@@ -3866,26 +3270,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     );
   }
 
-  Future<void> _editArmorClass(
-    BuildContext context,
-    Character char,
-  ) async {
-    await _editQuickStatDialog(
-      context: context,
-      char: char,
-      title: 'Edit Armor Class',
-      initialValue: char.armorClass ?? 0,
-      onSave: (value) async {
-        final safeValue = value < 0 ? 0 : value;
-
-        await context.read<CharacterProvider>().updateCharacterById(char.id,
-            (ch) {
-          ch.armorClass = safeValue;
-        });
-      },
-    );
-  }
-
   Future<void> _editSpeed(
     BuildContext context,
     Character char,
@@ -3919,26 +3303,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     );
   }
 
-  String _inventorySourceLabel(InventoryItemSourceType sourceType) {
-    switch (sourceType) {
-      case InventoryItemSourceType.equipmentCompendium:
-        return 'Armory';
-      case InventoryItemSourceType.campaignCompendium:
-        return 'Campaign Compendium';
-      case InventoryItemSourceType.manual:
-      default:
-        return 'Manual';
-    }
-  }
-
-  bool _isAssetPath(String path) {
-    return isAssetImagePath(path);
-  }
-
-  bool _hasDisplayableImage(String? path) {
-    return hasDisplayableImagePath(path);
-  }
-
   Widget _buildResolvedImage(
     String path, {
     required double width,
@@ -3951,44 +3315,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       height: height,
       fit: fit,
     );
-  }
-
-  EquipmentCompendiumItem? _resolveEquipmentCompendiumItem(
-    CharacterInventoryItem item,
-    EquipmentProvider equipmentProvider,
-  ) {
-    if (item.sourceType != InventoryItemSourceType.equipmentCompendium) {
-      return null;
-    }
-
-    final compendiumEntryId = item.compendiumEntryId;
-    if (compendiumEntryId == null || compendiumEntryId.trim().isEmpty) {
-      return null;
-    }
-
-    return equipmentProvider.getById(compendiumEntryId);
-  }
-
-  CompendiumEntry? _resolveCampaignCompendiumEntry(
-    CharacterInventoryItem item,
-    CompendiumProvider compendiumProvider,
-  ) {
-    if (item.sourceType != InventoryItemSourceType.campaignCompendium) {
-      return null;
-    }
-
-    final compendiumEntryId = item.compendiumEntryId;
-    if (compendiumEntryId == null || compendiumEntryId.trim().isEmpty) {
-      return null;
-    }
-
-    try {
-      return compendiumProvider.entries.firstWhere(
-        (entry) => entry.id == compendiumEntryId,
-      );
-    } catch (_) {
-      return null;
-    }
   }
 
   List<CharacterOptionDefinition> _getValidInfusionsForItem(
@@ -4027,8 +3353,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final targetAlreadyInfused =
         (inventoryItem.appliedInfusionId ?? '').trim().isNotEmpty;
 
-    final canApplyNewInfusion =
-        targetAlreadyInfused || activeInfusedCount < activeInfusedLimit;
     final infusionLimitReached =
         !targetAlreadyInfused && activeInfusedCount >= activeInfusedLimit;
     final validInfusions = _getValidInfusionsForItem(
@@ -4355,83 +3679,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     );
   }
 
-  EquipItemType _mapCompendiumTypeToInventoryType(
-    EquipmentCompendiumItem item,
-  ) {
-    if (item.isWeapon) return EquipItemType.weapon;
-    if (item.isArmor) return EquipItemType.armor;
-    if (item.isShield) return EquipItemType.shield;
-    if (item.isAccessory) return EquipItemType.accessory;
-    return EquipItemType.generic;
-  }
-
   bool _isHandHeldFocus(EquipmentCompendiumItem item) {
-    final name = item.name.trim().toLowerCase();
-    final subtype = item.subtype.trim().toLowerCase();
-    final displayCategory = item.displayCategory.trim().toLowerCase();
-
-    return name.contains('rod') ||
-        name.contains('wand') ||
-        name.contains('staff') ||
-        subtype.contains('rod') ||
-        subtype.contains('wand') ||
-        subtype.contains('staff') ||
-        displayCategory.contains('rod') ||
-        displayCategory.contains('wand') ||
-        displayCategory.contains('staff');
-  }
-
-  List<EquipSlot> _mapAllowedSlotsFromCompendium(
-    EquipmentCompendiumItem item,
-  ) {
-    final slots = item.allowedSlots.map((slotName) {
-      switch (slotName) {
-        case 'weaponMainHand':
-          return EquipSlot.weaponMainHand;
-        case 'weaponOffHand':
-          return EquipSlot.weaponOffHand;
-        case 'armor':
-          return EquipSlot.armor;
-        case 'shield':
-          return EquipSlot.shield;
-        case 'accessory':
-        default:
-          return EquipSlot.accessory;
-      }
-    }).toList();
-
-    if (_isHandHeldFocus(item)) {
-      if (!slots.contains(EquipSlot.weaponMainHand)) {
-        slots.add(EquipSlot.weaponMainHand);
-      }
-      if (!slots.contains(EquipSlot.weaponOffHand)) {
-        slots.add(EquipSlot.weaponOffHand);
-      }
-    }
-
-    return slots;
-  }
-
-  CharacterInventoryItem _inventoryItemWithCompendiumData(
-    CharacterInventoryItem inventoryItem,
-    EquipmentCompendiumItem? compendiumItem,
-  ) {
-    if (compendiumItem == null) return inventoryItem;
-
-    return inventoryItem.copyWith(
-      isEquippable: compendiumItem.isEquippable,
-      itemType: _mapCompendiumTypeToInventoryType(compendiumItem),
-      allowedSlots: _mapAllowedSlotsFromCompendium(compendiumItem),
-      damageDice: compendiumItem.damageDiceOneHanded,
-      damageType: compendiumItem.damageType,
-      isFinesse: compendiumItem.isFinesse,
-      isRanged: compendiumItem.isRanged,
-      isTwoHanded: compendiumItem.isTwoHanded,
-      armorClassBonus: compendiumItem.armorClassBonus,
-      baseArmorClass: compendiumItem.baseArmorClass,
-      allowsDexBonus: compendiumItem.allowsDexBonus,
-      maxDexBonus: compendiumItem.maxDexBonus,
-    );
+    return CharacterInventoryService.isHandHeldFocus(item);
   }
 
   ResolvedInventoryItem _resolveInventoryItem(
@@ -4439,46 +3688,10 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     EquipmentProvider equipmentProvider,
     CompendiumProvider compendiumProvider,
   ) {
-    final equipmentItem = _resolveEquipmentCompendiumItem(
-      inventoryItem,
-      equipmentProvider,
-    );
-
-    final campaignEntry = _resolveCampaignCompendiumEntry(
-      inventoryItem,
-      compendiumProvider,
-    );
-
-    final effectiveItem = _inventoryItemWithCompendiumData(
-      inventoryItem,
-      equipmentItem,
-    );
-
-    final resolvedDescription =
-        equipmentItem?.description?.trim().isNotEmpty == true
-            ? equipmentItem!.description!.trim()
-            : campaignEntry?.description.trim().isNotEmpty == true
-                ? campaignEntry!.description.trim()
-                : inventoryItem.description?.trim().isNotEmpty == true
-                    ? inventoryItem.description!.trim()
-                    : null;
-
-    final resolvedImagePath = _hasDisplayableImage(equipmentItem?.imagePath)
-        ? equipmentItem!.imagePath
-        : _hasDisplayableImage(campaignEntry?.imagePath)
-            ? campaignEntry!.imagePath
-            : _hasDisplayableImage(inventoryItem.imagePath)
-                ? inventoryItem.imagePath
-                : null;
-
-    return ResolvedInventoryItem(
-      originalItem: inventoryItem,
-      effectiveItem: effectiveItem,
-      equipmentItem: equipmentItem,
-      campaignEntry: campaignEntry,
-      sourceLabel: _inventorySourceLabel(inventoryItem.sourceType),
-      resolvedDescription: resolvedDescription,
-      resolvedImagePath: resolvedImagePath,
+    return CharacterInventoryService.resolveInventoryItem(
+      inventoryItem: inventoryItem,
+      equipmentItems: equipmentProvider.items,
+      compendiumEntries: compendiumProvider.entries,
     );
   }
 
@@ -5094,8 +4307,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final spellProvider = context.watch<SpellProvider>();
     final equipmentProvider = context.watch<EquipmentProvider>();
     final authProvider = context.watch<AuthProvider>();
+    final campaignProvider = context.watch<CampaignProvider>();
 
-    final isDm = roleProvider.isDm;
     final currentUserId = authProvider.userId;
 
     final allVisibleCharacters = <Character>[
@@ -5129,6 +4342,18 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final isOwnedByCurrentUser = currentUserId != null &&
         char.userId != null &&
         char.userId == currentUserId;
+    final matchingCampaigns = char.campaignId == null
+        ? []
+        : campaignProvider.campaigns
+            .where((campaign) => campaign.id == char.campaignId)
+            .toList();
+    final characterCampaign =
+        matchingCampaigns.isEmpty ? null : matchingCampaigns.first;
+    final isCampaignDm = currentUserId != null &&
+        characterCampaign != null &&
+        characterCampaign.ownerUserId == currentUserId;
+    final isDm = roleProvider.isDm || isCampaignDm;
+    final canManageInventory = isOwnedByCurrentUser || isCampaignDm;
 
     final characterJournalEntries = journalProvider
         .getEntriesByCharacter(char.id)
@@ -5503,6 +4728,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               compendiumProvider,
               equipmentProvider,
               isDm,
+              canManageInventory,
             ),
             _buildSpellsTab(context, char, spellProvider),
             _buildFeaturesTab(context, char),
@@ -6096,21 +5322,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     }
   }
 
-  String? _equippedItemIdForSlot(Character char, EquipSlot slot) {
-    switch (slot) {
-      case EquipSlot.weaponMainHand:
-        return char.equippedMainHandItemId;
-      case EquipSlot.weaponOffHand:
-        return char.equippedOffHandItemId;
-      case EquipSlot.armor:
-        return char.equippedArmorItemId;
-      case EquipSlot.shield:
-        return char.equippedShieldItemId;
-      case EquipSlot.accessory:
-        return char.equippedAccessory1ItemId;
-    }
-  }
-
   CharacterInventoryItem? _findInventoryItemById(
     Character char,
     String? itemId,
@@ -6542,289 +5753,64 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     required bool isTablet,
     required bool isLargeTablet,
   }) {
-    final rawMainHand =
-        _findInventoryItemById(char, char.equippedMainHandItemId);
-    final rawOffHand = _findInventoryItemById(char, char.equippedOffHandItemId);
-    final rawArmor = _findInventoryItemById(char, char.equippedArmorItemId);
-    final rawShield = _findInventoryItemById(char, char.equippedShieldItemId);
-    final rawAccessory1 =
-        _findInventoryItemById(char, char.equippedAccessory1ItemId);
-    final rawAccessory2 =
-        _findInventoryItemById(char, char.equippedAccessory2ItemId);
-
-    final equippedMainHand = rawMainHand == null
-        ? null
-        : _resolveInventoryItem(
-            rawMainHand,
-            equipmentProvider,
-            compendiumProvider,
-          );
-
-    final equippedOffHand = rawOffHand == null
-        ? null
-        : _resolveInventoryItem(
-            rawOffHand,
-            equipmentProvider,
-            compendiumProvider,
-          );
-
-    final equippedArmor = rawArmor == null
-        ? null
-        : _resolveInventoryItem(
-            rawArmor,
-            equipmentProvider,
-            compendiumProvider,
-          );
-
-    final equippedShield = rawShield == null
-        ? null
-        : _resolveInventoryItem(
-            rawShield,
-            equipmentProvider,
-            compendiumProvider,
-          );
-
-    final equippedAccessory1 = rawAccessory1 == null
-        ? null
-        : _resolveInventoryItem(
-            rawAccessory1,
-            equipmentProvider,
-            compendiumProvider,
-          );
-
-    final equippedAccessory2 = rawAccessory2 == null
-        ? null
-        : _resolveInventoryItem(
-            rawAccessory2,
-            equipmentProvider,
-            compendiumProvider,
-          );
-
-    Widget buildSlotCard({
-      required String label,
-      required ResolvedInventoryItem? item,
-      VoidCallback? onUnequip,
-    }) {
-      final metaLabel = item == null
-          ? ''
-          : _buildEquipmentMetaLabel(
-              item.effectiveItem,
-              item.equipmentItem,
-            );
-
-      final description =
-          item == null ? null : _buildEquipmentDescription(item);
-
-      return Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: const Color(0xFF202028),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: Colors.deepPurpleAccent.withOpacity(0.28),
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.72),
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              item?.effectiveItem.name ?? 'Empty',
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: isTablet ? 15 : 14,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            if (item != null) ...[
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.deepPurpleAccent.withOpacity(0.18),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      item.sourceLabel,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              if (metaLabel.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Text(
-                  metaLabel,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.68),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-              if (description != null) ...[
-                const SizedBox(height: 8),
-                Expanded(
-                  child: Text(
-                    description,
-                    maxLines: 4,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.78),
-                      fontSize: 12,
-                      height: 1.35,
-                    ),
-                  ),
-                ),
-              ],
-            ],
-            const Spacer(),
-            if (item != null && onUnequip != null) ...[
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: onUnequip,
-                  icon: const Icon(Icons.close),
-                  label: const Text('Unequip'),
-                ),
-              ),
-            ],
-          ],
-        ),
+    ResolvedInventoryItem? resolveEquipped(String? itemId) {
+      final rawItem = _findInventoryItemById(char, itemId);
+      if (rawItem == null) return null;
+      return _resolveInventoryItem(
+        rawItem,
+        equipmentProvider,
+        compendiumProvider,
       );
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Equipment',
-          style: TextStyle(
-            color: Colors.white.withOpacity(0.95),
-            fontSize: isLargeTablet ? 22 : (isTablet ? 20 : 18),
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 12),
-        if (char.hasPactOfTheBlade) ...[
-          _buildPactWeaponSection(
-            context,
-            char,
-            equipmentProvider,
-          ),
-          const SizedBox(height: 16),
-        ],
-        GridView.builder(
-          itemCount: 6,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: isLargeTablet ? 3 : (isTablet ? 2 : 1),
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            mainAxisExtent: isLargeTablet ? 238 : (isTablet ? 226 : 214),
-          ),
-          itemBuilder: (_, index) {
-            switch (index) {
-              case 0:
-                return buildSlotCard(
-                  label: 'Main Hand',
-                  item: equippedMainHand,
-                  onUnequip: equippedMainHand == null
-                      ? null
-                      : () => _unequipInventoryItem(
-                            context,
-                            char,
-                            equippedMainHand.originalItem,
-                          ),
-                );
-              case 1:
-                return buildSlotCard(
-                  label: 'Off Hand',
-                  item: equippedOffHand,
-                  onUnequip: equippedOffHand == null
-                      ? null
-                      : () => _unequipInventoryItem(
-                            context,
-                            char,
-                            equippedOffHand.originalItem,
-                          ),
-                );
-              case 2:
-                return buildSlotCard(
-                  label: 'Armor',
-                  item: equippedArmor,
-                  onUnequip: equippedArmor == null
-                      ? null
-                      : () => _unequipInventoryItem(
-                            context,
-                            char,
-                            equippedArmor.originalItem,
-                          ),
-                );
-              case 3:
-                return buildSlotCard(
-                  label: 'Shield',
-                  item: equippedShield,
-                  onUnequip: equippedShield == null
-                      ? null
-                      : () => _unequipInventoryItem(
-                            context,
-                            char,
-                            equippedShield.originalItem,
-                          ),
-                );
-              case 4:
-                return buildSlotCard(
-                  label: 'Accessory 1',
-                  item: equippedAccessory1,
-                  onUnequip: equippedAccessory1 == null
-                      ? null
-                      : () => _unequipInventoryItem(
-                            context,
-                            char,
-                            equippedAccessory1.originalItem,
-                          ),
-                );
-              default:
-                return buildSlotCard(
-                  label: 'Accessory 2',
-                  item: equippedAccessory2,
-                  onUnequip: equippedAccessory2 == null
-                      ? null
-                      : () => _unequipInventoryItem(
-                            context,
-                            char,
-                            equippedAccessory2.originalItem,
-                          ),
-                );
-            }
-          },
-        ),
+    CharacterEquipmentSlotViewData buildSlotData({
+      required String label,
+      required ResolvedInventoryItem? item,
+    }) {
+      return CharacterEquipmentSlotViewData(
+        label: label,
+        item: item,
+        metaLabel: item == null
+            ? ''
+            : _buildEquipmentMetaLabel(
+                item.effectiveItem,
+                item.equipmentItem,
+              ),
+        onUnequip: item == null
+            ? null
+            : () => _unequipInventoryItem(
+                  context,
+                  char,
+                  item.originalItem,
+                ),
+      );
+    }
+
+    final equippedMainHand = resolveEquipped(char.equippedMainHandItemId);
+    final equippedOffHand = resolveEquipped(char.equippedOffHandItemId);
+    final equippedArmor = resolveEquipped(char.equippedArmorItemId);
+    final equippedShield = resolveEquipped(char.equippedShieldItemId);
+    final equippedAccessory1 = resolveEquipped(char.equippedAccessory1ItemId);
+    final equippedAccessory2 = resolveEquipped(char.equippedAccessory2ItemId);
+
+    return CharacterEquipmentSection(
+      isTablet: isTablet,
+      isLargeTablet: isLargeTablet,
+      pactWeaponSection: char.hasPactOfTheBlade
+          ? _buildPactWeaponSection(
+              context,
+              char,
+              equipmentProvider,
+            )
+          : null,
+      buildDescription: _buildEquipmentDescription,
+      slots: [
+        buildSlotData(label: 'Main Hand', item: equippedMainHand),
+        buildSlotData(label: 'Off Hand', item: equippedOffHand),
+        buildSlotData(label: 'Armor', item: equippedArmor),
+        buildSlotData(label: 'Shield', item: equippedShield),
+        buildSlotData(label: 'Accessory 1', item: equippedAccessory1),
+        buildSlotData(label: 'Accessory 2', item: equippedAccessory2),
       ],
     );
   }
@@ -6853,151 +5839,27 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       return const SizedBox.shrink();
     }
 
-    final featSelections = char.featSelections ?? const <String, dynamic>{};
+    final featSelections = char.featSelections;
+    final featViewData = selectedFeats.map((feat) {
+      final selection = featSelections[feat.id];
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.28),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Feats',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: isLargeTablet ? 20 : (isTablet ? 19 : 18),
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '${selectedFeats.length} selected',
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.65),
-              fontSize: 13,
-            ),
-          ),
+      return CharacterFeatViewData(
+        feat: feat,
+        selectionLabels: selection is Map
+            ? _getFeatSelectionLabels(
+                context,
+                Map<String, dynamic>.from(selection),
+              )
+            : const <String>[],
+      );
+    }).toList();
 
-          // 🔹 MENSAJE SOLO LECTURA
-          if (!isOwnedByCurrentUser) ...[
-            const SizedBox(height: 6),
-            Text(
-              'You can view feats, but only the owner can modify them.',
-              style: TextStyle(
-                color: Colors.orangeAccent.withOpacity(0.8),
-                fontSize: 11,
-              ),
-            ),
-          ],
-
-          const SizedBox(height: 14),
-
-          ...selectedFeats.map((feat) {
-            final selection = featSelections[feat.id];
-
-            return Container(
-              margin: const EdgeInsets.only(bottom: 10),
-              decoration: BoxDecoration(
-                color: const Color(0xFF262632),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: Colors.deepPurpleAccent.withOpacity(0.22),
-                ),
-              ),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(14),
-
-                  // 🔒 SOLO LECTURA PARA NO DUEÑO
-                  onTap: () => _showFeatDetailSheet(context, feat),
-
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          width: 42,
-                          height: 42,
-                          decoration: BoxDecoration(
-                            color: Colors.deepPurpleAccent.withOpacity(0.18),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Icon(
-                            Icons.workspace_premium_outlined,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                feat.name,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: [
-                                  _buildFeatureMetaChip('Feat'),
-                                  _buildFeatureMetaChip(feat.source),
-                                  if (feat.hasChoices)
-                                    _buildFeatureMetaChip('Has choices'),
-                                  if (selection is Map)
-                                    ..._getFeatSelectionLabels(
-                                      context,
-                                      Map<String, dynamic>.from(selection),
-                                    ).map((label) =>
-                                        _buildFeatureMetaChip(label)),
-                                  if (feat.repeatable)
-                                    _buildFeatureMetaChip('Repeatable'),
-                                ],
-                              ),
-                              if (feat.description.trim().isNotEmpty) ...[
-                                const SizedBox(height: 8),
-                                Text(
-                                  feat.description.trim(),
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: Colors.white.withOpacity(0.72),
-                                    fontSize: 13,
-                                    height: 1.35,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        const Icon(
-                          Icons.chevron_right,
-                          color: Colors.white54,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            );
-          }),
-        ],
-      ),
+    return CharacterFeatsSection(
+      isTablet: isTablet,
+      isLargeTablet: isLargeTablet,
+      isOwnedByCurrentUser: isOwnedByCurrentUser,
+      feats: featViewData,
+      onFeatTap: (feat) => _showFeatDetailSheet(context, feat),
     );
   }
 
@@ -7158,6 +6020,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     CompendiumProvider compendiumProvider,
     EquipmentProvider equipmentProvider,
     bool isDm,
+    bool canManageInventory,
   ) {
     final authProvider = context.read<AuthProvider>();
     final currentUserId = authProvider.userId;
@@ -7165,11 +6028,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final isOwnedByCurrentUser = currentUserId != null &&
         char.userId != null &&
         char.userId == currentUserId;
-
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isTablet = screenWidth >= 600;
-    final isLargeTablet = screenWidth >= 900;
-    final maxWidth = isLargeTablet ? 1100.0 : 900.0;
 
     final campaignItemEntries = char.campaignId == null
         ? <CompendiumEntry>[]
@@ -7180,411 +6038,68 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
           ..sort((a, b) =>
               a.title.toLowerCase().compareTo(b.title.toLowerCase())));
 
-    return Column(
-      children: [
-        Padding(
-          padding: EdgeInsets.fromLTRB(
-            isTablet ? 24 : 16,
-            isTablet ? 20 : 16,
-            isTablet ? 24 : 16,
-            8,
-          ),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: maxWidth),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      "Inventory",
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.95),
-                        fontSize: isLargeTablet ? 22 : (isTablet ? 20 : 18),
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  if (isDm || isOwnedByCurrentUser)
-                    TextButton.icon(
-                      onPressed: campaignItemEntries.isEmpty
-                          ? null
-                          : () => _showGrantItemDialog(
-                                context,
-                                char,
-                                context.read<EquipmentProvider>().items,
-                                campaignItemEntries,
-                              ),
-                      icon: const Icon(Icons.add),
-                      label: const Text("Add item"),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        Expanded(
-          child: Center(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: maxWidth),
-              child: ListView(
-                padding: EdgeInsets.all(isTablet ? 24 : 16),
-                children: [
-                  _buildEquipmentSection(
-                    context,
-                    char,
-                    equipmentProvider,
-                    compendiumProvider,
-                    isTablet: isTablet,
-                    isLargeTablet: isLargeTablet,
-                  ),
-                  const SizedBox(height: 20),
-                  if (char.inventory.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 24),
-                      child: Center(
-                        child: Text(
-                          isDm
-                              ? "No items yet. Grant one from the compendium."
-                              : "No items yet.",
-                          style: const TextStyle(color: Colors.white70),
-                        ),
-                      ),
-                    )
-                  else
-                    ...char.inventory.map((inventoryItem) {
-                      final resolvedItem = _resolveInventoryItem(
-                        inventoryItem,
-                        equipmentProvider,
-                        compendiumProvider,
-                      );
-
-                      final effectiveItem = resolvedItem.effectiveItem;
-                      final linkedEntry = resolvedItem.campaignEntry;
-                      final isEquipped = _isItemEquipped(char, inventoryItem);
-                      final itemMetaLabel = _buildEquipmentMetaLabel(
-                        effectiveItem,
-                        resolvedItem.equipmentItem,
-                      );
-
-                      final displayImagePath = resolvedItem.resolvedImagePath;
-                      final hasItemImage = displayImagePath != null;
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF202028),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: isEquipped
-                                ? Colors.greenAccent.withOpacity(0.45)
-                                : Colors.deepPurpleAccent.withOpacity(0.35),
-                          ),
-                        ),
-                        padding: EdgeInsets.all(isTablet ? 18 : 14),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                hasItemImage
-                                    ? ClipRRect(
-                                        borderRadius: BorderRadius.circular(12),
-                                        child: _buildResolvedImage(
-                                          displayImagePath!,
-                                          width: isTablet ? 64 : 52,
-                                          height: isTablet ? 64 : 52,
-                                          fit: BoxFit.cover,
-                                        ),
-                                      )
-                                    : CircleAvatar(
-                                        radius: isTablet ? 26 : 20,
-                                        backgroundColor:
-                                            Colors.deepPurpleAccent,
-                                        child: const Icon(
-                                          Icons.inventory_2_outlined,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        effectiveItem.name,
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: isTablet ? 18 : 16,
-                                        ),
-                                      ),
-                                      if (itemMetaLabel.isNotEmpty) ...[
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          itemMetaLabel,
-                                          style: TextStyle(
-                                            color:
-                                                Colors.white.withOpacity(0.68),
-                                            fontSize: isTablet ? 13 : 12,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      ],
-                                      Wrap(
-                                        spacing: 8,
-                                        runSpacing: 8,
-                                        children: [
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 10,
-                                              vertical: 6,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: Colors.deepPurpleAccent
-                                                  .withOpacity(0.2),
-                                              borderRadius:
-                                                  BorderRadius.circular(999),
-                                            ),
-                                            child: Text(
-                                              'x${inventoryItem.quantity}',
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                              ),
-                                            ),
-                                          ),
-                                          if (effectiveItem.isEquippable)
-                                            Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                horizontal: 10,
-                                                vertical: 6,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                color: Colors.blueAccent
-                                                    .withOpacity(0.18),
-                                                borderRadius:
-                                                    BorderRadius.circular(999),
-                                              ),
-                                              child: const Text(
-                                                'Equippable',
-                                                style: TextStyle(
-                                                  color: Colors.white,
-                                                ),
-                                              ),
-                                            ),
-                                          if ((inventoryItem
-                                                      .appliedInfusionName ??
-                                                  '')
-                                              .trim()
-                                              .isNotEmpty)
-                                            Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                horizontal: 10,
-                                                vertical: 6,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                gradient: LinearGradient(
-                                                  colors: [
-                                                    Colors.cyanAccent
-                                                        .withOpacity(0.22),
-                                                    Colors.deepPurpleAccent
-                                                        .withOpacity(0.18),
-                                                  ],
-                                                ),
-                                                borderRadius:
-                                                    BorderRadius.circular(999),
-                                                border: Border.all(
-                                                  color: Colors.cyanAccent
-                                                      .withOpacity(0.25),
-                                                ),
-                                              ),
-                                              child: Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  const Icon(
-                                                    Icons.auto_fix_high,
-                                                    size: 14,
-                                                    color: Colors.white,
-                                                  ),
-                                                  const SizedBox(width: 6),
-                                                  Text(
-                                                    inventoryItem
-                                                        .appliedInfusionName!,
-                                                    style: const TextStyle(
-                                                      color: Colors.white,
-                                                      fontSize: 12,
-                                                      fontWeight:
-                                                          FontWeight.w600,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          if (isEquipped)
-                                            Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                horizontal: 10,
-                                                vertical: 6,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                color: Colors.green
-                                                    .withOpacity(0.20),
-                                                borderRadius:
-                                                    BorderRadius.circular(999),
-                                              ),
-                                              child: const Text(
-                                                'Equipped',
-                                                style: TextStyle(
-                                                  color: Colors.white,
-                                                ),
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                if (isDm || isOwnedByCurrentUser)
-                                  IconButton(
-                                    onPressed: () async {
-                                      await context
-                                          .read<CharacterProvider>()
-                                          .removeInventoryItemFromCharacter(
-                                            char.id,
-                                            inventoryItem.id,
-                                          );
-                                    },
-                                    icon: const Icon(
-                                      Icons.delete_outline,
-                                      color: Colors.white70,
-                                    ),
-                                    tooltip: 'Remove item',
-                                  ),
-                              ],
-                            ),
-                            if (hasItemImage) ...[
-                              const SizedBox(height: 12),
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(14),
-                                child: _buildResolvedImage(
-                                  displayImagePath!,
-                                  width: double.infinity,
-                                  height: isTablet ? 220 : 160,
-                                  fit: BoxFit.cover,
-                                ),
-                              ),
-                            ],
-                            if ((resolvedItem.resolvedDescription ?? '')
-                                .trim()
-                                .isNotEmpty) ...[
-                              const SizedBox(height: 12),
-                              Text(
-                                resolvedItem.resolvedDescription!,
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.82),
-                                  fontSize: isTablet ? 14 : 13,
-                                  height: 1.4,
-                                ),
-                              ),
-                            ],
-                            if ((inventoryItem.notes ?? '')
-                                .trim()
-                                .isNotEmpty) ...[
-                              const SizedBox(height: 12),
-                              Text(
-                                inventoryItem.notes!,
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.85),
-                                  fontSize: isTablet ? 15 : 14,
-                                ),
-                              ),
-                            ],
-                            const SizedBox(height: 12),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                Chip(
-                                  label: Text(resolvedItem.sourceLabel),
-                                  visualDensity: VisualDensity.compact,
-                                ),
-                                if (linkedEntry != null)
-                                  ActionChip(
-                                    label: const Text('Open compendium'),
-                                    onPressed: () {
-                                      Navigator.of(context).push(
-                                        MaterialPageRoute(
-                                          builder: (_) =>
-                                              CompendiumEntryDetailScreen(
-                                            entry: linkedEntry,
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                if (effectiveItem.isEquippable && !isEquipped)
-                                  ActionChip(
-                                    label: const Text('Equip'),
-                                    onPressed: isOwnedByCurrentUser
-                                        ? () => _equipInventoryItem(
-                                              context,
-                                              char,
-                                              effectiveItem,
-                                            )
-                                        : null,
-                                  ),
-                                if (effectiveItem.isEquippable && isEquipped)
-                                  ActionChip(
-                                    label: const Text('Unequip'),
-                                    onPressed: isOwnedByCurrentUser
-                                        ? () => _unequipInventoryItem(
-                                              context,
-                                              char,
-                                              effectiveItem,
-                                            )
-                                        : null,
-                                  ),
-                                if (_getValidInfusionsForItem(
-                                      char,
-                                      inventoryItem,
-                                      equipmentProvider,
-                                      compendiumProvider,
-                                    ).isNotEmpty ||
-                                    (inventoryItem.appliedInfusionId ?? '')
-                                        .trim()
-                                        .isNotEmpty)
-                                  ActionChip(
-                                    label: Text(
-                                      (inventoryItem.appliedInfusionId ?? '')
-                                              .trim()
-                                              .isNotEmpty
-                                          ? 'Change Infusion'
-                                          : 'Infuse',
-                                    ),
-                                    onPressed: isOwnedByCurrentUser
-                                        ? () => _showInfusionPicker(
-                                              context,
-                                              char,
-                                              inventoryItem,
-                                            )
-                                        : null,
-                                  ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      );
-                    }),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ],
+    return CharacterInventoryTab(
+      character: char,
+      isDm: isDm,
+      isOwnedByCurrentUser: isOwnedByCurrentUser,
+      canManageInventory: canManageInventory,
+      onAddItem: () => _showGrantItemDialog(
+        context,
+        char,
+        context.read<EquipmentProvider>().items,
+        campaignItemEntries,
+      ),
+      onRemoveItem: (inventoryItem) async {
+        await context
+            .read<CharacterProvider>()
+            .removeInventoryItemFromCharacter(
+              char.id,
+              inventoryItem.id,
+            );
+      },
+      buildEquipmentSection: ({
+        required isTablet,
+        required isLargeTablet,
+      }) =>
+          _buildEquipmentSection(
+        context,
+        char,
+        equipmentProvider,
+        compendiumProvider,
+        isTablet: isTablet,
+        isLargeTablet: isLargeTablet,
+      ),
+      resolveInventoryItem: (inventoryItem) => _resolveInventoryItem(
+        inventoryItem,
+        equipmentProvider,
+        compendiumProvider,
+      ),
+      isItemEquipped: (inventoryItem) => _isItemEquipped(char, inventoryItem),
+      buildEquipmentMetaLabel: _buildEquipmentMetaLabel,
+      buildResolvedImage: _buildResolvedImage,
+      onEquipItem: (effectiveItem) => _equipInventoryItem(
+        context,
+        char,
+        effectiveItem,
+      ),
+      onUnequipItem: (effectiveItem) => _unequipInventoryItem(
+        context,
+        char,
+        effectiveItem,
+      ),
+      hasInfusionOptions: (inventoryItem) =>
+          _getValidInfusionsForItem(
+            char,
+            inventoryItem,
+            equipmentProvider,
+            compendiumProvider,
+          ).isNotEmpty ||
+          (inventoryItem.appliedInfusionId ?? '').trim().isNotEmpty,
+      onShowInfusionPicker: (inventoryItem) => _showInfusionPicker(
+        context,
+        char,
+        inventoryItem,
+      ),
     );
   }
 
@@ -7684,6 +6199,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final slotLevels = List.generate(9, (index) => index + 1)
         .where((level) => _slotMaxForLevel(char, level) > 0)
         .toList();
+    final pactMagicSlotLevels = List.generate(5, (index) => index + 1)
+        .where((level) => _pactMagicSlotMaxForLevel(char, level) > 0)
+        .toList();
 
     int totalMaxSlots = 0;
     int totalUsedSlots = 0;
@@ -7693,6 +6211,74 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
           .clamp(0, _slotMaxForLevel(char, level));
     }
     final totalRemainingSlots = totalMaxSlots - totalUsedSlots;
+    var totalPactMagicMaxSlots = 0;
+    var totalPactMagicUsedSlots = 0;
+    for (final level in pactMagicSlotLevels) {
+      totalPactMagicMaxSlots += _pactMagicSlotMaxForLevel(char, level);
+      totalPactMagicUsedSlots += _pactMagicSlotUsedForLevel(char, level)
+          .clamp(0, _pactMagicSlotMaxForLevel(char, level));
+    }
+    final totalPactMagicRemainingSlots =
+        totalPactMagicMaxSlots - totalPactMagicUsedSlots;
+    final spellcastingSummaryItems = [
+      CharacterSpellcastingSummaryItem(
+        label: 'Spellcasting Ability',
+        value: spellcastingAbilityKey == null
+            ? '-'
+            : '$spellcastingAbilityKey (${_formatSigned(spellcastingAbilityModifier)})',
+        icon: Icons.psychology_outlined,
+      ),
+      CharacterSpellcastingSummaryItem(
+        label: 'Spell Save DC',
+        value: spellcastingAbilityKey == null ? '-' : '$spellSaveDc',
+        icon: Icons.shield_moon_outlined,
+      ),
+      CharacterSpellcastingSummaryItem(
+        label: 'Spell Attack',
+        value: spellcastingAbilityKey == null
+            ? '-'
+            : _formatSigned(spellAttackBonus),
+        icon: Icons.auto_awesome_outlined,
+      ),
+      CharacterSpellcastingSummaryItem(
+        label: 'Selected Spells',
+        value: '${selectedSpells.length}',
+        icon: Icons.menu_book_outlined,
+      ),
+      if (usesKnownCantrips)
+        CharacterSpellcastingSummaryItem(
+          label: 'Cantrips Known',
+          value: '$selectedCantrips / $knownCantripLimit',
+          icon: Icons.blur_circular_outlined,
+        ),
+      if (usesKnownSpells)
+        CharacterSpellcastingSummaryItem(
+          label: 'Spells Known',
+          value: '$selectedNonCantripSpells / $knownSpellLimit',
+          icon: Icons.library_books_outlined,
+        ),
+      if (usesPreparedSpells)
+        CharacterSpellcastingSummaryItem(
+          label: 'Prepared Spells',
+          value: usesPreparedLimit
+              ? '${preparedSpells.length} / $preparedSpellLimit'
+              : '${preparedSpells.length}',
+          icon: Icons.checklist_outlined,
+        ),
+      CharacterSpellcastingSummaryItem(
+        label: 'Remaining Slots',
+        value: '$totalRemainingSlots',
+        icon: Icons.battery_charging_full_outlined,
+      ),
+      if (totalPactMagicMaxSlots > 0)
+        CharacterSpellcastingSummaryItem(
+          label: 'Pact Slots',
+          value: '$totalPactMagicRemainingSlots / $totalPactMagicMaxSlots',
+          icon: Icons.dark_mode_outlined,
+        ),
+    ];
+    final spellcastingClassName =
+        '${char.charClass[0].toUpperCase()}${char.charClass.substring(1)}';
 
     String levelLabel(int level) {
       if (level == 0) return 'Cantrips';
@@ -7888,161 +6474,27 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Spellcasting',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: isLargeTablet ? 24 : (isTablet ? 22 : 20),
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      OutlinedButton.icon(
-                        onPressed: isOwnedByCurrentUser
-                            ? () => _showSpellcastingConfigDialog(context, char)
-                            : null,
-                        icon: const Icon(Icons.auto_awesome_outlined),
-                        label: Text(
-                          _normalizedSpellcastingAbility(char) == null
-                              ? 'Enable Spellcasting'
-                              : 'Edit Spellcasting',
-                        ),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: isOwnedByCurrentUser
-                            ? () => _showEditSpellSlotsDialog(context, char)
-                            : null,
-                        icon: const Icon(Icons.tune),
-                        label: const Text('Manage Slots'),
-                      ),
-                      if (SpellcastingRules.canReplaceKnownSpellOnLevelUp(char))
-                        OutlinedButton.icon(
-                          onPressed:
-                              (isOwnedByCurrentUser && char.spellIds.isNotEmpty)
-                                  ? () => _showReplaceKnownSpellDialog(
-                                        context,
-                                        char,
-                                      )
-                                  : null,
-                          icon: const Icon(Icons.swap_horiz),
-                          label: const Text('Replace Spell'),
-                        ),
-                      ElevatedButton.icon(
-                        onPressed: isOwnedByCurrentUser
-                            ? () => _openSpellSelector(context, char)
-                            : null,
-                        icon: const Icon(Icons.add),
-                        label: const Text('Add Spell'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Spell lists are filtered by ${char.charClass[0].toUpperCase()}${char.charClass.substring(1)}.',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.6),
-                  fontSize: 12,
+              CharacterSpellcastingSummarySection(
+                isTablet: isTablet,
+                isLargeTablet: isLargeTablet,
+                isOwnedByCurrentUser: isOwnedByCurrentUser,
+                hasSpellcasting: hasSpellcasting,
+                canReplaceKnownSpell:
+                    SpellcastingRules.canReplaceKnownSpellOnLevelUp(char),
+                canReplaceSpell: char.spellIds.isNotEmpty,
+                className: spellcastingClassName,
+                summaryItems: spellcastingSummaryItems,
+                onConfigureSpellcasting: () =>
+                    _showSpellcastingConfigDialog(context, char),
+                onManageSlots: () => _showEditSpellSlotsDialog(context, char),
+                onReplaceSpell: () => _showReplaceKnownSpellDialog(
+                  context,
+                  char,
                 ),
+                onAddSpell: () => _openSpellSelector(context, char),
               ),
-              const SizedBox(height: 8),
-              if (!hasSpellcasting)
-                _spellSection(
-                  title: 'Spellcasting Status',
-                  child: const Text(
-                    'This character has no spellcasting ability configured yet, but you can still attach spells manually.',
-                    style: TextStyle(color: Colors.white70),
-                  ),
-                )
-              else
-                GridView.count(
-                  crossAxisCount: isLargeTablet ? 3 : (isTablet ? 2 : 1),
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  childAspectRatio:
-                      isLargeTablet ? 1.85 : (isTablet ? 1.7 : 2.1),
-                  children: [
-                    _summaryCard(
-                      label: 'Spellcasting Ability',
-                      value: spellcastingAbilityKey == null
-                          ? '—'
-                          : '$spellcastingAbilityKey (${_formatSigned(spellcastingAbilityModifier)})',
-                      icon: Icons.psychology_outlined,
-                      isTablet: isTablet,
-                      isLargeTablet: isLargeTablet,
-                    ),
-                    _summaryCard(
-                      label: 'Spell Save DC',
-                      value:
-                          spellcastingAbilityKey == null ? '—' : '$spellSaveDc',
-                      icon: Icons.shield_moon_outlined,
-                      isTablet: isTablet,
-                      isLargeTablet: isLargeTablet,
-                    ),
-                    _summaryCard(
-                      label: 'Spell Attack',
-                      value: spellcastingAbilityKey == null
-                          ? '—'
-                          : _formatSigned(spellAttackBonus),
-                      icon: Icons.auto_awesome_outlined,
-                      isTablet: isTablet,
-                      isLargeTablet: isLargeTablet,
-                    ),
-                    _summaryCard(
-                      label: 'Selected Spells',
-                      value: '${selectedSpells.length}',
-                      icon: Icons.menu_book_outlined,
-                      isTablet: isTablet,
-                      isLargeTablet: isLargeTablet,
-                    ),
-                    if (usesKnownCantrips)
-                      _summaryCard(
-                        label: 'Cantrips Known',
-                        value: '$selectedCantrips / $knownCantripLimit',
-                        icon: Icons.blur_circular_outlined,
-                        isTablet: isTablet,
-                        isLargeTablet: isLargeTablet,
-                      ),
-                    if (usesKnownSpells)
-                      _summaryCard(
-                        label: 'Spells Known',
-                        value: '$selectedNonCantripSpells / $knownSpellLimit',
-                        icon: Icons.library_books_outlined,
-                        isTablet: isTablet,
-                        isLargeTablet: isLargeTablet,
-                      ),
-                    if (usesPreparedSpells)
-                      _summaryCard(
-                        label: 'Prepared Spells',
-                        value: usesPreparedLimit
-                            ? '${preparedSpells.length} / $preparedSpellLimit'
-                            : '${preparedSpells.length}',
-                        icon: Icons.checklist_outlined,
-                        isTablet: isTablet,
-                        isLargeTablet: isLargeTablet,
-                      ),
-                    _summaryCard(
-                      label: 'Remaining Slots',
-                      value: '$totalRemainingSlots',
-                      icon: Icons.battery_charging_full_outlined,
-                      isTablet: isTablet,
-                      isLargeTablet: isLargeTablet,
-                    ),
-                  ],
-                ),
               const SizedBox(height: 20),
-              if (SpellcastingRules.isAutoSlotClass(char) &&
-                  SpellcastingRules.getAutoSpellSlots(char).isNotEmpty) ...[
+              if (MulticlassSpellcastingService.hasAutoSlots(char)) ...[
                 Row(
                   children: [
                     Expanded(
@@ -8164,6 +6616,53 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       ),
               ),
               const SizedBox(height: 12),
+              if (_hasAnyPactMagicSlots(char)) ...[
+                _spellSection(
+                  title: 'Pact Magic Slots',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          ActionChip(
+                            label: const Text('Recover Pact Slots'),
+                            onPressed: isOwnedByCurrentUser
+                                ? () => _recoverAllPactMagicSlots(
+                                      context,
+                                      char,
+                                    )
+                                : null,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      GridView.builder(
+                        itemCount: pactMagicSlotLevels.length,
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount:
+                              isLargeTablet ? 3 : (isTablet ? 2 : 1),
+                          crossAxisSpacing: 12,
+                          mainAxisSpacing: 12,
+                          childAspectRatio: isLargeTablet ? 1.35 : 1.28,
+                        ),
+                        itemBuilder: (_, index) {
+                          final level = pactMagicSlotLevels[index];
+                          return _buildPactMagicSlotCard(
+                            context,
+                            char,
+                            level,
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
               if (usesPreparedSpells && usesPreparedLimit)
                 _spellSection(
                   title: 'Preparation Rules',
@@ -8551,6 +7050,113 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     );
   }
 
+  Widget _buildPactMagicSlotCard(
+    BuildContext context,
+    Character char,
+    int level,
+  ) {
+    final max = _pactMagicSlotMaxForLevel(char, level);
+    final used = _pactMagicSlotUsedForLevel(char, level).clamp(0, max);
+    final remaining = (max - used).clamp(0, max);
+
+    final circles = List.generate(max, (index) {
+      final isAvailable = index < remaining;
+
+      return AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        width: 14,
+        height: 14,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color:
+              isAvailable ? Colors.amberAccent : Colors.white.withOpacity(0.12),
+          border: Border.all(
+            color: isAvailable
+                ? Colors.amberAccent.withOpacity(0.95)
+                : Colors.white.withOpacity(0.18),
+          ),
+          boxShadow: isAvailable
+              ? [
+                  BoxShadow(
+                    color: Colors.amberAccent.withOpacity(0.28),
+                    blurRadius: 8,
+                    spreadRadius: 1,
+                  ),
+                ]
+              : null,
+        ),
+      );
+    });
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF262632),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: Colors.amberAccent.withOpacity(0.24),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Pact Level $level',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+              Text(
+                '$remaining / $max',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.8),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (max > 0)
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: circles,
+            ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: remaining > 0
+                      ? () => _spendPactMagicSlot(context, char, level)
+                      : null,
+                  icon: const Icon(Icons.remove_circle_outline),
+                  label: const Text('Spend'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: used > 0
+                      ? () => _recoverPactMagicSlot(context, char, level)
+                      : null,
+                  icon: const Icon(Icons.add_circle_outline),
+                  label: const Text('Recover'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildCharacterOptionsSection(
     BuildContext context,
     Character char, {
@@ -8566,223 +7172,64 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
     final groups = _buildCharacterOptionGrantGroups(char);
 
-    if (groups.isEmpty) {
-      return _spellSection(
-        title: 'Class Options',
-        child: const Text(
-          'This character has no class options to choose yet.',
-          style: TextStyle(color: Colors.white70),
+    CharacterOptionGrantGroupViewData buildGroupViewData(
+      _CharacterOptionGrantGroup group,
+    ) {
+      final isSpellGroup = group.category == CharacterOptionCategory.spell;
+
+      final selectedOptions = isSpellGroup
+          ? const <CharacterOptionDefinition>[]
+          : CharacterAvailableOptionsEngine.getSelectedOptionsForGrantGroup(
+              char,
+              group.grants,
+            );
+
+      final availableOptionsCount = isSpellGroup
+          ? 0
+          : CharacterAvailableOptionsEngine.getAvailableOptionsForGrantGroup(
+              char,
+              group.grants,
+            ).length;
+
+      final selectedCount = isSpellGroup
+          ? _getSpellGroupProgress(char, group.grants)
+          : selectedOptions.length;
+
+      final totalCount = group.totalCount;
+      final remaining = (totalCount - selectedCount).clamp(0, totalCount);
+      final isComplete = selectedCount >= totalCount;
+
+      return CharacterOptionGrantGroupViewData(
+        title: group.title,
+        categoryLabel: _categoryLabel(group.category),
+        sourceName: group.sourceName,
+        selectedCount: selectedCount,
+        totalCount: totalCount,
+        remaining: remaining,
+        isComplete: isComplete,
+        isSpellGroup: isSpellGroup,
+        spellLabels: isSpellGroup
+            ? _getSpellGroupSelectionLabels(context, char, group)
+            : const <String>[],
+        selectedOptions: selectedOptions,
+        availableOptionsCount: availableOptionsCount,
+        onEdit: () => _showChooseOptionsForGrantGroupDialog(
+          context,
+          char,
+          group,
         ),
       );
     }
 
     return _spellSection(
       title: 'Class Options',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            isOwnedByCurrentUser
-                ? 'Choices granted by class, subclass, or feats will appear here.'
-                : 'You can view this character’s class options, but only the owner can modify them.',
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.7),
-              fontSize: 12,
-            ),
-          ),
-          const SizedBox(height: 14),
-          ...groups.map(
-            (group) => Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: _buildCharacterOptionGrantGroupCard(
-                context,
-                char,
-                group,
-                isTablet: isTablet,
-                isLargeTablet: isLargeTablet,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCharacterOptionGrantGroupCard(
-    BuildContext context,
-    Character char,
-    _CharacterOptionGrantGroup group, {
-    required bool isTablet,
-    required bool isLargeTablet,
-  }) {
-    final authProvider = context.read<AuthProvider>();
-    final currentUserId = authProvider.userId;
-
-    final isOwnedByCurrentUser = currentUserId != null &&
-        char.userId != null &&
-        char.userId == currentUserId;
-
-    final isSpellGroup = group.category == CharacterOptionCategory.spell;
-
-    final selectedOptions = isSpellGroup
-        ? const <CharacterOptionDefinition>[]
-        : CharacterAvailableOptionsEngine.getSelectedOptionsForGrantGroup(
-            char,
-            group.grants,
-          );
-
-    final availableOptions = isSpellGroup
-        ? const <CharacterOptionDefinition>[]
-        : CharacterAvailableOptionsEngine.getAvailableOptionsForGrantGroup(
-            char,
-            group.grants,
-          );
-
-    final selectedCount = isSpellGroup
-        ? _getSpellGroupProgress(char, group.grants)
-        : selectedOptions.length;
-
-    final totalCount = group.totalCount;
-    final remaining = (totalCount - selectedCount).clamp(0, totalCount);
-    final isComplete = selectedCount >= totalCount;
-
-    final spellLabels = isSpellGroup
-        ? _getSpellGroupSelectionLabels(context, char, group)
-        : const <String>[];
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFF262632),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: isComplete
-              ? Colors.greenAccent.withOpacity(0.28)
-              : Colors.deepPurpleAccent.withOpacity(0.24),
+      child: CharacterOptionsSectionContent(
+        isOwnedByCurrentUser: isOwnedByCurrentUser,
+        groups: groups.map(buildGroupViewData).toList(),
+        onOptionTap: (option) => _showCharacterOptionDetailSheet(
+          context,
+          option,
         ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      group.title,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: isLargeTablet ? 16 : 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        if (group.sourceName != null &&
-                            group.sourceName!.trim().isNotEmpty)
-                          _buildFeatureMetaChip(group.sourceName!),
-                        _buildFeatureMetaChip(_categoryLabel(group.category)),
-                        _buildFeatureMetaChip('$selectedCount / $totalCount'),
-                        if (!isComplete)
-                          _buildFeatureMetaChip('Pending: $remaining'),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 12),
-
-          // 🔹 SELECCIONES
-          if (isSpellGroup)
-            if (spellLabels.isEmpty)
-              Text(
-                'No selection made yet.',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.7),
-                  fontSize: 13,
-                ),
-              )
-            else
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: spellLabels
-                    .map((label) => _buildFeatureMetaChip(label))
-                    .toList(),
-              )
-          else if (selectedOptions.isEmpty)
-            Text(
-              'No selection made yet.',
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.7),
-                fontSize: 13,
-              ),
-            )
-          else
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: selectedOptions
-                  .map((option) => _buildCharacterOptionChip(context, option))
-                  .toList(),
-            ),
-
-          // 🔹 DISPONIBLES
-          if (!isSpellGroup && availableOptions.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Text(
-              '${availableOptions.length} option${availableOptions.length == 1 ? '' : 's'} available',
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.58),
-                fontSize: 12,
-              ),
-            ),
-          ],
-
-          const SizedBox(height: 12),
-
-          // 🔹 BOTÓN EDITAR / ELEGIR (BLINDADO)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: FilledButton.icon(
-              onPressed: isOwnedByCurrentUser
-                  ? () => _showChooseOptionsForGrantGroupDialog(
-                        context,
-                        char,
-                        group,
-                      )
-                  : null,
-              icon: Icon(
-                selectedCount == 0
-                    ? Icons.add_circle_outline
-                    : Icons.edit_outlined,
-              ),
-              label: Text(selectedCount == 0 ? 'Choose' : 'Edit'),
-            ),
-          ),
-
-          // 🔹 MENSAJE SOLO LECTURA
-          if (!isOwnedByCurrentUser) ...[
-            const SizedBox(height: 8),
-            Text(
-              'Only the character owner can modify these options.',
-              style: TextStyle(
-                color: Colors.orangeAccent.withOpacity(0.8),
-                fontSize: 11,
-              ),
-            ),
-          ],
-        ],
       ),
     );
   }
@@ -9180,163 +7627,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     await _reconcileCharacterOptionSelections(context, char.id);
   }
 
-  Widget _buildCharacterOptionGrantCard(
-    BuildContext context,
-    Character char,
-    CharacterChoiceGrant grant, {
-    required bool isTablet,
-    required bool isLargeTablet,
-  }) {
-    final selectedOptions =
-        CharacterAvailableOptionsEngine.getSelectedOptionsForGrant(
-      char,
-      grant,
-    );
-
-    final availableOptions =
-        CharacterAvailableOptionsEngine.getAvailableOptionsForGrant(
-      char,
-      grant,
-    );
-
-    final isComplete = CharacterAvailableOptionsEngine.isChoiceComplete(
-      char,
-      grant,
-    );
-
-    final remaining =
-        CharacterAvailableOptionsEngine.getRemainingSelectionsCount(
-      char,
-      grant,
-    );
-
-    String categoryLabel(CharacterOptionCategory category) {
-      switch (category) {
-        case CharacterOptionCategory.infusion:
-          return 'Infusion';
-        case CharacterOptionCategory.invocation:
-          return 'Invocation';
-        case CharacterOptionCategory.fightingStyle:
-          return 'Fighting Style';
-        case CharacterOptionCategory.maneuver:
-          return 'Maneuver';
-        case CharacterOptionCategory.metamagic:
-          return 'Metamagic';
-        case CharacterOptionCategory.pactBoon:
-          return 'Pact Boon';
-        case CharacterOptionCategory.spell:
-          return 'Spell';
-      }
-    }
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFF262632),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: isComplete
-              ? Colors.greenAccent.withOpacity(0.28)
-              : Colors.deepPurpleAccent.withOpacity(0.24),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      grant.title,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: isLargeTablet ? 16 : 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        if (grant.sourceName != null &&
-                            grant.sourceName!.trim().isNotEmpty)
-                          _buildFeatureMetaChip(grant.sourceName!),
-                        _buildFeatureMetaChip(categoryLabel(grant.category)),
-                        _buildFeatureMetaChip(
-                          '${selectedOptions.length} / ${grant.count}',
-                        ),
-                        if (!isComplete)
-                          _buildFeatureMetaChip('Pending: $remaining'),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          if (selectedOptions.isEmpty)
-            Text(
-              'No selection made yet.',
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.7),
-                fontSize: 13,
-              ),
-            )
-          else
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: selectedOptions
-                  .map((option) => _buildCharacterOptionChip(context, option))
-                  .toList(),
-            ),
-          if (availableOptions.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Text(
-              '${availableOptions.length} option${availableOptions.length == 1 ? '' : 's'} available',
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.58),
-                fontSize: 12,
-              ),
-            ),
-          ],
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                FilledButton.icon(
-                  onPressed: () => _showChooseOptionsDialog(
-                    context,
-                    char,
-                    grant,
-                  ),
-                  icon: Icon(
-                    selectedOptions.isEmpty
-                        ? Icons.add_circle_outline
-                        : Icons.edit_outlined,
-                  ),
-                  label: Text(
-                    selectedOptions.isEmpty ? 'Choose' : 'Edit',
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildOptionSelectionCard({
     required CharacterOptionDefinition option,
     required bool isSelected,
@@ -9415,50 +7705,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     ],
                   ],
                 ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCharacterOptionChip(
-    BuildContext context,
-    CharacterOptionDefinition option,
-  ) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(999),
-        onTap: () => _showCharacterOptionDetailSheet(context, option),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.deepPurpleAccent.withOpacity(0.18),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: Colors.deepPurpleAccent.withOpacity(0.24),
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(
-                child: Text(
-                  option.name,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Icon(
-                Icons.info_outline,
-                size: 14,
-                color: Colors.white.withOpacity(0.72),
               ),
             ],
           ),
@@ -10668,198 +8914,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     );
   }
 
-  Future<void> _showChooseOptionsDialog(
-    BuildContext context,
-    Character char,
-    CharacterChoiceGrant grant,
-  ) async {
-    final availableOptions =
-        CharacterAvailableOptionsEngine.getAvailableOptionsForGrant(
-      char,
-      grant,
-    );
-
-    final selectedOptions =
-        CharacterAvailableOptionsEngine.getSelectedOptionsForGrant(
-      char,
-      grant,
-    );
-
-    final currentSelectedIds = selectedOptions.map((e) => e.id).toSet();
-    final allOptions = availableOptions;
-
-    if (grant.category == CharacterOptionCategory.spell) {
-      await _showSpellGrantChooser(context, char, grant);
-      return;
-    }
-    if (allOptions.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No available options for this choice.'),
-        ),
-      );
-      return;
-    }
-
-    final tempSelectedIds = <String>{...currentSelectedIds};
-
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            final canSave = tempSelectedIds.length == grant.count;
-            final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-
-            return SafeArea(
-              child: Padding(
-                padding: EdgeInsets.only(
-                  left: 16,
-                  right: 16,
-                  top: 16,
-                  bottom: bottomInset + 16,
-                ),
-                child: SizedBox(
-                  height: MediaQuery.of(context).size.height * 0.82,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1B1B24),
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(
-                        color: Colors.deepPurpleAccent.withOpacity(0.22),
-                      ),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: 12),
-                        Center(
-                          child: Container(
-                            width: 42,
-                            height: 5,
-                            decoration: BoxDecoration(
-                              color: Colors.white24,
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 18),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 20),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Choose ${grant.title}',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                'Select ${grant.count} option${grant.count == 1 ? '' : 's'}',
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.68),
-                                  fontSize: 13,
-                                ),
-                              ),
-                              const SizedBox(height: 14),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: [
-                                  if (grant.sourceName != null &&
-                                      grant.sourceName!.trim().isNotEmpty)
-                                    _buildFeatureMetaChip(grant.sourceName!),
-                                  _buildFeatureMetaChip(
-                                    '${tempSelectedIds.length}/${grant.count} selected',
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Expanded(
-                          child: ListView.separated(
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                            itemCount: allOptions.length,
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(height: 10),
-                            itemBuilder: (context, index) {
-                              final option = allOptions[index];
-                              final isSelected =
-                                  tempSelectedIds.contains(option.id);
-
-                              return _buildOptionSelectionCard(
-                                option: option,
-                                isSelected: isSelected,
-                                onTap: () {
-                                  setDialogState(() {
-                                    if (grant.count == 1) {
-                                      tempSelectedIds
-                                        ..clear()
-                                        ..add(option.id);
-                                    } else {
-                                      if (isSelected) {
-                                        tempSelectedIds.remove(option.id);
-                                      } else if (tempSelectedIds.length <
-                                          grant.count) {
-                                        tempSelectedIds.add(option.id);
-                                      }
-                                    }
-                                  });
-                                },
-                              );
-                            },
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-                          child: Row(
-                            children: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(dialogContext),
-                                child: const Text('Cancel'),
-                              ),
-                              const Spacer(),
-                              FilledButton(
-                                onPressed: canSave
-                                    ? () async {
-                                        await _saveOptionSelectionForGrant(
-                                          context,
-                                          char,
-                                          grant,
-                                          tempSelectedIds.toList(),
-                                        );
-
-                                        if (!dialogContext.mounted) return;
-                                        Navigator.pop(dialogContext);
-                                      }
-                                    : null,
-                                child: Text(
-                                  'Save (${tempSelectedIds.length}/${grant.count})',
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
   Future<void> _showSpellGrantChooser(
     BuildContext context,
     Character char,
@@ -11699,32 +9753,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final value = raw.trim();
     if (value.isEmpty) return null;
     return value.replaceAll(' Spells', '').trim();
-  }
-
-  Future<void> _saveOptionSelectionForGrant(
-    BuildContext context,
-    Character char,
-    CharacterChoiceGrant grant,
-    List<String> selectedOptionIds,
-  ) async {
-    await context.read<CharacterProvider>().updateCharacterById(char.id, (ch) {
-      final existingIndex = ch.selectedOptionGroups.indexWhere(
-        (group) => group.choiceId == grant.choiceId,
-      );
-
-      final newGroup = CharacterSelectedOptionGroup(
-        choiceId: grant.choiceId,
-        category: grant.category,
-        selectedOptionIds: selectedOptionIds,
-      );
-
-      if (existingIndex >= 0) {
-        ch.selectedOptionGroups[existingIndex] = newGroup;
-      } else {
-        ch.selectedOptionGroups.add(newGroup);
-      }
-    });
-    await _reconcileCharacterOptionSelections(context, char.id);
   }
 
   Future<void> _addSpellToCharacter(

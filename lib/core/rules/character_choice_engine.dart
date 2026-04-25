@@ -276,10 +276,9 @@ class CharacterChoiceEngine {
     Character character,
   ) {
     final grants = <CharacterChoiceGrant>[];
-    final className = character.charClass.trim().toLowerCase();
-    final level = character.level;
+    final level = character.levelForClass('warlock');
 
-    if (className != 'warlock') return grants;
+    if (level <= 0) return grants;
 
     if (level >= 2) {
       grants.add(
@@ -295,7 +294,7 @@ class CharacterChoiceEngine {
           canReplaceOnLevelUp: false,
         ),
       );
-      if (className == 'warlock' && level >= 3) {
+      if (level >= 3) {
         grants.add(
           CharacterChoiceGrant(
             choiceId: 'class_warlock_pact_boon_lvl3',

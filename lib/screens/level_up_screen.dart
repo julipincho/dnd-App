@@ -6,10 +6,11 @@ import '../models/character.dart';
 import '../models/dnd_class.dart';
 import '../providers/character_provider.dart';
 import '../services/character_level_up_service.dart';
+import '../services/character_spell_slot_service.dart';
 import '../services/class_data_service.dart';
 import '../services/dnd_data_service.dart';
+import '../services/multiclass_spellcasting_service.dart';
 import '../services/multiclass_rules_service.dart';
-import '../utils/spellcasting_rules.dart';
 
 class LevelUpScreen extends StatefulWidget {
   final String characterId;
@@ -169,16 +170,13 @@ class _LevelUpScreenState extends State<LevelUpScreen> {
     await provider.syncFeaturesAndResources(character.id);
 
     final updated = provider.getCharacterById(character.id);
-    if (updated != null && SpellcastingRules.isAutoSlotClass(updated)) {
+    if (updated != null &&
+        MulticlassSpellcastingService.hasAutoSlots(updated)) {
       await provider.updateCharacterById(character.id, (ch) {
-        final autoSlots = SpellcastingRules.buildAutoSpellSlotState(
-          char: ch,
+        CharacterSpellSlotService.applyAutoSlotState(
+          ch,
           preserveUsed: true,
         );
-        ch.spellSlots.removeWhere(
-          (key, _) => key.endsWith('_max') || key.endsWith('_used'),
-        );
-        ch.spellSlots.addAll(autoSlots);
       });
     }
 

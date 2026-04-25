@@ -238,9 +238,35 @@ Esto prepara el terreno sin tocar todavia el flujo completo de subida de nivel.
 - La hoja muestra `classProgressionLabel` cuando el personaje tiene mas de una clase.
 - Nueva pantalla dedicada `lib/screens/level_up_screen.dart` reemplaza el dialog basico de subida de nivel.
 - La pantalla de level-up muestra clase a avanzar, requisitos de multiclass, HP, features desbloqueadas y eleccion de subclase cuando el nivel de clase lo requiere.
+- Primer corte de spellcasting multiclass:
+  - Se agrego `lib/services/multiclass_spellcasting_service.dart`.
+  - Calcula slots compartidos leyendo `Character.progression`.
+  - Soporta full casters, Paladin/Ranger, Artificer, Eldritch Knight, Arcane Trickster y Warlock como Pact Magic separado en el resultado.
+  - `CharacterSpellSlotService`, `LevelUpScreen` y el auto-fill de la sheet usan el nuevo calculo para slots automaticos.
+  - `Character` persiste `pactMagicSlots` separado de `spellSlots`.
+  - La sheet muestra `Pact Magic Slots` como seccion separada con gastar/recuperar slots.
+- Limpieza inicial de `CharacterSheetScreen`:
+  - Se elimino el dialog legacy de level-up que quedo reemplazado por `LevelUpScreen`.
+  - Se retiraron imports y helpers obsoletos asociados al flujo viejo.
+  - Se extrajo la logica de slots de conjuro a `lib/services/character_spell_slot_service.dart` para empezar a sacar reglas de negocio de la pantalla.
+  - Se extrajo la resolucion de inventario/equipment a `lib/services/character_inventory_service.dart`.
+  - Se extrajo el tab visual de inventario a `lib/features/characters/presentation/character_sheet/widgets/character_inventory_tab.dart`.
+  - Se extrajo la grilla visual de equipo a `lib/features/characters/presentation/character_sheet/widgets/character_equipment_section.dart`.
+  - Se extrajo la seccion visual de feats a `lib/features/characters/presentation/character_sheet/widgets/character_feats_section.dart`.
+  - Se extrajo el contenido/cards de Class Options a `lib/features/characters/presentation/character_sheet/widgets/character_options_section.dart`.
+  - Se agrego `lib/features/characters/presentation/character_sheet/widgets/character_sheet_meta_chip.dart` para reutilizar chips visuales.
+  - Se extrajo la cabecera/resumen de Spellcasting a `lib/features/characters/presentation/character_sheet/widgets/character_spellcasting_summary_section.dart`.
+  - Se quitaron helpers y dialogos muertos del flujo anterior de AC/opciones de personaje para reducir deuda antes de seguir extrayendo.
+  - Se corrigio la entrega de items por DM sobre personajes de campana: el provider ahora busca tambien en `campaignCharacters` y `Add item` no depende de que existan items de compendio de campana.
+  - El guardado de personajes de campana editados por DM conserva la sesion activa del usuario actual y refresca los personajes de la campana.
+- Correccion de opciones de Warlock multiclass:
+  - `CharacterChoiceEngine` ahora calcula Eldritch Invocations y Pact Boon con `character.levelForClass('warlock')`.
+  - Antes dependia de `character.charClass == warlock` y `character.level`, por lo que un personaje que tomaba Warlock como multiclass no recibia grants de invocaciones, y un Warlock primario multiclass podia usar nivel total por error.
+  - Si una ficha se guardo mientras faltaban esos grants, las selecciones reconciliadas pudieron haberse removido y puede requerir volver a elegir invocaciones.
 
 Pendientes inmediatos:
 
-- Definir estructura de spells por clase y spell slots multiclass.
+- Definir estructura de spells conocidos/preparados por clase.
 - Resolver subclases por clase en multiclass desde un flujo dedicado.
-- Ajustar mas sistemas que todavia leen `charClass` + `level` como verdad unica.
+- Ajustar mas sistemas que todavia leen `charClass` + `level` como verdad unica, especialmente otros grants de opciones de clase como Fighting Style, Metamagic e Infusions.
+- Continuar saneamiento de `CharacterSheetScreen` con extracciones incrementales: spellcasting UI, inventario/equipo, features/opciones y recursos.

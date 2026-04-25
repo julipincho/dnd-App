@@ -57,6 +57,7 @@ class Character {
   List<String> knownSpells;
   List<String> preparedSpells;
   Map<String, int> spellSlots;
+  Map<String, int> pactMagicSlots;
 
   // -----------------------------
   // Sprint 3: Equipment
@@ -146,6 +147,7 @@ class Character {
     List<String>? knownSpells,
     List<String>? preparedSpells,
     Map<String, int>? spellSlots,
+    Map<String, int>? pactMagicSlots,
     int? deathSaveSuccesses,
     int? deathSaveFailures,
     this.featArmorProficiencies = const [],
@@ -195,7 +197,8 @@ class Character {
         deathSaveSuccesses = deathSaveSuccesses ?? 0,
         deathSaveFailures = deathSaveFailures ?? 0,
         selectedOptionGroups = selectedOptionGroups ?? [],
-        spellSlots = spellSlots ?? {};
+        spellSlots = spellSlots ?? {},
+        pactMagicSlots = pactMagicSlots ?? {};
 
   factory Character.empty() {
     return Character(
@@ -351,6 +354,10 @@ class Character {
           (k, v) => MapEntry(k.toString(), (v as num).toInt()),
         ) ??
         {};
+    final pactMagicSlots = (json['pactMagicSlots'] as Map?)?.map(
+          (k, v) => MapEntry(k.toString(), (v as num).toInt()),
+        ) ??
+        {};
 
     final preparedSpellIds = (json['preparedSpellIds'] as List?)
             ?.map((e) => e.toString())
@@ -469,6 +476,7 @@ class Character {
               .toList() ??
           [],
       spellSlots: spellSlots,
+      pactMagicSlots: pactMagicSlots,
       features: features,
       resources: resources,
       deathSaveSuccesses: (json['deathSaveSuccesses'] as num?)?.toInt() ?? 0,
@@ -580,6 +588,7 @@ class Character {
       'spellIds': spellIds,
       'preparedSpellIds': preparedSpellIds,
       'spellSlots': spellSlots,
+      'pactMagicSlots': pactMagicSlots,
       'features': features.map((e) => e.toJson()).toList(),
       'resources': resources.map((e) => e.toJson()).toList(),
       'deathSaveSuccesses': deathSaveSuccesses,
