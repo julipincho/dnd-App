@@ -239,12 +239,22 @@ Listar assets razas:
   - Class Options UI: se extrajo el contenido/cards a `lib/features/characters/presentation/character_sheet/widgets/character_options_section.dart`; la sheet conserva dialogos, guardado y reglas.
   - Shared UI: se agrego `lib/features/characters/presentation/character_sheet/widgets/character_sheet_meta_chip.dart` para chips visuales reutilizables en la sheet.
   - Spellcasting UI: se extrajo la cabecera/resumen a `lib/features/characters/presentation/character_sheet/widgets/character_spellcasting_summary_section.dart`; la sheet conserva calculos, slots, listas y dialogos.
+  - Spellcasting classes UI: se extrajo el overview/cards de clases lanzadoras a `lib/features/characters/presentation/character_sheet/widgets/character_spellcasting_classes_section.dart`; la sheet conserva el calculo de summaries y la clase activa.
+  - Spell slots UI: se extrajo `Spell Slots` y `Pact Magic Slots` a `lib/features/characters/presentation/character_sheet/widgets/character_spell_slots_section.dart`; la sheet conserva callbacks/provider y el dialogo de configuracion manual.
   - Spell selector UI: se extrajo el modal de seleccion de conjuros a `lib/features/characters/presentation/character_sheet/widgets/character_spell_selector_modal.dart`; la sheet conserva el filtrado/reglas y solo abre el modal.
   - Spellbook UI: se extrajo el render del libro de conjuros activo a `lib/features/characters/presentation/character_sheet/widgets/character_spellbook_section.dart`; la sheet conserva el modal de detalle y las acciones de prepare/remove.
+  - Features UI: se extrajo a `lib/features/characters/presentation/character_sheet/widgets/character_features_section.dart`; incluye agrupacion por raza/clase/subclase/feat y mantiene agrupacion multiclass por clase.
+  - Resources UI: se extrajo a `lib/features/characters/presentation/character_sheet/widgets/character_resources_section.dart`; la sheet conserva callbacks hacia `CharacterProvider` para gastar/recuperar recursos.
   - Saneamiento adicional: se quitaron restos muertos del flujo anterior de AC/opciones de personaje que ya no eran llamados por la UI actual.
   - Bug corregido: `CharacterProvider.getCharacterById` ahora tambien busca en `campaignCharacters`, para que el DM pueda modificar personajes de campana que no estan en su lista personal.
   - Bug corregido: al guardar cambios sobre personajes de campana de otro usuario, `CharacterProvider` conserva la sesion activa del usuario actual y refresca tambien los personajes de campana.
   - Bug corregido: `Add item` ya no queda deshabilitado solo porque no existan items en el compendio de campana; se puede usar armory/manual.
+  - Flujo de creacion de personaje:
+    - Orden corregido: raza -> clase -> nivel -> subclase solo si el nivel de clase la habilita -> background -> skills -> stats -> nombre.
+    - `SelectLevelScreen` consulta `ClassDataService.getSubclassChoiceLevel` y solo abre `/subclass-selection` si el nivel elegido alcanza ese umbral y la clase tiene subclases.
+    - `setPrimaryClassProgression` ahora limpia subclase previa al elegir una clase nueva para evitar arrastrar datos incompatibles.
+    - `CharacterProvider.saveCharacter` sincroniza features/recursos antes de persistir, para que personajes creados en nivel inicial alto reciban sus features/recursos desde el primer guardado.
+    - Features UI: en multiclass, las features de clase y subclase se agrupan por clase (`Fighter Features`, `Wizard Features`, etc.) en lugar de mezclarse en un solo bloque.
 
 ## Preferencias del Usuario
 

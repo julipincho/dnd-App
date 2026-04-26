@@ -330,6 +330,17 @@ Pendientes inmediatos:
 - `LevelUpScreen` ahora solicita una skill proficiency al entrar por primera vez a Bard, Ranger o Rogue si quedan opciones elegibles.
 - `CharacterLevelUpService` persiste esas skills en `character.classSkills` evitando duplicados.
 
+## Flujo de Creacion de Personaje
+
+- El orden de creacion ahora es clase -> nivel -> subclase solo si corresponde.
+- `ClassSelectionScreen` y `ClassDetailScreen` envian a `/select-level`, no directamente a subclase.
+- `SelectLevelScreen` abre `/subclass-selection` solo si el nivel elegido alcanza el `subclassFeatureLevel` de la clase y existen subclases.
+- Si el nivel no habilita subclase, el flujo continua directo a `/select-background`.
+- `AssignStatsScreen` ya no manda a seleccionar nivel; continua a `/name-character`.
+- Al elegir una clase nueva, `setPrimaryClassProgression` limpia la subclase anterior para evitar estados incompatibles.
+- `CharacterProvider.saveCharacter` sincroniza features/recursos antes de persistir el personaje.
+- En la sheet, las features de clase/subclase se agrupan por clase para personajes multiclass.
+
 ## Saneamiento de `CharacterSheetScreen`
 
 - Se extrajo logica de ataques/dano de armas a `CharacterWeaponAttackService`.
@@ -345,3 +356,11 @@ Pendientes inmediatos:
 - `CharacterSheetScreen` conserva las reglas/filtros de spells y delega la UI del selector.
 - Se extrajo el render del Spellbook activo a `lib/features/characters/presentation/character_sheet/widgets/character_spellbook_section.dart`.
 - `CharacterSheetScreen` conserva el modal de detalle y las acciones de prepare/remove.
+- Se extrajo el overview/cards de clases lanzadoras a `lib/features/characters/presentation/character_sheet/widgets/character_spellcasting_classes_section.dart`.
+- `CharacterSheetScreen` conserva el calculo de summaries y el estado de clase activa, pero ya no renderiza esas cards.
+- Se extrajo el render de Spell Slots y Pact Magic Slots a `lib/features/characters/presentation/character_sheet/widgets/character_spell_slots_section.dart`.
+- `CharacterSheetScreen` conserva las acciones de provider y el dialogo de configuracion manual de slots, pero ya no renderiza las cards/grillas de slots.
+- Se extrajeron `Features` y `Resources` a widgets dedicados:
+  - `lib/features/characters/presentation/character_sheet/widgets/character_features_section.dart`
+  - `lib/features/characters/presentation/character_sheet/widgets/character_resources_section.dart`
+- La sheet conserva la orquestacion de provider para gastar/recuperar recursos, pero ya no contiene el render ni la agrupacion de features.

@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../models/dnd_class.dart';
 import '../services/class_data_service.dart';
 import '../providers/character_provider.dart';
 import 'class_progression_screen.dart';
-import 'subclass_selection_screen.dart';
 
 class ClassDetailScreen extends StatefulWidget {
   final String classIndex;
@@ -144,13 +144,7 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
                     ch.savingThrows = List<String>.from(c.savingThrows);
                   });
 
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          SubclassSelectionScreen(classIndex: c.index),
-                    ),
-                  );
+                  context.go('/select-level');
                 },
                 child: const Text("Seleccionar esta clase"),
               ),

@@ -247,7 +247,7 @@ class _ClassSelectionScreenState extends State<ClassSelectionScreen> {
       ch.classSkills = [];
     });
 
-    context.push('/subclass-selection', extra: cls.index);
+    context.go('/select-level');
   }
 
   void _openProgression(DndClass cls) {

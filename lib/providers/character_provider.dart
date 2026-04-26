@@ -157,6 +157,8 @@ class CharacterProvider extends ChangeNotifier {
     _character!.ownerUserId = resolvedUserId;
     _activeUserId = resolvedUserId;
 
+    await _applyFeatureAndResourceSync(_character!);
+
     await _cloudRepo.saveCharacter(_character!);
     await loadCharacters(resolvedUserId);
     if ((_character!.campaignId ?? '').isNotEmpty) {
@@ -595,6 +597,11 @@ class CharacterProvider extends ChangeNotifier {
     final character = getCharacterById(characterId);
     if (character == null) return;
 
+    await _applyFeatureAndResourceSync(character);
+    await _saveAndRefreshCharacter(character);
+  }
+
+  Future<void> _applyFeatureAndResourceSync(Character character) async {
     final classAndSubclassFeatures =
         await CharacterFeatureSyncService.buildFeaturesForCharacter(character);
 
@@ -648,8 +655,6 @@ class CharacterProvider extends ChangeNotifier {
     character.racialConditionImmunities = raceSync.conditionImmunities;
     character.racialSenses = raceSync.senses;
     character.resources = mergedResources;
-
-    await _saveAndRefreshCharacter(character);
   }
 
   Future<void> equipItemToCharacter(

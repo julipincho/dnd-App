@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../services/class_level_service.dart';
+import '../services/class_data_service.dart';
 import '../models/dnd_class_level.dart';
 import '../providers/character_provider.dart';
 
@@ -41,6 +42,33 @@ class _SelectLevelScreenState extends State<SelectLevelScreen> {
     });
   }
 
+  Future<void> _selectLevel(DndClassLevel lvl) async {
+    final provider = context.read<CharacterProvider>();
+    final character = provider.character;
+    if (character == null) return;
+
+    final className = character.charClass.trim();
+    final subclassChoiceLevel =
+        await ClassDataService.getSubclassChoiceLevel(className);
+    final classData = await ClassDataService.loadClass(className);
+    final shouldChooseSubclass = subclassChoiceLevel != null &&
+        lvl.level >= subclassChoiceLevel &&
+        (classData?.subclasses.isNotEmpty ?? false);
+
+    if (!mounted) return;
+
+    provider.update((c) {
+      c.subclass = null;
+      c.setPrimaryClassLevel(lvl.level);
+    });
+
+    if (shouldChooseSubclass) {
+      context.go('/subclass-selection', extra: className);
+    } else {
+      context.go('/select-background');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final character = context.watch<CharacterProvider>().character;
@@ -49,7 +77,7 @@ class _SelectLevelScreenState extends State<SelectLevelScreen> {
       backgroundColor: const Color(0xFF1E1E22),
       appBar: AppBar(
         backgroundColor: const Color(0xFF121214),
-        title: Text("Select Level – ${character?.charClass ?? ""}"),
+        title: Text("Select Level - ${character?.charClass ?? ""}"),
       ),
       body: loading
           ? const Center(child: CircularProgressIndicator())
@@ -73,13 +101,7 @@ class _SelectLevelScreenState extends State<SelectLevelScreen> {
                     ),
                     trailing: const Icon(Icons.arrow_forward_ios,
                         size: 18, color: Colors.white),
-                    onTap: () {
-                      context.read<CharacterProvider>().update((c) {
-                        c.setPrimaryClassLevel(lvl.level);
-                      });
-
-                      context.go('/name-character');
-                    },
+                    onTap: () => _selectLevel(lvl),
                   ),
                 );
               },

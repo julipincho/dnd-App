@@ -32,11 +32,15 @@ import '../core/rules/character_choice_engine.dart';
 import '../models/character_available_options_engine.dart';
 import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_inventory_tab.dart';
 import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_equipment_section.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_features_section.dart';
 import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_feats_section.dart';
 import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_options_section.dart';
 import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_overview_tab.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_resources_section.dart';
 import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_spellbook_section.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_spellcasting_classes_section.dart';
 import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_spellcasting_summary_section.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_spell_slots_section.dart';
 import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_spell_selector_modal.dart';
 import '../services/character_pact_service.dart';
 import '../services/character_spell_slot_service.dart';
@@ -47,7 +51,6 @@ import '../models/feat_data.dart';
 import '../services/feat_data_service.dart';
 import '../features/characters/models/resolved_inventory_item.dart';
 import '../services/race_sync_service.dart';
-import '../models/character_feature.dart';
 import '../providers/campaign_provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/character_inventory_service.dart';
@@ -89,56 +92,6 @@ class _CharacterOptionGrantGroup {
   });
 
   int get totalCount => grants.fold(0, (sum, grant) => sum + grant.count);
-}
-
-class _FeatureGroupData {
-  final String key;
-  final String title;
-  final IconData icon;
-  final List<CharacterFeature> features;
-
-  const _FeatureGroupData({
-    required this.key,
-    required this.title,
-    required this.icon,
-    required this.features,
-  });
-}
-
-class _SpellcastingClassSummary {
-  final String className;
-  final String? subclassName;
-  final int classLevel;
-  final String? ability;
-  final int abilityModifier;
-  final int saveDc;
-  final int attackBonus;
-  final int selectedSpells;
-  final int? cantripsKnown;
-  final int? cantripLimit;
-  final int? knownSpells;
-  final int? knownSpellLimit;
-  final int? preparedSpells;
-  final int? preparedSpellLimit;
-  final bool isActive;
-
-  const _SpellcastingClassSummary({
-    required this.className,
-    required this.subclassName,
-    required this.classLevel,
-    required this.ability,
-    required this.abilityModifier,
-    required this.saveDc,
-    required this.attackBonus,
-    required this.selectedSpells,
-    required this.cantripsKnown,
-    required this.cantripLimit,
-    required this.knownSpells,
-    required this.knownSpellLimit,
-    required this.preparedSpells,
-    required this.preparedSpellLimit,
-    required this.isActive,
-  });
 }
 
 class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
@@ -887,7 +840,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                             return DropdownMenuItem<String>(
                               value: ability,
                               child: Text(
-                                '$ability â€¢ $score (${_formatSigned(mod)})',
+                                '$ability - $score (${_formatSigned(mod)})',
                               ),
                             );
                           }).toList(),
@@ -1138,14 +1091,14 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     );
   }
 
-  List<_SpellcastingClassSummary> _buildSpellcastingClassSummaries({
+  List<CharacterSpellcastingClassSummary> _buildSpellcastingClassSummaries({
     required Character char,
     required SpellProvider spellProvider,
     required EquipmentProvider equipmentProvider,
     required CompendiumProvider compendiumProvider,
     required String activeClassName,
   }) {
-    final summaries = <_SpellcastingClassSummary>[];
+    final summaries = <CharacterSpellcastingClassSummary>[];
 
     for (final className in _spellcastingClassNames(char)) {
       final classLevel = _levelForSpellcastingClass(char, className);
@@ -1176,7 +1129,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       final ability = _normalizedSpellcastingAbilityForClass(char, className);
 
       summaries.add(
-        _SpellcastingClassSummary(
+        CharacterSpellcastingClassSummary(
           className: className,
           subclassName: subclassName,
           classLevel: classLevel,
@@ -1585,7 +1538,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         items: currentSpells.map((spell) {
                           return DropdownMenuItem<Spell>(
                             value: spell,
-                            child: Text('Lv ${spell.level} â€¢ ${spell.name}'),
+                            child: Text('Lv ${spell.level} - ${spell.name}'),
                           );
                         }).toList(),
                         onChanged: (value) {
@@ -1604,7 +1557,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         items: replacementOptions.map((spell) {
                           return DropdownMenuItem<Spell>(
                             value: spell,
-                            child: Text('Lv ${spell.level} â€¢ ${spell.name}'),
+                            child: Text('Lv ${spell.level} - ${spell.name}'),
                           );
                         }).toList(),
                         onChanged: (value) {
@@ -2893,14 +2846,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     return CharacterSpellSlotService.pactMagicSlotUsedForLevel(char, level);
   }
 
-  bool _hasAnySpellSlots(Character char) {
-    return CharacterSpellSlotService.hasAnySpellSlots(char);
-  }
-
-  bool _hasAnyPactMagicSlots(Character char) {
-    return CharacterSpellSlotService.hasAnyPactMagicSlots(char);
-  }
-
   Future<void> _spendSpellSlot(
     BuildContext context,
     Character char,
@@ -3766,9 +3711,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
         if (compendiumItem.allowsDexBonus) {
           if (compendiumItem.maxDexBonus != null) {
-            armorLabel += ' â€¢ DEX max +${compendiumItem.maxDexBonus}';
+            armorLabel += ' - DEX max +${compendiumItem.maxDexBonus}';
           } else {
-            armorLabel += ' â€¢ +DEX';
+            armorLabel += ' - +DEX';
           }
         }
 
@@ -3797,9 +3742,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
         if (item.allowsDexBonus) {
           if (item.maxDexBonus != null) {
-            armorLabel += ' â€¢ DEX max +${item.maxDexBonus}';
+            armorLabel += ' - DEX max +${item.maxDexBonus}';
           } else {
-            armorLabel += ' â€¢ +DEX';
+            armorLabel += ' - +DEX';
           }
         }
 
@@ -3811,7 +3756,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       }
     }
 
-    return parts.join(' â€¢ ');
+    return parts.join(' - ');
   }
 
   String? _buildEquipmentDescription(
@@ -5461,7 +5406,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                         ),
                                         const SizedBox(height: 4),
                                         Text(
-                                          '${item.displayCategory} â€¢ ${item.damageDiceOneHanded ?? 'â€”'} ${item.damageType ?? ''}'
+                                          '${item.displayCategory} - ${item.damageDiceOneHanded ?? '-'} ${item.damageType ?? ''}'
                                               .trim(),
                                           style: TextStyle(
                                             color:
@@ -5660,7 +5605,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            '${infusions.length} selected â€¢ $activeInfusedCount / $activeInfusedLimit active',
+            '${infusions.length} selected - $activeInfusedCount / $activeInfusedLimit active',
             style: TextStyle(
               color: Colors.white.withOpacity(0.65),
               fontSize: 13,
@@ -5983,6 +5928,24 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final pactMagicSlotLevels = List.generate(5, (index) => index + 1)
         .where((level) => _pactMagicSlotMaxForLevel(char, level) > 0)
         .toList();
+    final spellSlotViews = slotLevels
+        .map(
+          (level) => CharacterSpellSlotViewData(
+            level: level,
+            max: _slotMaxForLevel(char, level),
+            used: _slotUsedForLevel(char, level),
+          ),
+        )
+        .toList();
+    final pactMagicSlotViews = pactMagicSlotLevels
+        .map(
+          (level) => CharacterSpellSlotViewData(
+            level: level,
+            max: _pactMagicSlotMaxForLevel(char, level),
+            used: _pactMagicSlotUsedForLevel(char, level),
+          ),
+        )
+        .toList();
 
     int totalMaxSlots = 0;
     int totalUsedSlots = 0;
@@ -6244,7 +6207,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               ),
               if (spellcastingClassSummaries.isNotEmpty) ...[
                 const SizedBox(height: 12),
-                _buildSpellcastingClassOverview(
+                CharacterSpellcastingClassesSection(
                   summaries: spellcastingClassSummaries,
                   isTablet: isTablet,
                   isLargeTablet: isLargeTablet,
@@ -6257,172 +6220,70 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 ),
               ],
               const SizedBox(height: 20),
-              if (MulticlassSpellcastingService.hasAutoSlots(char)) ...[
-                Row(
-                  children: [
-                    Expanded(
-                      child: FilledButton.icon(
-                        onPressed: isOwnedByCurrentUser
-                            ? () async {
-                                final confirm = await showDialog<bool>(
-                                  context: context,
-                                  builder: (_) => AlertDialog(
-                                    backgroundColor: const Color(0xFF202028),
-                                    title: const Text(
-                                      'Auto-fill Spell Slots',
-                                      style: TextStyle(color: Colors.white),
-                                    ),
-                                    content: const Text(
-                                      'This will generate spell slots based on class and level.\n\nDo you want to continue?',
-                                      style: TextStyle(color: Colors.white70),
-                                    ),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () =>
-                                            Navigator.pop(context, false),
-                                        child: const Text('Cancel'),
-                                      ),
-                                      FilledButton(
-                                        onPressed: () =>
-                                            Navigator.pop(context, true),
-                                        child: const Text('Apply'),
-                                      ),
-                                    ],
-                                  ),
-                                );
-
-                                if (confirm != true) return;
-
-                                await _applyAutoSpellSlots(
-                                  context,
-                                  char,
-                                  preserveUsed: true,
-                                );
-                              }
-                            : null,
-                        icon: const Icon(Icons.auto_fix_high),
-                        label: const Text('Auto-fill Slots'),
+              CharacterSpellSlotsSection(
+                isTablet: isTablet,
+                isLargeTablet: isLargeTablet,
+                isOwnedByCurrentUser: isOwnedByCurrentUser,
+                hasAutoSlots: MulticlassSpellcastingService.hasAutoSlots(char),
+                slots: spellSlotViews,
+                onSetupSlots: () => _showEditSpellSlotsDialog(context, char),
+                onRecoverAll: () => _recoverAllSpellSlots(context, char),
+                onAutoFillPreserveUsage: () async {
+                  final confirm = await showDialog<bool>(
+                    context: context,
+                    builder: (_) => AlertDialog(
+                      backgroundColor: const Color(0xFF202028),
+                      title: const Text(
+                        'Auto-fill Spell Slots',
+                        style: TextStyle(color: Colors.white),
                       ),
+                      content: const Text(
+                        'This will generate spell slots based on class and level.\n\nDo you want to continue?',
+                        style: TextStyle(color: Colors.white70),
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, false),
+                          child: const Text('Cancel'),
+                        ),
+                        FilledButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          child: const Text('Apply'),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 8),
-                    IconButton(
-                      tooltip: 'Regenerate slots (reset usage)',
-                      icon: const Icon(Icons.refresh),
-                      onPressed: isOwnedByCurrentUser
-                          ? () async {
-                              await _applyAutoSpellSlots(
-                                context,
-                                char,
-                                preserveUsed: false,
-                              );
-                            }
-                          : null,
-                    ),
-                  ],
+                  );
+
+                  if (confirm != true) return;
+                  if (!context.mounted) return;
+
+                  await _applyAutoSpellSlots(
+                    context,
+                    char,
+                    preserveUsed: true,
+                  );
+                },
+                onAutoFillResetUsage: () => _applyAutoSpellSlots(
+                  context,
+                  char,
+                  preserveUsed: false,
                 ),
-                const SizedBox(height: 12),
-              ],
-              _spellSection(
-                title: 'Spell Slots',
-                child: !_hasAnySpellSlots(char)
-                    ? Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'No spell slots recorded yet.',
-                            style: TextStyle(color: Colors.white70),
-                          ),
-                          const SizedBox(height: 10),
-                          OutlinedButton.icon(
-                            onPressed: isOwnedByCurrentUser
-                                ? () => _showEditSpellSlotsDialog(context, char)
-                                : null,
-                            icon: const Icon(Icons.auto_fix_high),
-                            label: const Text('Set up slots'),
-                          ),
-                        ],
-                      )
-                    : Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              ActionChip(
-                                label: const Text('Recover All Slots'),
-                                onPressed: isOwnedByCurrentUser
-                                    ? () => _recoverAllSpellSlots(context, char)
-                                    : null,
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 14),
-                          GridView.builder(
-                            itemCount: slotLevels.length,
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            gridDelegate:
-                                SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount:
-                                  isLargeTablet ? 3 : (isTablet ? 2 : 1),
-                              crossAxisSpacing: 12,
-                              mainAxisSpacing: 12,
-                              childAspectRatio: isLargeTablet ? 1.35 : 1.28,
-                            ),
-                            itemBuilder: (_, index) {
-                              final level = slotLevels[index];
-                              return _buildSpellSlotCard(context, char, level);
-                            },
-                          ),
-                        ],
-                      ),
+                onSpendSlot: (level) => _spendSpellSlot(context, char, level),
+                onRecoverSlot: (level) =>
+                    _recoverSpellSlot(context, char, level),
               ),
               const SizedBox(height: 12),
-              if (_hasAnyPactMagicSlots(char)) ...[
-                _spellSection(
-                  title: 'Pact Magic Slots',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          ActionChip(
-                            label: const Text('Recover Pact Slots'),
-                            onPressed: isOwnedByCurrentUser
-                                ? () => _recoverAllPactMagicSlots(
-                                      context,
-                                      char,
-                                    )
-                                : null,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-                      GridView.builder(
-                        itemCount: pactMagicSlotLevels.length,
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount:
-                              isLargeTablet ? 3 : (isTablet ? 2 : 1),
-                          crossAxisSpacing: 12,
-                          mainAxisSpacing: 12,
-                          childAspectRatio: isLargeTablet ? 1.35 : 1.28,
-                        ),
-                        itemBuilder: (_, index) {
-                          final level = pactMagicSlotLevels[index];
-                          return _buildPactMagicSlotCard(
-                            context,
-                            char,
-                            level,
-                          );
-                        },
-                      ),
-                    ],
-                  ),
+              if (pactMagicSlotViews.isNotEmpty) ...[
+                CharacterPactMagicSlotsSection(
+                  isTablet: isTablet,
+                  isLargeTablet: isLargeTablet,
+                  isOwnedByCurrentUser: isOwnedByCurrentUser,
+                  slots: pactMagicSlotViews,
+                  onRecoverAll: () => _recoverAllPactMagicSlots(context, char),
+                  onSpendSlot: (level) =>
+                      _spendPactMagicSlot(context, char, level),
+                  onRecoverSlot: (level) =>
+                      _recoverPactMagicSlot(context, char, level),
                 ),
                 const SizedBox(height: 12),
               ],
@@ -6458,6 +6319,11 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final isTablet = screenWidth >= 600;
     final isLargeTablet = screenWidth >= 900;
     final maxWidth = isLargeTablet ? 1000.0 : 850.0;
+    final authProvider = context.read<AuthProvider>();
+    final currentUserId = authProvider.userId;
+    final isOwnedByCurrentUser = currentUserId != null &&
+        char.userId != null &&
+        char.userId == currentUserId;
 
     return SingleChildScrollView(
       padding: EdgeInsets.all(isTablet ? 24 : 16),
@@ -6484,11 +6350,26 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 ),
               ),
               const SizedBox(height: 20),
-              _buildResourcesSection(
-                context,
-                char,
+              CharacterResourcesSection(
                 isTablet: isTablet,
                 isLargeTablet: isLargeTablet,
+                isOwnedByCurrentUser: isOwnedByCurrentUser,
+                resources: char.resources,
+                onRecoverByType: (rechargeType) async {
+                  await context
+                      .read<CharacterProvider>()
+                      .recoverResourcesByType(char.id, rechargeType);
+                },
+                onSpendResource: (resourceId) async {
+                  await context
+                      .read<CharacterProvider>()
+                      .spendResource(char.id, resourceId);
+                },
+                onRecoverResource: (resourceId) async {
+                  await context
+                      .read<CharacterProvider>()
+                      .recoverResource(char.id, resourceId);
+                },
               ),
               const SizedBox(height: 12),
               _buildCharacterOptionsSection(
@@ -6512,9 +6393,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 isLargeTablet: isLargeTablet,
               ),
               const SizedBox(height: 12),
-              _buildFeaturesSection(
-                context,
-                char,
+              CharacterFeaturesSection(
+                character: char,
                 isTablet: isTablet,
                 isLargeTablet: isLargeTablet,
               ),
@@ -6547,325 +6427,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSpellcastingClassOverview({
-    required List<_SpellcastingClassSummary> summaries,
-    required bool isTablet,
-    required bool isLargeTablet,
-    required ValueChanged<String> onSelectClass,
-  }) {
-    return _spellSection(
-      title: 'Spellcasting Classes',
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final columns = isLargeTablet ? 2 : 1;
-          final width = constraints.maxWidth;
-          final cardWidth = columns == 1 ? width : (width - 12) / columns;
-
-          return Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: summaries.map((summary) {
-              return SizedBox(
-                width: cardWidth,
-                child: _buildSpellcastingClassCard(
-                  summary: summary,
-                  isTablet: isTablet,
-                  onTap: () => onSelectClass(summary.className),
-                ),
-              );
-            }).toList(),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildSpellcastingClassCard({
-    required _SpellcastingClassSummary summary,
-    required bool isTablet,
-    required VoidCallback onTap,
-  }) {
-    final borderColor = summary.isActive
-        ? Colors.deepPurpleAccent.withValues(alpha: 0.85)
-        : Colors.deepPurpleAccent.withValues(alpha: 0.18);
-    final backgroundColor =
-        summary.isActive ? const Color(0xFF292133) : const Color(0xFF202028);
-    final abilityLabel = summary.ability == null
-        ? 'Not set'
-        : '${summary.ability} ${_formatSigned(summary.abilityModifier)}';
-    final detailLabel = (summary.subclassName?.trim().isNotEmpty ?? false)
-        ? '${summary.subclassName!.trim()} - $abilityLabel'
-        : abilityLabel;
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(14),
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        curve: Curves.easeOut,
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: backgroundColor,
-          borderRadius: BorderRadius.circular(14),
-          border:
-              Border.all(color: borderColor, width: summary.isActive ? 1.4 : 1),
-          boxShadow: summary.isActive
-              ? [
-                  BoxShadow(
-                    color: Colors.deepPurpleAccent.withValues(alpha: 0.16),
-                    blurRadius: 18,
-                    offset: const Offset(0, 8),
-                  ),
-                ]
-              : const [],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: Colors.deepPurpleAccent.withValues(alpha: 0.16),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    _spellcastingClassIcon(summary.className),
-                    color: Colors.white,
-                    size: 22,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 6,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          Text(
-                            '${_formatClassName(summary.className)} ${summary.classLevel}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: isTablet ? 17 : 16,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          if (summary.isActive)
-                            _compactSpellBadge(
-                              label: 'Active',
-                              color: Colors.deepPurpleAccent,
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        detailLabel,
-                        style: TextStyle(
-                          color: summary.ability == null
-                              ? Colors.orangeAccent
-                              : Colors.white.withValues(alpha: 0.72),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Icon(
-                  summary.isActive
-                      ? Icons.radio_button_checked
-                      : Icons.radio_button_unchecked,
-                  color: summary.isActive
-                      ? Colors.deepPurpleAccent
-                      : Colors.white38,
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                Expanded(
-                  child: _spellcastingMetricTile(
-                    label: 'DC',
-                    value: summary.ability == null ? '-' : '${summary.saveDc}',
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _spellcastingMetricTile(
-                    label: 'Attack',
-                    value: summary.ability == null
-                        ? '-'
-                        : _formatSigned(summary.attackBonus),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _spellcastingMetricTile(
-                    label: 'Spells',
-                    value: '${summary.selectedSpells}',
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                if (summary.cantripsKnown != null)
-                  _progressSpellPill(
-                    label: 'Cantrips',
-                    current: summary.cantripsKnown!,
-                    max: summary.cantripLimit,
-                  ),
-                if (summary.knownSpells != null)
-                  _progressSpellPill(
-                    label: 'Known',
-                    current: summary.knownSpells!,
-                    max: summary.knownSpellLimit,
-                  ),
-                if (summary.preparedSpells != null)
-                  _progressSpellPill(
-                    label: 'Prepared',
-                    current: summary.preparedSpells!,
-                    max: summary.preparedSpellLimit,
-                  ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  IconData _spellcastingClassIcon(String className) {
-    switch (className.trim().toLowerCase()) {
-      case 'artificer':
-        return Icons.construction_outlined;
-      case 'bard':
-        return Icons.music_note_outlined;
-      case 'cleric':
-        return Icons.church_outlined;
-      case 'druid':
-        return Icons.eco_outlined;
-      case 'paladin':
-        return Icons.shield_outlined;
-      case 'ranger':
-        return Icons.explore_outlined;
-      case 'sorcerer':
-        return Icons.flare_outlined;
-      case 'warlock':
-        return Icons.dark_mode_outlined;
-      case 'wizard':
-        return Icons.menu_book_outlined;
-      default:
-        return Icons.auto_awesome_outlined;
-    }
-  }
-
-  Widget _spellcastingMetricTile({
-    required String label,
-    required String value,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.55),
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 15,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _progressSpellPill({
-    required String label,
-    required int current,
-    required int? max,
-  }) {
-    final overLimit = max != null && current > max;
-    final value = max == null ? '$current' : '$current / $max';
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        color: overLimit
-            ? Colors.orangeAccent.withValues(alpha: 0.16)
-            : Colors.white.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: overLimit
-              ? Colors.orangeAccent.withValues(alpha: 0.55)
-              : Colors.white.withValues(alpha: 0.08),
-        ),
-      ),
-      child: Text(
-        '$label $value',
-        style: TextStyle(
-          color: overLimit ? Colors.orangeAccent : Colors.white70,
-          fontSize: 12,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-    );
-  }
-
-  Widget _compactSpellBadge({
-    required String label,
-    required Color color,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.45)),
-      ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
         ),
       ),
     );
@@ -6931,221 +6492,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               color: Colors.white,
               fontSize: 12,
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSpellSlotCard(
-    BuildContext context,
-    Character char,
-    int level,
-  ) {
-    final max = _slotMaxForLevel(char, level);
-    final used = _slotUsedForLevel(char, level).clamp(0, max);
-    final remaining = (max - used).clamp(0, max);
-
-    final circles = List.generate(max, (index) {
-      final isAvailable = index < remaining;
-
-      return AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        width: 14,
-        height: 14,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: isAvailable
-              ? Colors.deepPurpleAccent
-              : Colors.white.withOpacity(0.12),
-          border: Border.all(
-            color: isAvailable
-                ? Colors.deepPurpleAccent.withOpacity(0.95)
-                : Colors.white.withOpacity(0.18),
-          ),
-          boxShadow: isAvailable
-              ? [
-                  BoxShadow(
-                    color: Colors.deepPurpleAccent.withOpacity(0.35),
-                    blurRadius: 8,
-                    spreadRadius: 1,
-                  ),
-                ]
-              : null,
-        ),
-      );
-    });
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFF262632),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.24),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Level $level',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15,
-                  ),
-                ),
-              ),
-              Text(
-                '$remaining / $max',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.8),
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          if (max > 0)
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: circles,
-            ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: remaining > 0
-                      ? () => _spendSpellSlot(context, char, level)
-                      : null,
-                  icon: const Icon(Icons.remove_circle_outline),
-                  label: const Text('Spend'),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: used > 0
-                      ? () => _recoverSpellSlot(context, char, level)
-                      : null,
-                  icon: const Icon(Icons.add_circle_outline),
-                  label: const Text('Recover'),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPactMagicSlotCard(
-    BuildContext context,
-    Character char,
-    int level,
-  ) {
-    final max = _pactMagicSlotMaxForLevel(char, level);
-    final used = _pactMagicSlotUsedForLevel(char, level).clamp(0, max);
-    final remaining = (max - used).clamp(0, max);
-
-    final circles = List.generate(max, (index) {
-      final isAvailable = index < remaining;
-
-      return AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        width: 14,
-        height: 14,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color:
-              isAvailable ? Colors.amberAccent : Colors.white.withOpacity(0.12),
-          border: Border.all(
-            color: isAvailable
-                ? Colors.amberAccent.withOpacity(0.95)
-                : Colors.white.withOpacity(0.18),
-          ),
-          boxShadow: isAvailable
-              ? [
-                  BoxShadow(
-                    color: Colors.amberAccent.withOpacity(0.28),
-                    blurRadius: 8,
-                    spreadRadius: 1,
-                  ),
-                ]
-              : null,
-        ),
-      );
-    });
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFF262632),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: Colors.amberAccent.withOpacity(0.24),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Pact Level $level',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15,
-                  ),
-                ),
-              ),
-              Text(
-                '$remaining / $max',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.8),
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          if (max > 0)
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: circles,
-            ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: remaining > 0
-                      ? () => _spendPactMagicSlot(context, char, level)
-                      : null,
-                  icon: const Icon(Icons.remove_circle_outline),
-                  label: const Text('Spend'),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: used > 0
-                      ? () => _recoverPactMagicSlot(context, char, level)
-                      : null,
-                  icon: const Icon(Icons.add_circle_outline),
-                  label: const Text('Recover'),
-                ),
-              ),
-            ],
           ),
         ],
       ),
@@ -7704,501 +7050,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildFeaturesSection(
-    BuildContext context,
-    Character char, {
-    required bool isTablet,
-    required bool isLargeTablet,
-  }) {
-    final authProvider = context.read<AuthProvider>();
-    final currentUserId = authProvider.userId;
-
-    final isOwnedByCurrentUser = currentUserId != null &&
-        char.userId != null &&
-        char.userId == currentUserId;
-
-    final features = [...char.features]..sort((a, b) {
-        final levelCompare =
-            (a.unlockedAtLevel ?? 0).compareTo(b.unlockedAtLevel ?? 0);
-        if (levelCompare != 0) return levelCompare;
-        return a.name.toLowerCase().compareTo(b.name.toLowerCase());
-      });
-
-    if (features.isEmpty) {
-      return _spellSection(
-        title: 'Features',
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'No features synced yet.',
-              style: TextStyle(color: Colors.white70),
-            ),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: isOwnedByCurrentUser
-                  ? () async {
-                      await context
-                          .read<CharacterProvider>()
-                          .syncFeaturesAndResources(char.id);
-                    }
-                  : null,
-              icon: const Icon(Icons.sync),
-              label: const Text('Sync Features'),
-            ),
-            if (!isOwnedByCurrentUser) ...[
-              const SizedBox(height: 8),
-              Text(
-                'Only the character owner can sync features.',
-                style: TextStyle(
-                  color: Colors.orangeAccent.withOpacity(0.8),
-                  fontSize: 11,
-                ),
-              ),
-            ],
-          ],
-        ),
-      );
-    }
-
-    final groupedFeatures = _groupFeaturesBySource(features);
-
-    final orderedGroups = <_FeatureGroupData>[
-      _FeatureGroupData(
-        key: 'race',
-        title: 'Race Features',
-        icon: Icons.public,
-        features: groupedFeatures['race'] ?? const [],
-      ),
-      _FeatureGroupData(
-        key: 'subrace',
-        title: 'Subrace Features',
-        icon: Icons.account_tree_outlined,
-        features: groupedFeatures['subrace'] ?? const [],
-      ),
-      _FeatureGroupData(
-        key: 'class',
-        title: 'Class Features',
-        icon: Icons.shield_outlined,
-        features: groupedFeatures['class'] ?? const [],
-      ),
-      _FeatureGroupData(
-        key: 'subclass',
-        title: 'Subclass Features',
-        icon: Icons.auto_awesome_outlined,
-        features: groupedFeatures['subclass'] ?? const [],
-      ),
-      _FeatureGroupData(
-        key: 'feat',
-        title: 'Feat Features',
-        icon: Icons.workspace_premium_outlined,
-        features: groupedFeatures['feat'] ?? const [],
-      ),
-      _FeatureGroupData(
-        key: 'other',
-        title: 'Other Features',
-        icon: Icons.category_outlined,
-        features: groupedFeatures['other'] ?? const [],
-      ),
-    ].where((group) => group.features.isNotEmpty).toList();
-
-    return _spellSection(
-      title: 'Features',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              OutlinedButton.icon(
-                onPressed: isOwnedByCurrentUser
-                    ? () async {
-                        await context
-                            .read<CharacterProvider>()
-                            .syncFeaturesAndResources(char.id);
-                      }
-                    : null,
-                icon: const Icon(Icons.sync),
-                label: const Text('Sync'),
-              ),
-            ],
-          ),
-          if (!isOwnedByCurrentUser) ...[
-            const SizedBox(height: 8),
-            Text(
-              'Only the character owner can sync features.',
-              style: TextStyle(
-                color: Colors.orangeAccent.withOpacity(0.8),
-                fontSize: 11,
-              ),
-            ),
-          ],
-          const SizedBox(height: 14),
-          ...orderedGroups.map(
-            (group) => _buildFeatureSourceGroupCard(
-              context,
-              title: group.title,
-              icon: group.icon,
-              features: group.features,
-              isTablet: isTablet,
-              isLargeTablet: isLargeTablet,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Map<String, List<CharacterFeature>> _groupFeaturesBySource(
-    List<CharacterFeature> features,
-  ) {
-    final grouped = <String, List<CharacterFeature>>{
-      'race': [],
-      'subrace': [],
-      'class': [],
-      'subclass': [],
-      'feat': [],
-      'other': [],
-    };
-
-    for (final feature in features) {
-      final normalizedSource = feature.source.trim().toLowerCase();
-
-      if (grouped.containsKey(normalizedSource)) {
-        grouped[normalizedSource]!.add(feature);
-      } else {
-        grouped['other']!.add(feature);
-      }
-    }
-
-    return grouped;
-  }
-
-  Widget _buildFeatureSourceGroupCard(
-    BuildContext context, {
-    required String title,
-    required IconData icon,
-    required List<CharacterFeature> features,
-    required bool isTablet,
-    required bool isLargeTablet,
-  }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF22222C),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.24),
-        ),
-      ),
-      child: Theme(
-        data: Theme.of(context).copyWith(
-          dividerColor: Colors.transparent,
-          splashColor: Colors.transparent,
-          highlightColor: Colors.transparent,
-        ),
-        child: ExpansionTile(
-          tilePadding: const EdgeInsets.symmetric(
-            horizontal: 14,
-            vertical: 6,
-          ),
-          childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-          iconColor: Colors.white70,
-          collapsedIconColor: Colors.white54,
-          leading: Icon(
-            icon,
-            color: Colors.deepPurpleAccent.shade100,
-            size: 20,
-          ),
-          title: Text(
-            title,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: isLargeTablet ? 17 : 15,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          subtitle: Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Text(
-              '${features.length} feature${features.length == 1 ? '' : 's'}',
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.62),
-                fontSize: 12,
-              ),
-            ),
-          ),
-          children: [
-            ...features.map(
-              (feature) => _buildSingleFeatureTile(
-                context,
-                feature,
-                isTablet: isTablet,
-                isLargeTablet: isLargeTablet,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSingleFeatureTile(
-    BuildContext context,
-    CharacterFeature feature, {
-    required bool isTablet,
-    required bool isLargeTablet,
-  }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFF2A2A36),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: Colors.white.withOpacity(0.06),
-        ),
-      ),
-      child: Theme(
-        data: Theme.of(context).copyWith(
-          dividerColor: Colors.transparent,
-          splashColor: Colors.transparent,
-          highlightColor: Colors.transparent,
-        ),
-        child: ExpansionTile(
-          tilePadding: const EdgeInsets.symmetric(
-            horizontal: 14,
-            vertical: 4,
-          ),
-          childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-          iconColor: Colors.white70,
-          collapsedIconColor: Colors.white54,
-          title: Text(
-            feature.name,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: isLargeTablet ? 15 : 14,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          subtitle: Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                if (feature.unlockedAtLevel != null)
-                  _buildFeatureMetaChip('Lv ${feature.unlockedAtLevel}'),
-                _buildFeatureMetaChip(feature.source.toUpperCase()),
-              ],
-            ),
-          ),
-          children: [
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                feature.description.trim().isEmpty
-                    ? 'No description available.'
-                    : feature.description,
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.82),
-                  fontSize: isTablet ? 14 : 13,
-                  height: 1.45,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildResourcesSection(
-    BuildContext context,
-    Character char, {
-    required bool isTablet,
-    required bool isLargeTablet,
-  }) {
-    final authProvider = context.read<AuthProvider>();
-    final currentUserId = authProvider.userId;
-
-    final isOwnedByCurrentUser = currentUserId != null &&
-        char.userId != null &&
-        char.userId == currentUserId;
-
-    final resources = [...char.resources]
-      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-
-    if (resources.isEmpty) {
-      return _spellSection(
-        title: 'Resources',
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'No tracked resources yet.',
-              style: TextStyle(color: Colors.white70),
-            ),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: isOwnedByCurrentUser
-                  ? () async {
-                      await context
-                          .read<CharacterProvider>()
-                          .syncFeaturesAndResources(char.id);
-                    }
-                  : null,
-              icon: const Icon(Icons.sync),
-              label: const Text('Sync Resources'),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return _spellSection(
-      title: 'Resources',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              ActionChip(
-                label: const Text('Recover Short Rest'),
-                onPressed: isOwnedByCurrentUser
-                    ? () async {
-                        await context
-                            .read<CharacterProvider>()
-                            .recoverResourcesByType(char.id, 'shortRest');
-                      }
-                    : null,
-              ),
-              ActionChip(
-                label: const Text('Recover Long Rest'),
-                onPressed: isOwnedByCurrentUser
-                    ? () async {
-                        await context
-                            .read<CharacterProvider>()
-                            .recoverResourcesByType(char.id, 'longRest');
-                      }
-                    : null,
-              ),
-              OutlinedButton.icon(
-                onPressed: isOwnedByCurrentUser
-                    ? () async {
-                        await context
-                            .read<CharacterProvider>()
-                            .syncFeaturesAndResources(char.id);
-                      }
-                    : null,
-                icon: const Icon(Icons.sync),
-                label: const Text('Sync'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          GridView.builder(
-            itemCount: resources.length,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: isLargeTablet ? 2 : 1,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-              mainAxisExtent: isLargeTablet ? 170 : 155,
-            ),
-            itemBuilder: (_, index) {
-              final resource = resources[index];
-              final current = resource.current.clamp(0, resource.max);
-              final max = resource.max < 0 ? 0 : resource.max;
-
-              return Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF262632),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: Colors.deepPurpleAccent.withOpacity(0.24),
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        Text(
-                          resource.name,
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: isLargeTablet ? 16 : 15,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        _buildFeatureMetaChip(resource.rechargeType),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      '$current / $max',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.88),
-                        fontSize: isTablet ? 16 : 15,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: (isOwnedByCurrentUser && current > 0)
-                                ? () async {
-                                    await context
-                                        .read<CharacterProvider>()
-                                        .spendResource(
-                                          char.id,
-                                          resource.id,
-                                        );
-                                  }
-                                : null,
-                            icon: const Icon(Icons.remove_circle_outline),
-                            label: const Text('Spend'),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: (isOwnedByCurrentUser && current < max)
-                                ? () async {
-                                    await context
-                                        .read<CharacterProvider>()
-                                        .recoverResource(
-                                          char.id,
-                                          resource.id,
-                                        );
-                                  }
-                                : null,
-                            icon: const Icon(Icons.add_circle_outline),
-                            label: const Text('Recover'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ],
       ),
     );
   }
@@ -10276,7 +9127,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                                 .trim()
                                                 .isEmpty
                                             ? selectedEquipmentEntry!.source
-                                            : '${selectedEquipmentEntry!.displayCategory} â€¢ ${selectedEquipmentEntry!.source}',
+                                            : '${selectedEquipmentEntry!.displayCategory} - ${selectedEquipmentEntry!.source}',
                                         style: TextStyle(
                                           color: Colors.white.withOpacity(0.68),
                                           fontSize: 12,

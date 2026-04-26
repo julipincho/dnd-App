@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../models/character.dart';
 import '../providers/character_provider.dart';
 
 class AssignStatsScreen extends StatefulWidget {
@@ -82,7 +81,7 @@ class _AssignStatsScreenState extends State<AssignStatsScreen> {
             c.stats = Map<String, int>.from(stats);
           });
 
-          context.go('/select-level');
+          context.go('/name-character');
         },
         label: const Text("Continuar"),
         icon: const Icon(Icons.arrow_forward),

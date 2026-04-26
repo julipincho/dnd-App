@@ -705,7 +705,7 @@ class Character {
   }) {
     final safeLevel = totalLevel ?? (level < 1 ? 1 : level);
     charClass = className;
-    subclass = subclassName ?? subclass;
+    subclass = subclassName;
     level = safeLevel;
     progression = CharacterProgression.legacy(
       className: className,
