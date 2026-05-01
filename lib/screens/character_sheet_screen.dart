@@ -30,6 +30,8 @@ import '../models/character_option_definition.dart';
 import '../models/character_option_category.dart';
 import '../core/rules/character_choice_engine.dart';
 import '../models/character_available_options_engine.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_death_saves_section.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_hp_panel.dart';
 import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_inventory_tab.dart';
 import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_equipment_section.dart';
 import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_features_section.dart';
@@ -204,7 +206,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     color: const Color(0xFF1B1B24),
                     borderRadius: BorderRadius.circular(24),
                     border: Border.all(
-                      color: Colors.deepPurpleAccent.withOpacity(0.22),
+                      color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
                     ),
                   ),
                   child: Padding(
@@ -238,7 +240,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                               ? 'Choose where this character belongs.'
                               : 'Choose where ${char.name} belongs.',
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.7),
+                            color: Colors.white.withValues(alpha: 0.7),
                             fontSize: 13,
                           ),
                         ),
@@ -254,7 +256,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                           subtitle: Text(
                             'Keep this character unassigned.',
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.6),
+                              color: Colors.white.withValues(alpha: 0.6),
                             ),
                           ),
                           onChanged: (value) {
@@ -270,7 +272,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                             child: Text(
                               'No campaigns available yet.',
                               style: TextStyle(
-                                color: Colors.white.withOpacity(0.65),
+                                color: Colors.white.withValues(alpha: 0.65),
                               ),
                             ),
                           )
@@ -290,7 +292,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                  color: Colors.white.withOpacity(0.6),
+                                  color: Colors.white.withValues(alpha: 0.6),
                                 ),
                               ),
                               onChanged: (value) {
@@ -384,13 +386,14 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
   ) async {
     if (_isDeathSaveFinished(char)) return;
     if (!_isAtZeroHp(char)) return;
+    final provider = context.read<CharacterProvider>();
 
     final result = await _openDeathSaveRoller();
     if (result == null) return;
 
     final roll = result.rolls.isNotEmpty ? result.rolls.first : result.total;
 
-    await context.read<CharacterProvider>().updateCharacterById(char.id, (ch) {
+    await provider.updateCharacterById(char.id, (ch) {
       if ((ch.currentHp ?? 0) > 0) return;
       if (ch.deathSaveSuccesses >= 3 || ch.deathSaveFailures >= 3) return;
 
@@ -732,12 +735,10 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
     if (!context.mounted) return;
 
-    final updatedChar = context
-        .read<CharacterProvider>()
-        .characters
-        .firstWhere((c) => c.id == char.id);
+    final updatedChar = provider.characters.firstWhere((c) => c.id == char.id);
 
     await _clearPreparedSpellsIfUnsupported(context, updatedChar);
+    if (!context.mounted) return;
 
     if ((ability != null && ability.trim().isNotEmpty) &&
         MulticlassSpellcastingService.hasAutoSlots(updatedChar)) {
@@ -809,11 +810,12 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                             margin: const EdgeInsets.only(bottom: 12),
                             padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
-                              color: Colors.deepPurpleAccent.withOpacity(0.08),
+                              color: Colors.deepPurpleAccent
+                                  .withValues(alpha: 0.08),
                               borderRadius: BorderRadius.circular(10),
                               border: Border.all(
-                                color:
-                                    Colors.deepPurpleAccent.withOpacity(0.22),
+                                color: Colors.deepPurpleAccent
+                                    .withValues(alpha: 0.22),
                               ),
                             ),
                             child: Text(
@@ -1224,7 +1226,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 color: const Color(0xFF1B1B24),
                 borderRadius: BorderRadius.circular(24),
                 border: Border.all(
-                  color: Colors.deepPurpleAccent.withOpacity(0.22),
+                  color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
                 ),
               ),
               child: Padding(
@@ -1268,7 +1270,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                             ? option.description!.trim()
                             : 'No description available.',
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.86),
+                          color: Colors.white.withValues(alpha: 0.86),
                           fontSize: 14,
                           height: 1.45,
                         ),
@@ -1278,7 +1280,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         Text(
                           'Tags',
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.95),
+                            color: Colors.white.withValues(alpha: 0.95),
                             fontSize: 15,
                             fontWeight: FontWeight.w700,
                           ),
@@ -1369,7 +1371,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 color: const Color(0xFF1B1B24),
                 borderRadius: BorderRadius.circular(24),
                 border: Border.all(
-                  color: Colors.deepPurpleAccent.withOpacity(0.22),
+                  color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
                 ),
               ),
               child: Padding(
@@ -1416,7 +1418,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                             ? feat.description.trim()
                             : 'No description available.',
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.86),
+                          color: Colors.white.withValues(alpha: 0.86),
                           fontSize: 14,
                           height: 1.45,
                         ),
@@ -1529,7 +1531,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       Text(
                         'Your ${_formatClassName(className)} leveled up. You can replace one known spell.',
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.85),
+                          color: Colors.white.withValues(alpha: 0.85),
                         ),
                       ),
                       const SizedBox(height: 16),
@@ -1573,7 +1575,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       Text(
                         'Only non-cantrip spells are shown here.',
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.6),
+                          color: Colors.white.withValues(alpha: 0.6),
                           fontSize: 12,
                         ),
                       ),
@@ -1626,218 +1628,23 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final failures = char.deathSaveFailures.clamp(0, 3);
     final isActive = _isAtZeroHp(char) && !_isDeathSaveFinished(char);
 
-    Widget buildDots(int filled, Color color) {
-      return Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: List.generate(3, (index) {
-          final active = index < filled;
-          return Container(
-            width: 10,
-            height: 10,
-            margin: const EdgeInsets.symmetric(horizontal: 3),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: active ? color : Colors.white.withOpacity(0.08),
-              border: Border.all(
-                color: active ? color : Colors.white.withOpacity(0.12),
-              ),
-              boxShadow: active
-                  ? [
-                      BoxShadow(
-                        color: color.withOpacity(0.22),
-                        blurRadius: 6,
-                        spreadRadius: 1,
-                      ),
-                    ]
-                  : null,
-            ),
-          );
-        }),
-      );
-    }
-
-    Widget buildStateCard({
-      required String title,
-      required int value,
-      required Color color,
-    }) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-        decoration: BoxDecoration(
-          color: const Color(0xFF262632),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: color.withOpacity(0.22),
-          ),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-                fontSize: 12,
-              ),
-            ),
-            const SizedBox(height: 7),
-            buildDots(value, color),
-          ],
-        ),
-      );
-    }
-
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.28),
-        ),
-      ),
-      child: Column(
-        children: [
-          InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: () {
-              setState(() {
-                _deathSavesExpanded = !_deathSavesExpanded;
-              });
-            },
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Death Saves',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: isTablet ? 16 : 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  Text(
-                    _deathSavesExpanded ? 'Hide' : 'Show',
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.6),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Icon(
-                    _deathSavesExpanded ? Icons.expand_less : Icons.expand_more,
-                    size: 20,
-                    color: Colors.white70,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (_deathSavesExpanded) ...[
-            const Divider(height: 1, color: Colors.white12),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Text(
-                    isActive
-                        ? 'At 0 HP: roll death saves.'
-                        : 'Inactive while above 0 HP.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.72),
-                      height: 1.35,
-                      fontSize: 12,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: buildStateCard(
-                          title: 'Successes',
-                          value: successes,
-                          color: Colors.greenAccent,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: buildStateCard(
-                          title: 'Failures',
-                          value: failures,
-                          color: Colors.redAccent,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    alignment: WrapAlignment.center,
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      FilledButton(
-                        onPressed: isActive
-                            ? () => _rollDeathSave(context, char)
-                            : null,
-                        child: const Text('Roll Death Save'),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: isActive
-                            ? () => _markDeathSaveSuccess(context, char)
-                            : null,
-                        icon: const Icon(Icons.check_circle_outline),
-                        label: const Text('Success'),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: isActive
-                            ? () => _markDeathSaveFailure(context, char)
-                            : null,
-                        icon: const Icon(Icons.cancel_outlined),
-                        label: const Text('Failure'),
-                      ),
-                      TextButton.icon(
-                        onPressed: () => _resetDeathSaves(context, char),
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('Reset'),
-                      ),
-                    ],
-                  ),
-                  if (successes >= 3) ...[
-                    const SizedBox(height: 12),
-                    const Text(
-                      'Stable: 3 successes reached.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.greenAccent,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                  if (failures >= 3) ...[
-                    const SizedBox(height: 12),
-                    const Text(
-                      'Dead: 3 failures reached.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.redAccent,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ],
-      ),
+    return CharacterDeathSavesSection(
+      successes: successes,
+      failures: failures,
+      isActive: isActive,
+      isExpanded: _deathSavesExpanded,
+      isTablet: isTablet,
+      onToggleExpanded: () {
+        setState(() {
+          _deathSavesExpanded = !_deathSavesExpanded;
+        });
+      },
+      onRoll: isActive ? () => _rollDeathSave(context, char) : null,
+      onMarkSuccess:
+          isActive ? () => _markDeathSaveSuccess(context, char) : null,
+      onMarkFailure:
+          isActive ? () => _markDeathSaveFailure(context, char) : null,
+      onReset: () => _resetDeathSaves(context, char),
     );
   }
 
@@ -2596,9 +2403,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(12),
-                          color: Colors.white.withOpacity(0.04),
+                          color: Colors.white.withValues(alpha: 0.04),
                           border: Border.all(
-                            color: Colors.white.withOpacity(0.08),
+                            color: Colors.white.withValues(alpha: 0.08),
                           ),
                         ),
                         child: Column(
@@ -2710,10 +2517,23 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
     final maxHp = (char.maxHp ?? 0) <= 0 ? 1 : char.maxHp!;
     final currentHp = (char.currentHp ?? 0).clamp(0, maxHp);
-    final newHp = (currentHp + delta).clamp(0, maxHp);
+    final currentTempHp = (char.tempHp ?? 0).clamp(0, 999);
+    var newHp = currentHp;
+    var newTempHp = currentTempHp;
+
+    if (delta < 0) {
+      var remainingDamage = -delta;
+      final absorbedByTemp = remainingDamage.clamp(0, newTempHp);
+      newTempHp -= absorbedByTemp;
+      remainingDamage -= absorbedByTemp;
+      newHp = (newHp - remainingDamage).clamp(0, maxHp);
+    } else {
+      newHp = (newHp + delta).clamp(0, maxHp);
+    }
 
     await provider.updateCharacterById(char.id, (ch) {
       ch.currentHp = newHp;
+      ch.tempHp = newTempHp;
 
       if (newHp > 0) {
         ch.deathSaveSuccesses = 0;
@@ -2722,12 +2542,65 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     });
   }
 
+  Future<void> _setCharacterHp(
+    BuildContext context,
+    Character char,
+  ) async {
+    final provider = context.read<CharacterProvider>();
+    final maxHp = (char.maxHp ?? 0) <= 0 ? 1 : char.maxHp!;
+    final currentHp = (char.currentHp ?? 0).clamp(0, maxHp);
+
+    await _editQuickStatDialog(
+      context: context,
+      char: char,
+      title: 'Set Hit Points',
+      initialValue: currentHp,
+      suffix: 'HP',
+      onSave: (value) async {
+        final newHp = value.clamp(0, maxHp);
+
+        await provider.updateCharacterById(char.id, (ch) {
+          ch.currentHp = newHp;
+
+          if (newHp > 0) {
+            ch.deathSaveSuccesses = 0;
+            ch.deathSaveFailures = 0;
+          }
+        });
+      },
+    );
+  }
+
+  Future<void> _setCharacterTempHp(
+    BuildContext context,
+    Character char,
+  ) async {
+    final provider = context.read<CharacterProvider>();
+    final currentTempHp = (char.tempHp ?? 0).clamp(0, 999);
+
+    await _editQuickStatDialog(
+      context: context,
+      char: char,
+      title: 'Set Temporary HP',
+      initialValue: currentTempHp,
+      suffix: 'temp HP',
+      onSave: (value) async {
+        final newTempHp = value < 0 ? 0 : value;
+
+        await provider.updateCharacterById(char.id, (ch) {
+          ch.tempHp = newTempHp;
+        });
+      },
+    );
+  }
+
   Future<void> _longRest(BuildContext context, Character char) async {
     final provider = context.read<CharacterProvider>();
     final maxHp = (char.maxHp ?? 0) < 0 ? 0 : (char.maxHp ?? 0);
 
     await provider.updateCharacterById(char.id, (ch) {
       ch.currentHp = maxHp;
+      ch.tempHp = 0;
       ch.deathSaveSuccesses = 0;
       ch.deathSaveFailures = 0;
 
@@ -2795,10 +2668,12 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     BuildContext context,
     Character char,
   ) async {
+    final provider = context.read<CharacterProvider>();
     final race = await RaceSyncService.getRaceForCharacter(char);
     final subrace = race != null
         ? RaceSyncService.getSubraceForCharacter(char, race)
         : null;
+    if (!context.mounted) return;
 
     final effectiveSpeed = RuleEngine.getEffectiveSpeed(
       manualSpeed: char.speed,
@@ -2816,8 +2691,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       onSave: (value) async {
         final safeValue = value < 0 ? 0 : value;
 
-        await context.read<CharacterProvider>().updateCharacterById(char.id,
-            (ch) {
+        await provider.updateCharacterById(char.id, (ch) {
           ch.speed = safeValue;
         });
       },
@@ -2867,6 +2741,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     Character char,
     CharacterInventoryItem inventoryItem,
   ) async {
+    final characterProvider = context.read<CharacterProvider>();
     final equipmentProvider = context.read<EquipmentProvider>();
     final activeInfusedCount = getActiveInfusedItemsCount(char);
     final activeInfusedLimit = getArtificerActiveInfusedItemsLimit(char);
@@ -2890,7 +2765,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) {
+      builder: (sheetContext) {
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
@@ -2900,7 +2775,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 color: const Color(0xFF1B1B24),
                 borderRadius: BorderRadius.circular(24),
                 border: Border.all(
-                  color: Colors.deepPurpleAccent.withOpacity(0.22),
+                  color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
                 ),
               ),
               child: Column(
@@ -2940,7 +2815,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                               ? 'Choose a new infusion or remove the current one'
                               : '${validInfusions.length} compatible infusion option${validInfusions.length == 1 ? '' : 's'}',
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.68),
+                            color: Colors.white.withValues(alpha: 0.68),
                             fontSize: 13,
                           ),
                         ),
@@ -2948,7 +2823,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         Text(
                           'Active infused items: $activeInfusedCount / $activeInfusedLimit',
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.68),
+                            color: Colors.white.withValues(alpha: 0.68),
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
                           ),
@@ -2958,7 +2833,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                           Text(
                             'You have reached your active infusion limit. Remove an infusion from another item before applying a new one.',
                             style: TextStyle(
-                              color: Colors.orangeAccent.withOpacity(0.95),
+                              color:
+                                  Colors.orangeAccent.withValues(alpha: 0.95),
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
                               height: 1.35,
@@ -2977,24 +2853,23 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         child: InkWell(
                           borderRadius: BorderRadius.circular(14),
                           onTap: () async {
-                            await context
-                                .read<CharacterProvider>()
+                            await characterProvider
                                 .removeInfusionFromCharacterItem(
-                                  char.id,
-                                  inventoryItem.id,
-                                );
+                              char.id,
+                              inventoryItem.id,
+                            );
 
-                            if (!context.mounted) return;
-                            Navigator.pop(context);
+                            if (!sheetContext.mounted) return;
+                            Navigator.pop(sheetContext);
                           },
                           child: Container(
                             width: double.infinity,
                             padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(
-                              color: Colors.redAccent.withOpacity(0.10),
+                              color: Colors.redAccent.withValues(alpha: 0.10),
                               borderRadius: BorderRadius.circular(14),
                               border: Border.all(
-                                color: Colors.redAccent.withOpacity(0.35),
+                                color: Colors.redAccent.withValues(alpha: 0.35),
                               ),
                             ),
                             child: Row(
@@ -3008,7 +2883,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                   child: Text(
                                     'Remove current infusion',
                                     style: TextStyle(
-                                      color: Colors.white.withOpacity(0.95),
+                                      color:
+                                          Colors.white.withValues(alpha: 0.95),
                                       fontSize: 14,
                                       fontWeight: FontWeight.w700,
                                     ),
@@ -3032,7 +2908,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                 'No selected infusions can be applied to this item.',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
-                                  color: Colors.white.withOpacity(0.72),
+                                  color: Colors.white.withValues(alpha: 0.72),
                                   fontSize: 14,
                                 ),
                               ),
@@ -3064,25 +2940,23 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                                       '')
                                                   .trim()
                                                   .isNotEmpty) {
-                                            await context
-                                                .read<CharacterProvider>()
+                                            await characterProvider
                                                 .removeInfusionFromCharacterItem(
-                                                  char.id,
-                                                  inventoryItem.id,
-                                                );
+                                              char.id,
+                                              inventoryItem.id,
+                                            );
                                           }
 
-                                          await context
-                                              .read<CharacterProvider>()
+                                          await characterProvider
                                               .applyInfusionToCharacterItem(
-                                                char.id,
-                                                inventoryItem.id,
-                                                infusion,
-                                                equipmentProvider.items,
-                                              );
+                                            char.id,
+                                            inventoryItem.id,
+                                            infusion,
+                                            equipmentProvider.items,
+                                          );
 
-                                          if (!context.mounted) return;
-                                          Navigator.pop(context);
+                                          if (!sheetContext.mounted) return;
+                                          Navigator.pop(sheetContext);
                                         },
                                   child: AnimatedContainer(
                                     duration: const Duration(milliseconds: 180),
@@ -3090,20 +2964,21 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                     decoration: BoxDecoration(
                                       color: isDisabled
                                           ? const Color(0xFF202028)
-                                              .withOpacity(0.45)
+                                              .withValues(alpha: 0.45)
                                           : isCurrent
                                               ? Colors.deepPurpleAccent
-                                                  .withOpacity(0.18)
+                                                  .withValues(alpha: 0.18)
                                               : const Color(0xFF202028),
                                       borderRadius: BorderRadius.circular(14),
                                       border: Border.all(
                                         color: isDisabled
-                                            ? Colors.white.withOpacity(0.05)
+                                            ? Colors.white
+                                                .withValues(alpha: 0.05)
                                             : isCurrent
                                                 ? Colors.deepPurpleAccent
-                                                    .withOpacity(0.95)
+                                                    .withValues(alpha: 0.95)
                                                 : Colors.white
-                                                    .withOpacity(0.08),
+                                                    .withValues(alpha: 0.08),
                                       ),
                                     ),
                                     child: Row(
@@ -3115,7 +2990,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                           height: 42,
                                           decoration: BoxDecoration(
                                             color: Colors.deepPurpleAccent
-                                                .withOpacity(0.18),
+                                                .withValues(alpha: 0.18),
                                             borderRadius:
                                                 BorderRadius.circular(12),
                                           ),
@@ -3134,8 +3009,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                                 infusion.name,
                                                 style: TextStyle(
                                                   color: isDisabled
-                                                      ? Colors.white
-                                                          .withOpacity(0.45)
+                                                      ? Colors.white.withValues(
+                                                          alpha: 0.45)
                                                       : Colors.white,
                                                   fontSize: 15,
                                                   fontWeight: FontWeight.w700,
@@ -3163,7 +3038,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                                       TextOverflow.ellipsis,
                                                   style: TextStyle(
                                                     color: Colors.white
-                                                        .withOpacity(0.72),
+                                                        .withValues(
+                                                            alpha: 0.72),
                                                     fontSize: 13,
                                                     height: 1.35,
                                                   ),
@@ -3716,20 +3592,21 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
                 tooltip: 'Delete character',
                 onPressed: () async {
+                  final characterProvider = context.read<CharacterProvider>();
                   final confirm = await showDialog<bool>(
                     context: context,
-                    builder: (_) => AlertDialog(
+                    builder: (dialogContext) => AlertDialog(
                       title: const Text('Delete Character'),
                       content: const Text(
                         'Are you sure you want to delete this character?',
                       ),
                       actions: [
                         TextButton(
-                          onPressed: () => Navigator.pop(context, false),
+                          onPressed: () => Navigator.pop(dialogContext, false),
                           child: const Text('Cancel'),
                         ),
                         TextButton(
-                          onPressed: () => Navigator.pop(context, true),
+                          onPressed: () => Navigator.pop(dialogContext, true),
                           child: const Text(
                             'Delete',
                             style: TextStyle(color: Colors.red),
@@ -3743,9 +3620,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
                   final deletedCharacter = char;
 
-                  await context
-                      .read<CharacterProvider>()
-                      .deleteCharacterById(deletedCharacter.id);
+                  await characterProvider.deleteCharacterById(
+                    deletedCharacter.id,
+                  );
 
                   if (!context.mounted) return;
 
@@ -3943,123 +3820,20 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
   }) {
     final currentHp = char.currentHp ?? 0;
     final maxHp = (char.maxHp ?? 0) <= 0 ? 1 : char.maxHp!;
-    final hpPercent = (currentHp.clamp(0, maxHp)) / maxHp;
+    final rawTempHp = char.tempHp ?? 0;
+    final tempHp = rawTempHp < 0 ? 0 : rawTempHp;
 
-    Color hpColor;
-    if (hpPercent > 0.6) {
-      hpColor = Colors.green;
-    } else if (hpPercent > 0.3) {
-      hpColor = Colors.orange;
-    } else {
-      hpColor = Colors.redAccent;
-    }
-
-    final labelSize = isLargeTablet ? 12.0 : 11.0;
-    final valueSize = isLargeTablet ? 20.0 : 18.0;
-
-    Widget quickButton(String text, int delta) {
-      return SizedBox(
-        height: 30,
-        child: OutlinedButton(
-          onPressed: () => _updateCharacterHp(context, char, delta),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: Colors.white,
-            side: BorderSide(color: Colors.white.withOpacity(0.15)),
-            padding: const EdgeInsets.symmetric(horizontal: 9),
-            minimumSize: Size.zero,
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-          ),
-          child: Text(text),
-        ),
-      );
-    }
-
-    Widget restButton() {
-      return SizedBox(
-        height: 30,
-        child: OutlinedButton.icon(
-          onPressed: () => _longRest(context, char),
-          icon: const Icon(Icons.hotel_outlined, size: 15),
-          label: const Text('Long Rest'),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: Colors.white,
-            side: BorderSide(color: Colors.deepPurpleAccent.withOpacity(0.28)),
-            padding: const EdgeInsets.symmetric(horizontal: 9),
-            minimumSize: Size.zero,
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.35),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.favorite, color: hpColor, size: 20),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Hit Points',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: labelSize,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              Text(
-                '$currentHp / $maxHp',
-                style: TextStyle(
-                  color: hpColor,
-                  fontSize: valueSize,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: LinearProgressIndicator(
-              value: hpPercent.clamp(0.0, 1.0),
-              minHeight: 7,
-              backgroundColor: Colors.white.withOpacity(0.08),
-              valueColor: AlwaysStoppedAnimation<Color>(hpColor),
-            ),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              quickButton('-1', -1),
-              quickButton('-5', -5),
-              quickButton('+1', 1),
-              quickButton('+5', 5),
-              restButton(),
-            ],
-          ),
-        ],
-      ),
+    return CharacterHpPanel(
+      currentHp: currentHp,
+      maxHp: maxHp,
+      tempHp: tempHp,
+      isTablet: isTablet,
+      isLargeTablet: isLargeTablet,
+      onDamageOne: () => _updateCharacterHp(context, char, -1),
+      onHealOne: () => _updateCharacterHp(context, char, 1),
+      onSetHp: () => _setCharacterHp(context, char),
+      onSetTempHp: () => _setCharacterTempHp(context, char),
+      onLongRest: () => _longRest(context, char),
     );
   }
 
@@ -4071,23 +3845,41 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     required bool isLargeTablet,
   }) {
     final labelSize = isLargeTablet ? 12.0 : 11.0;
-    final valueSize = isLargeTablet ? 20.0 : 18.0;
-    final iconSize = isLargeTablet ? 20.0 : 18.0;
+    final valueSize = isLargeTablet ? 22.0 : 19.0;
+    final iconSize = isLargeTablet ? 19.0 : 17.0;
 
     return Container(
-      constraints: const BoxConstraints(minHeight: 74),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      constraints: const BoxConstraints(minHeight: 82),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
       decoration: BoxDecoration(
-        color: const Color(0xFF202028),
+        color: const Color(0xFF151922),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.35),
+          color: const Color(0xFF8BAA6F).withValues(alpha: 0.26),
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.16),
+            blurRadius: 12,
+            offset: const Offset(0, 7),
+          ),
+        ],
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Icon(icon, color: Colors.white70, size: iconSize),
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: const Color(0xFF8BAA6F).withValues(alpha: 0.13),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: const Color(0xFF8BAA6F).withValues(alpha: 0.24),
+              ),
+            ),
+            child: Icon(icon, color: const Color(0xFFB7D28A), size: iconSize),
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -4101,7 +3893,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: valueSize,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w900,
                     height: 1.05,
                   ),
                 ),
@@ -4113,7 +3905,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                   style: TextStyle(
                     color: Colors.white70,
                     fontSize: labelSize,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ],
@@ -4142,19 +3934,31 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         borderRadius: BorderRadius.circular(8),
         onTap: onTap,
         child: Ink(
-          height: 74,
+          height: 82,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
-            color: const Color(0xFF202028),
+            color: const Color(0xFF151922),
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
-              color: Colors.deepPurpleAccent.withOpacity(0.35),
+              color: const Color(0xFF8BAA6F).withValues(alpha: 0.26),
             ),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Icon(icon, color: Colors.white70, size: iconSize),
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE14658).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: const Color(0xFFE14658).withValues(alpha: 0.24),
+                  ),
+                ),
+                child:
+                    Icon(icon, color: const Color(0xFFE14658), size: iconSize),
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -4168,7 +3972,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: valueSize,
-                        fontWeight: FontWeight.bold,
+                        fontWeight: FontWeight.w900,
                         height: 1.05,
                       ),
                     ),
@@ -4180,7 +3984,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       style: TextStyle(
                         color: Colors.white70,
                         fontSize: labelSize,
-                        fontWeight: FontWeight.w600,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
                   ],
@@ -4210,7 +4014,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         color: const Color(0xFF202028),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.28),
+          color: Colors.deepPurpleAccent.withValues(alpha: 0.28),
         ),
       ),
       child: Column(
@@ -4289,7 +4093,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                           color: const Color(0xFF262632),
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(
-                            color: Colors.deepPurpleAccent.withOpacity(0.22),
+                            color:
+                                Colors.deepPurpleAccent.withValues(alpha: 0.22),
                           ),
                         ),
                         child: Row(
@@ -4311,8 +4116,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                 vertical: 8,
                               ),
                               decoration: BoxDecoration(
-                                color:
-                                    Colors.deepPurpleAccent.withOpacity(0.22),
+                                color: Colors.deepPurpleAccent
+                                    .withValues(alpha: 0.22),
                                 borderRadius: BorderRadius.circular(999),
                               ),
                               child: Text(
@@ -4335,7 +4140,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                           child: Text(
                             'Showing the last 5 rolls.',
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.6),
+                              color: Colors.white.withValues(alpha: 0.6),
                               fontSize: 12,
                             ),
                           ),
@@ -4359,7 +4164,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
   }) {
     final mod = _abilityMod(score);
     final labelSize = isLargeTablet ? 11.0 : 10.0;
-    final modSize = isLargeTablet ? 26.0 : (isTablet ? 23.0 : 21.0);
+    final modSize = isLargeTablet ? 28.0 : (isTablet ? 25.0 : 22.0);
     final scoreSize = isLargeTablet ? 15.0 : 13.0;
 
     return Material(
@@ -4369,13 +4174,27 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         onTap: () => _rollAbilityCheck(char, label),
         child: Ink(
           decoration: BoxDecoration(
-            color: const Color(0xFF20232C),
+            gradient: const LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color(0xFF1B2230),
+                Color(0xFF111720),
+              ],
+            ),
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
-              color: Colors.redAccent.withOpacity(0.34),
+              color: const Color(0xFF8BAA6F).withValues(alpha: 0.34),
             ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.18),
+                blurRadius: 10,
+                offset: const Offset(0, 6),
+              ),
+            ],
           ),
-          padding: const EdgeInsets.fromLTRB(8, 8, 8, 7),
+          padding: const EdgeInsets.fromLTRB(8, 9, 8, 8),
           child: Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -4387,7 +4206,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: labelSize,
-                    color: Colors.white.withOpacity(0.72),
+                    color: const Color(0xFFB7D28A).withValues(alpha: 0.88),
                     fontWeight: FontWeight.w900,
                     letterSpacing: 0,
                   ),
@@ -4410,17 +4229,17 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     horizontal: 10,
                   ),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF14151C),
+                    color: Colors.black.withValues(alpha: 0.34),
                     borderRadius: BorderRadius.circular(999),
                     border: Border.all(
-                      color: Colors.white.withOpacity(0.16),
+                      color: const Color(0xFF8BAA6F).withValues(alpha: 0.24),
                     ),
                   ),
                   child: Text(
                     "$score",
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.9),
+                      color: Colors.white.withValues(alpha: 0.9),
                       fontSize: scoreSize,
                       fontWeight: FontWeight.w800,
                       height: 1,
@@ -4478,13 +4297,14 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     CharacterInventoryItem item,
   ) async {
     if (!item.isEquippable || item.allowedSlots.isEmpty) return;
+    final provider = context.read<CharacterProvider>();
 
     if (item.allowedSlots.length == 1) {
-      await context.read<CharacterProvider>().equipItemToCharacter(
-            char.id,
-            item.id,
-            item.allowedSlots.first,
-          );
+      await provider.equipItemToCharacter(
+        char.id,
+        item.id,
+        item.allowedSlots.first,
+      );
       return;
     }
 
@@ -4522,13 +4342,11 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 ),
                 FilledButton(
                   onPressed: () async {
-                    await context
-                        .read<CharacterProvider>()
-                        .equipItemToCharacter(
-                          char.id,
-                          item.id,
-                          selectedSlot,
-                        );
+                    await provider.equipItemToCharacter(
+                      char.id,
+                      item.id,
+                      selectedSlot,
+                    );
 
                     if (!dialogContext.mounted) return;
                     Navigator.pop(dialogContext);
@@ -4548,44 +4366,44 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     Character char,
     CharacterInventoryItem item,
   ) async {
+    final provider = context.read<CharacterProvider>();
+
     if (char.equippedMainHandItemId == item.id) {
-      await context.read<CharacterProvider>().unequipItemFromCharacter(
-            char.id,
-            EquipSlot.weaponMainHand,
-          );
+      await provider.unequipItemFromCharacter(
+        char.id,
+        EquipSlot.weaponMainHand,
+      );
     }
 
     if (char.equippedOffHandItemId == item.id) {
-      await context.read<CharacterProvider>().unequipItemFromCharacter(
-            char.id,
-            EquipSlot.weaponOffHand,
-          );
+      await provider.unequipItemFromCharacter(
+        char.id,
+        EquipSlot.weaponOffHand,
+      );
     }
 
     if (char.equippedArmorItemId == item.id) {
-      await context.read<CharacterProvider>().unequipItemFromCharacter(
-            char.id,
-            EquipSlot.armor,
-          );
+      await provider.unequipItemFromCharacter(
+        char.id,
+        EquipSlot.armor,
+      );
     }
 
     if (char.equippedShieldItemId == item.id) {
-      await context.read<CharacterProvider>().unequipItemFromCharacter(
-            char.id,
-            EquipSlot.shield,
-          );
+      await provider.unequipItemFromCharacter(
+        char.id,
+        EquipSlot.shield,
+      );
     }
 
     if (char.equippedAccessory1ItemId == item.id) {
-      await context.read<CharacterProvider>().updateCharacterById(char.id,
-          (ch) {
+      await provider.updateCharacterById(char.id, (ch) {
         ch.equippedAccessory1ItemId = null;
       });
     }
 
     if (char.equippedAccessory2ItemId == item.id) {
-      await context.read<CharacterProvider>().updateCharacterById(char.id,
-          (ch) {
+      await provider.updateCharacterById(char.id, (ch) {
         ch.equippedAccessory2ItemId = null;
       });
     }
@@ -4612,11 +4430,11 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         color: const Color(0xFF202028),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.32),
+          color: Colors.deepPurpleAccent.withValues(alpha: 0.32),
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.deepPurpleAccent.withOpacity(0.08),
+            color: Colors.deepPurpleAccent.withValues(alpha: 0.08),
             blurRadius: 14,
             spreadRadius: 1,
           ),
@@ -4631,7 +4449,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 width: 42,
                 height: 42,
                 decoration: BoxDecoration(
-                  color: Colors.deepPurpleAccent.withOpacity(0.18),
+                  color: Colors.deepPurpleAccent.withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Icon(
@@ -4658,7 +4476,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                           ? selectedBaseItem.name
                           : 'No pact weapon selected yet',
                       style: TextStyle(
-                        color: Colors.white.withOpacity(0.75),
+                        color: Colors.white.withValues(alpha: 0.75),
                         fontSize: 13,
                       ),
                     ),
@@ -4724,7 +4542,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 color: const Color(0xFF1B1B24),
                 borderRadius: BorderRadius.circular(24),
                 border: Border.all(
-                  color: Colors.deepPurpleAccent.withOpacity(0.22),
+                  color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
                 ),
               ),
               child: Column(
@@ -4795,14 +4613,15 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                               padding: const EdgeInsets.all(14),
                               decoration: BoxDecoration(
                                 color: isSelected
-                                    ? Colors.deepPurpleAccent.withOpacity(0.18)
+                                    ? Colors.deepPurpleAccent
+                                        .withValues(alpha: 0.18)
                                     : const Color(0xFF202028),
                                 borderRadius: BorderRadius.circular(14),
                                 border: Border.all(
                                   color: isSelected
                                       ? Colors.deepPurpleAccent
-                                          .withOpacity(0.95)
-                                      : Colors.white.withOpacity(0.08),
+                                          .withValues(alpha: 0.95)
+                                      : Colors.white.withValues(alpha: 0.08),
                                 ),
                               ),
                               child: Row(
@@ -4812,7 +4631,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                     height: 42,
                                     decoration: BoxDecoration(
                                       color: Colors.deepPurpleAccent
-                                          .withOpacity(0.18),
+                                          .withValues(alpha: 0.18),
                                       borderRadius: BorderRadius.circular(12),
                                     ),
                                     child: const Icon(
@@ -4839,8 +4658,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                           '${item.displayCategory} - ${item.damageDiceOneHanded ?? '-'} ${item.damageType ?? ''}'
                                               .trim(),
                                           style: TextStyle(
-                                            color:
-                                                Colors.white.withOpacity(0.7),
+                                            color: Colors.white
+                                                .withValues(alpha: 0.7),
                                             fontSize: 12,
                                           ),
                                         ),
@@ -5019,7 +4838,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         color: const Color(0xFF202028),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.28),
+          color: Colors.deepPurpleAccent.withValues(alpha: 0.28),
         ),
       ),
       child: Column(
@@ -5037,7 +4856,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
           Text(
             '${infusions.length} selected - $activeInfusedCount / $activeInfusedLimit active',
             style: TextStyle(
-              color: Colors.white.withOpacity(0.65),
+              color: Colors.white.withValues(alpha: 0.65),
               fontSize: 13,
             ),
           ),
@@ -5046,7 +4865,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
             Text(
               'You can view infusions, but only the owner can modify how they are applied.',
               style: TextStyle(
-                color: Colors.orangeAccent.withOpacity(0.8),
+                color: Colors.orangeAccent.withValues(alpha: 0.8),
                 fontSize: 11,
               ),
             ),
@@ -5059,7 +4878,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 color: const Color(0xFF262632),
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(
-                  color: Colors.deepPurpleAccent.withOpacity(0.22),
+                  color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
                 ),
               ),
               child: Material(
@@ -5077,7 +4896,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                           width: 42,
                           height: 42,
                           decoration: BoxDecoration(
-                            color: Colors.deepPurpleAccent.withOpacity(0.18),
+                            color:
+                                Colors.deepPurpleAccent.withValues(alpha: 0.18),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: const Icon(
@@ -5116,7 +4936,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                   maxLines: 3,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                    color: Colors.white.withOpacity(0.72),
+                                    color: Colors.white.withValues(alpha: 0.72),
                                     fontSize: 13,
                                     height: 1.35,
                                   ),
@@ -5534,7 +5354,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         ? 'No description available.'
                         : spell.description,
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.88),
+                      color: Colors.white.withValues(alpha: 0.88),
                       height: 1.45,
                       fontSize: 14,
                     ),
@@ -5775,7 +5595,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               Text(
                 'Track spendable resources quickly and expand features only when you need to read them.',
                 style: TextStyle(
-                  color: Colors.white.withOpacity(0.6),
+                  color: Colors.white.withValues(alpha: 0.6),
                   fontSize: 12,
                 ),
               ),
@@ -5852,7 +5672,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
             TextSpan(
               text: value.isEmpty ? '-' : value,
               style: TextStyle(
-                color: Colors.white.withOpacity(0.85),
+                color: Colors.white.withValues(alpha: 0.85),
                 fontSize: 14,
               ),
             ),
@@ -5873,7 +5693,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         color: const Color(0xFF202028),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.28),
+          color: Colors.deepPurpleAccent.withValues(alpha: 0.28),
         ),
       ),
       child: Column(
@@ -5908,7 +5728,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.deepPurpleAccent.withOpacity(0.18),
+        color: Colors.deepPurpleAccent.withValues(alpha: 0.18),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
@@ -6087,7 +5907,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       color: const Color(0xFF1B1B24),
                       borderRadius: BorderRadius.circular(24),
                       border: Border.all(
-                        color: Colors.deepPurpleAccent.withOpacity(0.22),
+                        color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
                       ),
                     ),
                     child: Column(
@@ -6122,7 +5942,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                               Text(
                                 'Select $totalCount option${totalCount == 1 ? '' : 's'}',
                                 style: TextStyle(
-                                  color: Colors.white.withOpacity(0.68),
+                                  color: Colors.white.withValues(alpha: 0.68),
                                   fontSize: 13,
                                 ),
                               ),
@@ -6230,7 +6050,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               color: const Color(0xFF1B1B24),
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
-                color: Colors.deepPurpleAccent.withOpacity(0.3),
+                color: Colors.deepPurpleAccent.withValues(alpha: 0.3),
               ),
             ),
             child: Column(
@@ -6361,7 +6181,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     _CharacterOptionGrantGroup group,
     List<String> selectedOptionIds,
   ) async {
-    await context.read<CharacterProvider>().updateCharacterById(char.id, (ch) {
+    final provider = context.read<CharacterProvider>();
+
+    await provider.updateCharacterById(char.id, (ch) {
       final grants = [...group.grants]..sort(
           (a, b) {
             final levelA = a.requiredLevel ?? 0;
@@ -6395,6 +6217,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         start = end;
       }
     });
+
+    if (!context.mounted) return;
     await _reconcileCharacterOptionSelections(context, char.id);
   }
 
@@ -6414,19 +6238,19 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: isSelected
-                ? Colors.deepPurpleAccent.withOpacity(0.18)
+                ? Colors.deepPurpleAccent.withValues(alpha: 0.18)
                 : const Color(0xFF202028),
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
               color: isSelected
-                  ? Colors.deepPurpleAccent.withOpacity(0.95)
-                  : Colors.white.withOpacity(0.08),
+                  ? Colors.deepPurpleAccent.withValues(alpha: 0.95)
+                  : Colors.white.withValues(alpha: 0.08),
               width: isSelected ? 1.4 : 1,
             ),
             boxShadow: isSelected
                 ? [
                     BoxShadow(
-                      color: Colors.deepPurpleAccent.withOpacity(0.16),
+                      color: Colors.deepPurpleAccent.withValues(alpha: 0.16),
                       blurRadius: 10,
                       spreadRadius: 1,
                     ),
@@ -6468,7 +6292,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       Text(
                         option.description!,
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.72),
+                          color: Colors.white.withValues(alpha: 0.72),
                           fontSize: 13,
                           height: 1.35,
                         ),
@@ -6488,10 +6312,10 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.deepPurpleAccent.withOpacity(0.18),
+        color: Colors.deepPurpleAccent.withValues(alpha: 0.18),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.22),
+          color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
         ),
       ),
       child: Text(
@@ -6553,7 +6377,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       child: Text(
                         "Journal entries",
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.95),
+                          color: Colors.white.withValues(alpha: 0.95),
                           fontSize: isLargeTablet ? 22 : (isTablet ? 20 : 18),
                           fontWeight: FontWeight.bold,
                         ),
@@ -6577,7 +6401,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                   Text(
                     'You can view this journal, but only the owner can add notes.',
                     style: TextStyle(
-                      color: Colors.orangeAccent.withOpacity(0.8),
+                      color: Colors.orangeAccent.withValues(alpha: 0.8),
                       fontSize: 11,
                     ),
                   ),
@@ -6641,7 +6465,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     return Text(
       title,
       style: TextStyle(
-        color: Colors.white.withOpacity(0.85),
+        color: Colors.white.withValues(alpha: 0.85),
         fontSize: 15,
         fontWeight: FontWeight.w700,
       ),
@@ -6652,10 +6476,10 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.deepPurpleAccent.withOpacity(0.16),
+        color: Colors.deepPurpleAccent.withValues(alpha: 0.16),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.22),
+          color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
         ),
       ),
       child: Text(
@@ -6715,7 +6539,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               Container(
                 width: 2,
                 height: hasAttachedImage ? (isTablet ? 250 : 220) : 120,
-                color: Colors.deepPurpleAccent.withOpacity(0.30),
+                color: Colors.deepPurpleAccent.withValues(alpha: 0.30),
               ),
             ],
           ),
@@ -6726,11 +6550,11 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 color: const Color(0xFF202028),
                 borderRadius: BorderRadius.circular(18),
                 border: Border.all(
-                  color: Colors.deepPurpleAccent.withOpacity(0.28),
+                  color: Colors.deepPurpleAccent.withValues(alpha: 0.28),
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.18),
+                    color: Colors.black.withValues(alpha: 0.18),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),
@@ -6808,17 +6632,17 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     width: double.infinity,
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.03),
+                      color: Colors.white.withValues(alpha: 0.03),
                       borderRadius: BorderRadius.circular(14),
                       border: Border.all(
-                        color: Colors.white.withOpacity(0.05),
+                        color: Colors.white.withValues(alpha: 0.05),
                       ),
                     ),
                     child: LinkedCompendiumText(
                       text: entry.content,
                       campaignId: entry.campaignId,
                       style: TextStyle(
-                        color: Colors.white.withOpacity(0.92),
+                        color: Colors.white.withValues(alpha: 0.92),
                         height: 1.45,
                         fontSize: isTablet ? 15 : 14,
                       ),
@@ -6844,7 +6668,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     Text(
                       'Only the author can edit or delete this note.',
                       style: TextStyle(
-                        color: Colors.orangeAccent.withOpacity(0.8),
+                        color: Colors.orangeAccent.withValues(alpha: 0.8),
                         fontSize: 11,
                       ),
                     ),
@@ -6945,7 +6769,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     color: const Color(0xFF1B1B24),
                     borderRadius: BorderRadius.circular(24),
                     border: Border.all(
-                      color: Colors.deepPurpleAccent.withOpacity(0.22),
+                      color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
                     ),
                   ),
                   child: Column(
@@ -6985,7 +6809,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                             allowedSchools: allowedSchools,
                           ),
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.68),
+                            color: Colors.white.withValues(alpha: 0.68),
                             fontSize: 13,
                           ),
                         ),
@@ -7000,7 +6824,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                     'No spells available for this choice.',
                                     textAlign: TextAlign.center,
                                     style: TextStyle(
-                                      color: Colors.white.withOpacity(0.72),
+                                      color:
+                                          Colors.white.withValues(alpha: 0.72),
                                       fontSize: 14,
                                     ),
                                   ),
@@ -7047,7 +6872,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                         decoration: BoxDecoration(
                                           color: isSelected
                                               ? Colors.deepPurpleAccent
-                                                  .withOpacity(0.18)
+                                                  .withValues(alpha: 0.18)
                                               : const Color(0xFF202028),
                                           borderRadius: BorderRadius.circular(
                                             14,
@@ -7055,9 +6880,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                           border: Border.all(
                                             color: isSelected
                                                 ? Colors.deepPurpleAccent
-                                                    .withOpacity(0.95)
-                                                : Colors.white.withOpacity(
-                                                    0.08,
+                                                    .withValues(alpha: 0.95)
+                                                : Colors.white.withValues(
+                                                    alpha: 0.08,
                                                   ),
                                           ),
                                         ),
@@ -7163,6 +6988,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                         ch.featSelections[grant.sourceId] = map;
                                       });
 
+                                      if (!context.mounted) return;
                                       await _reconcileCharacterOptionSelections(
                                         context,
                                         char.id,
@@ -7319,7 +7145,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     color: const Color(0xFF1B1B24),
                     borderRadius: BorderRadius.circular(24),
                     border: Border.all(
-                      color: Colors.deepPurpleAccent.withOpacity(0.22),
+                      color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
                     ),
                   ),
                   child: Column(
@@ -7354,7 +7180,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         child: Text(
                           'Choose 1 spellcasting ability',
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.68),
+                            color: Colors.white.withValues(alpha: 0.68),
                             fontSize: 13,
                           ),
                         ),
@@ -7384,16 +7210,17 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                   padding: const EdgeInsets.all(14),
                                   decoration: BoxDecoration(
                                     color: isSelected
-                                        ? Colors.deepPurpleAccent.withOpacity(
-                                            0.18,
+                                        ? Colors.deepPurpleAccent.withValues(
+                                            alpha: 0.18,
                                           )
                                         : const Color(0xFF202028),
                                     borderRadius: BorderRadius.circular(14),
                                     border: Border.all(
                                       color: isSelected
                                           ? Colors.deepPurpleAccent
-                                              .withOpacity(0.95)
-                                          : Colors.white.withOpacity(0.08),
+                                              .withValues(alpha: 0.95)
+                                          : Colors.white
+                                              .withValues(alpha: 0.08),
                                     ),
                                   ),
                                   child: Row(
@@ -7457,6 +7284,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                         ch.featSelections[grant.sourceId] = map;
                                       });
 
+                                      if (!context.mounted) return;
                                       await _reconcileCharacterOptionSelections(
                                         context,
                                         char.id,
@@ -7564,7 +7392,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     color: const Color(0xFF1B1B24),
                     borderRadius: BorderRadius.circular(24),
                     border: Border.all(
-                      color: Colors.deepPurpleAccent.withOpacity(0.22),
+                      color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
                     ),
                   ),
                   child: Column(
@@ -7599,7 +7427,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         child: Text(
                           'Choose 1 class list',
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.68),
+                            color: Colors.white.withValues(alpha: 0.68),
                             fontSize: 13,
                           ),
                         ),
@@ -7633,14 +7461,15 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                   decoration: BoxDecoration(
                                     color: isSelected
                                         ? Colors.deepPurpleAccent
-                                            .withOpacity(0.18)
+                                            .withValues(alpha: 0.18)
                                         : const Color(0xFF202028),
                                     borderRadius: BorderRadius.circular(14),
                                     border: Border.all(
                                       color: isSelected
                                           ? Colors.deepPurpleAccent
-                                              .withOpacity(0.95)
-                                          : Colors.white.withOpacity(0.08),
+                                              .withValues(alpha: 0.95)
+                                          : Colors.white
+                                              .withValues(alpha: 0.08),
                                     ),
                                   ),
                                   child: Row(
@@ -7719,6 +7548,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                         },
                                       );
 
+                                      if (!context.mounted) return;
                                       await _reconcileCharacterOptionSelections(
                                         context,
                                         char.id,
@@ -7808,7 +7638,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     color: const Color(0xFF1B1B24),
                     borderRadius: BorderRadius.circular(24),
                     border: Border.all(
-                      color: Colors.deepPurpleAccent.withOpacity(0.22),
+                      color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
                     ),
                   ),
                   child: Column(
@@ -7843,7 +7673,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         child: Text(
                           'Select $maxSelection option${maxSelection == 1 ? '' : 's'} from $className',
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.68),
+                            color: Colors.white.withValues(alpha: 0.68),
                             fontSize: 13,
                           ),
                         ),
@@ -7886,14 +7716,15 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                   decoration: BoxDecoration(
                                     color: isSelected
                                         ? Colors.deepPurpleAccent
-                                            .withOpacity(0.18)
+                                            .withValues(alpha: 0.18)
                                         : const Color(0xFF202028),
                                     borderRadius: BorderRadius.circular(14),
                                     border: Border.all(
                                       color: isSelected
                                           ? Colors.deepPurpleAccent
-                                              .withOpacity(0.95)
-                                          : Colors.white.withOpacity(0.08),
+                                              .withValues(alpha: 0.95)
+                                          : Colors.white
+                                              .withValues(alpha: 0.08),
                                     ),
                                   ),
                                   child: Row(
@@ -7987,6 +7818,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                         },
                                       );
 
+                                      if (!context.mounted) return;
                                       await _reconcileCharacterOptionSelections(
                                         context,
                                         char.id,
@@ -8179,6 +8011,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     List<Session> campaignSessions,
   ) {
     final authProvider = context.read<AuthProvider>();
+    final journalProvider = context.read<JournalEntryProvider>();
     final currentUserId = authProvider.userId;
 
     final isOwnedByCurrentUser = currentUserId != null &&
@@ -8376,9 +8209,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       createdAt: DateTime.now(),
                     );
 
-                    await dialogContext
-                        .read<JournalEntryProvider>()
-                        .addEntry(entry);
+                    await journalProvider.addEntry(entry);
 
                     if (!dialogContext.mounted) return;
                     Navigator.pop(dialogContext);
@@ -8399,6 +8230,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     List<EquipmentCompendiumItem> equipmentItems,
     List<CompendiumEntry> campaignItemEntries,
   ) {
+    final characterProvider = context.read<CharacterProvider>();
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
     final hasEquipmentItems = equipmentItems.isNotEmpty;
     final hasCampaignItems = campaignItemEntries.isNotEmpty;
 
@@ -8439,7 +8272,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         child: Text(
                           'Source',
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.7),
+                            color: Colors.white.withValues(alpha: 0.7),
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
                           ),
@@ -8490,7 +8323,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                           child: Text(
                             'Armory item',
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.7),
+                              color: Colors.white.withValues(alpha: 0.7),
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
                             ),
@@ -8520,8 +8353,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                               color: const Color(0xFF202028),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                color:
-                                    Colors.deepPurpleAccent.withOpacity(0.28),
+                                color: Colors.deepPurpleAccent
+                                    .withValues(alpha: 0.28),
                               ),
                             ),
                             child: selectedEquipmentEntry == null
@@ -8549,7 +8382,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                             ? selectedEquipmentEntry!.source
                                             : '${selectedEquipmentEntry!.displayCategory} - ${selectedEquipmentEntry!.source}',
                                         style: TextStyle(
-                                          color: Colors.white.withOpacity(0.68),
+                                          color: Colors.white
+                                              .withValues(alpha: 0.68),
                                           fontSize: 12,
                                         ),
                                       ),
@@ -8564,8 +8398,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                           maxLines: 3,
                                           overflow: TextOverflow.ellipsis,
                                           style: TextStyle(
-                                            color:
-                                                Colors.white.withOpacity(0.72),
+                                            color: Colors.white
+                                                .withValues(alpha: 0.72),
                                             fontSize: 12,
                                             height: 1.35,
                                           ),
@@ -8576,7 +8410,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                         'Tap to change',
                                         style: TextStyle(
                                           color: Colors.deepPurpleAccent
-                                              .withOpacity(0.95),
+                                              .withValues(alpha: 0.95),
                                           fontSize: 12,
                                           fontWeight: FontWeight.w600,
                                         ),
@@ -8618,8 +8452,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                               color: const Color(0xFF202028),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                color:
-                                    Colors.deepPurpleAccent.withOpacity(0.22),
+                                color: Colors.deepPurpleAccent
+                                    .withValues(alpha: 0.22),
                               ),
                             ),
                             child: Text(
@@ -8627,7 +8461,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                               maxLines: 4,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                color: Colors.white.withOpacity(0.72),
+                                color: Colors.white.withValues(alpha: 0.72),
                                 fontSize: 12,
                                 height: 1.35,
                               ),
@@ -8798,14 +8632,15 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       createdAt: DateTime.now(),
                     );
 
-                    await dialogContext
-                        .read<CharacterProvider>()
-                        .addInventoryItemToCharacter(character.id, item);
+                    await characterProvider.addInventoryItemToCharacter(
+                      character.id,
+                      item,
+                    );
 
                     if (!dialogContext.mounted) return;
                     Navigator.of(dialogContext).pop();
 
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    scaffoldMessenger.showSnackBar(
                       SnackBar(
                         content: Text(
                           isManual
@@ -8835,6 +8670,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
     final sessionProvider = context.read<SessionProvider>();
     final characterProvider = context.read<CharacterProvider>();
+    final journalProvider = context.read<JournalEntryProvider>();
 
     final character = characterProvider.characters
         .firstWhere((c) => c.id == entry.authorCharacterId);
@@ -9017,9 +8853,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       createdAt: entry.createdAt,
                     );
 
-                    await dialogContext
-                        .read<JournalEntryProvider>()
-                        .updateEntry(updated);
+                    await journalProvider.updateEntry(updated);
 
                     if (!dialogContext.mounted) return;
                     Navigator.pop(dialogContext);

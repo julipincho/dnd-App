@@ -39,6 +39,7 @@ class Character {
   // -----------------------------
   int? maxHp;
   int? currentHp;
+  int? tempHp;
   int? armorClass;
   int? speed;
   int deathSaveSuccesses;
@@ -142,6 +143,7 @@ class Character {
     List<CharacterSelectedOptionGroup>? selectedOptionGroups,
     this.maxHp,
     this.currentHp,
+    this.tempHp,
     this.armorClass,
     this.speed,
     this.backstory,
@@ -279,6 +281,7 @@ class Character {
       inventory: const [],
       maxHp: null,
       currentHp: null,
+      tempHp: null,
       armorClass: null,
       speed: null,
       backstory: '',
@@ -487,6 +490,7 @@ class Character {
       inventory: inventory,
       maxHp: (json['maxHp'] as num?)?.toInt(),
       currentHp: (json['currentHp'] as num?)?.toInt(),
+      tempHp: (json['tempHp'] as num?)?.toInt(),
       armorClass: (json['armorClass'] as num?)?.toInt(),
       speed: (json['speed'] as num?)?.toInt(),
       backstory: json['backstory']?.toString() ?? '',
@@ -599,6 +603,7 @@ class Character {
       'inventory': inventory.map((item) => item.toJson()).toList(),
       'maxHp': maxHp,
       'currentHp': currentHp,
+      'tempHp': tempHp,
       'armorClass': armorClass,
       'racialArmorProficiencies': racialArmorProficiencies,
       'racialWeaponProficiencies': racialWeaponProficiencies,

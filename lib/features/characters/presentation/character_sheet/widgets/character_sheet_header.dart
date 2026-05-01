@@ -16,11 +16,12 @@ class CharacterSheetHeader extends StatelessWidget {
     final isTablet = screenWidth >= 600;
     final isLargeTablet = screenWidth >= 900;
 
-    final cardPadding = isLargeTablet ? 18.0 : (isTablet ? 16.0 : 14.0);
-    final portraitSize = isLargeTablet ? 78.0 : (isTablet ? 70.0 : 62.0);
-    final titleSize = isLargeTablet ? 28.0 : (isTablet ? 24.0 : 21.0);
-    final subtitleSize = isLargeTablet ? 14.0 : (isTablet ? 13.0 : 12.0);
+    final cardPadding = isLargeTablet ? 24.0 : (isTablet ? 20.0 : 16.0);
+    final portraitSize = isLargeTablet ? 128.0 : (isTablet ? 112.0 : 92.0);
+    final titleSize = isLargeTablet ? 36.0 : (isTablet ? 31.0 : 25.0);
+    final subtitleSize = isLargeTablet ? 15.0 : (isTablet ? 14.0 : 13.0);
     final smallSubtitleSize = isLargeTablet ? 13.0 : (isTablet ? 12.0 : 11.0);
+    final minHeight = isLargeTablet ? 246.0 : (isTablet ? 226.0 : 286.0);
 
     final portrait = _CharacterHeaderPortrait(
       character: character,
@@ -28,54 +29,107 @@ class CharacterSheetHeader extends StatelessWidget {
     );
 
     return Container(
-      padding: EdgeInsets.all(cardPadding),
+      width: double.infinity,
+      constraints: BoxConstraints(minHeight: minHeight),
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color(0xFF20222B),
-            Color(0xFF171821),
-            Color(0xFF111219),
-          ],
-        ),
+        color: const Color(0xFF11141B),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: Colors.deepPurpleAccent.withValues(alpha: 0.34),
+          color: const Color(0xFFE14658).withValues(alpha: 0.34),
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.28),
+            blurRadius: 24,
+            offset: const Offset(0, 16),
+          ),
+        ],
       ),
-      child: isTablet
-          ? Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                portrait,
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _CharacterHeaderTextBlock(
-                    character: character,
-                    titleSize: titleSize,
-                    subtitleSize: subtitleSize,
-                    smallSubtitleSize: smallSubtitleSize,
-                    isCentered: false,
-                  ),
-                ),
-              ],
-            )
-          : Column(
-              children: [
-                portrait,
-                const SizedBox(height: 12),
-                _CharacterHeaderTextBlock(
-                  character: character,
-                  titleSize: titleSize,
-                  subtitleSize: subtitleSize,
-                  smallSubtitleSize: smallSubtitleSize,
-                  isCentered: true,
-                ),
-              ],
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: Image.asset(
+              _classImagePath(character.charClass),
+              fit: BoxFit.cover,
+              alignment: Alignment.centerRight,
+              errorBuilder: (_, __, ___) => const ColoredBox(
+                color: Color(0xFF11141B),
+              ),
             ),
+          ),
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: [
+                    const Color(0xFF0E1117),
+                    const Color(0xFF11141B).withValues(alpha: 0.94),
+                    const Color(0xFF11141B).withValues(alpha: 0.48),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.bottomCenter,
+                  end: Alignment.topCenter,
+                  colors: [
+                    Colors.black.withValues(alpha: 0.60),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: EdgeInsets.all(cardPadding),
+            child: isTablet
+                ? Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      portrait,
+                      const SizedBox(width: 20),
+                      Expanded(
+                        child: _CharacterHeaderTextBlock(
+                          character: character,
+                          titleSize: titleSize,
+                          subtitleSize: subtitleSize,
+                          smallSubtitleSize: smallSubtitleSize,
+                          isCentered: false,
+                        ),
+                      ),
+                    ],
+                  )
+                : Column(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      portrait,
+                      const SizedBox(height: 14),
+                      _CharacterHeaderTextBlock(
+                        character: character,
+                        titleSize: titleSize,
+                        subtitleSize: subtitleSize,
+                        smallSubtitleSize: smallSubtitleSize,
+                        isCentered: true,
+                      ),
+                    ],
+                  ),
+          ),
+        ],
+      ),
     );
   }
+}
+
+String _classImagePath(String className) {
+  final slug = className.trim().toLowerCase().replaceAll(' ', '-');
+  return 'assets/images/classes/$slug.png';
 }
 
 String buildCharacterClassIdentityLabel(Character character) {
@@ -151,8 +205,16 @@ class _CharacterHeaderPortrait extends StatelessWidget {
         color: const Color(0xFF252631),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: Colors.redAccent.withValues(alpha: 0.55),
+          color: const Color(0xFFE14658).withValues(alpha: 0.72),
+          width: 2,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.38),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
         image: hasPortrait
             ? DecorationImage(
                 image: imageProviderFromPath(character.portraitPath!),
@@ -200,22 +262,29 @@ class _CharacterHeaderTextBlock extends StatelessWidget {
           character.name.isEmpty ? 'Unnamed Character' : character.name,
           textAlign: isCentered ? TextAlign.center : TextAlign.start,
           style: TextStyle(
+            shadows: [
+              Shadow(
+                color: Colors.black.withValues(alpha: 0.65),
+                blurRadius: 12,
+              ),
+            ],
             fontSize: titleSize,
-            fontWeight: FontWeight.bold,
+            fontWeight: FontWeight.w900,
             color: Colors.white,
+            height: 1,
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 8),
         Text(
           '$ancestryLabel - Level ${character.level}',
           textAlign: isCentered ? TextAlign.center : TextAlign.start,
           style: TextStyle(
             fontSize: subtitleSize,
             color: Colors.white.withValues(alpha: 0.82),
-            fontWeight: FontWeight.w500,
+            fontWeight: FontWeight.w700,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
         Wrap(
           alignment: isCentered ? WrapAlignment.center : WrapAlignment.start,
           spacing: 6,
@@ -229,13 +298,14 @@ class _CharacterHeaderTextBlock extends StatelessWidget {
               )
               .toList(),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
         Text(
           '${character.background.name} - ${character.alignment ?? 'True Neutral'}',
           textAlign: isCentered ? TextAlign.center : TextAlign.start,
           style: TextStyle(
             fontSize: smallSubtitleSize,
-            color: Colors.white.withValues(alpha: 0.7),
+            color: Colors.white.withValues(alpha: 0.76),
+            fontWeight: FontWeight.w600,
           ),
         ),
       ],
@@ -257,10 +327,10 @@ class _ClassIdentityChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.redAccent.withValues(alpha: 0.10),
+        color: const Color(0xFFE14658).withValues(alpha: 0.18),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
-          color: Colors.redAccent.withValues(alpha: 0.36),
+          color: const Color(0xFFE14658).withValues(alpha: 0.42),
         ),
       ),
       child: Text(

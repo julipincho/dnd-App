@@ -238,6 +238,11 @@ Listar assets razas:
     - La sheet ya no calcula armas solo por `charClass`.
     - `LevelUpScreen` pide una skill proficiency al entrar por primera vez a Bard, Ranger o Rogue si quedan opciones elegibles.
     - `CharacterLevelUpService` persiste esas skills en `character.classSkills` sin duplicar.
+  - Rediseño visual de level up:
+    - `lib/screens/level_up_screen.dart` fue rediseñada como pantalla tactica tipo D&D Beyond.
+    - Incluye hero con imagen de clase (`assets/images/classes/{slug}.png`), resumen de personaje/progreso, metricas de nivel/Hit Die/HP, selector horizontal visual de clases, validacion multiclass integrada, cards de decision de HP, subclase y skill multiclass.
+    - Agrega panel lateral/responsive de ganancias del nivel y progresion actual.
+    - Mantiene la logica existente de `CharacterLevelUpService`, sync de features/recursos y autofill de spell slots.
   - Saneamiento de ataques de armas:
     - `CharacterWeaponAttackService` extrae calculos de main hand attack/damage desde `CharacterSheetScreen`.
     - La sheet conserva wrappers para UI/rolls, pero delega ability, proficiencia, bonus, texto de dano y parsing de dados.
@@ -278,16 +283,33 @@ Listar assets razas:
     - El widget nuevo usa `withValues` y analiza limpio.
     - Se extrajo el header de ficha a `lib/features/characters/presentation/character_sheet/widgets/character_sheet_header.dart`.
     - `CharacterSheetHeader` contiene portrait, identidad visual y chips compactos de clases; tambien expone `buildCharacterClassIdentityLabel` para reutilizar la misma etiqueta multiclass en `CharacterStoryTab`.
+    - Se extrajo Death Saves a `lib/features/characters/presentation/character_sheet/widgets/character_death_saves_section.dart`.
+    - `CharacterDeathSavesSection` muestra estado tactico (`Inactive`, `At 0 HP`, `Stable`, `Dead`), tracks de exitos/fallos y acciones compactas para roll/success/failure/reset; la sheet conserva solo callbacks y provider orchestration.
+    - Se extrajo el panel de HP a `lib/features/characters/presentation/character_sheet/widgets/character_hp_panel.dart`.
+    - `CharacterHpPanel` reemplaza la card simple de HP con estados tacticos (`Healthy`, `Bloodied`, `Critical`, `Down`), barra de vida mas visible, acciones rapidas de dano/curacion, `Set HP`, `Temporary HP` y `Long Rest`.
+    - `Character` ahora persiste `tempHp`.
+    - El dano aplicado desde el panel consume primero `tempHp` y despues `currentHp`; curar solo afecta `currentHp`; Long Rest restaura HP y limpia `tempHp`.
+    - Se quitaron los botones de HP de 5 en 5 para dejar el panel mas simple y reutilizable.
+    - Salto visual de Overview/hoja:
+      - `CharacterSheetHeader` ahora es un hero inmersivo con arte de clase como fondo, overlay oscuro, retrato grande, chips de clase y estilo premium.
+      - `CharacterOverviewTab` ahora usa una superficie de hoja con gradiente oscuro, command bar integrado, paneles con bordes/acentos verdosos y menos apariencia de formulario.
+      - Summary cards y ability cards en `CharacterSheetScreen` se redisenaron con icon badges, sombras, bordes y jerarquia visual mas cercana a una ficha digital tactica.
     - Se limpiaron comentarios con mojibake visibles en `character_sheet_screen.dart` y se retiraron prints de debug del picker de Magic Initiate.
     - Verificacion reciente:
       - `dart format` aplicado a `character_sheet_screen.dart`, `character_story_tab.dart` y `character_proficiency_sections.dart`.
       - `dart analyze lib/features/characters/presentation/character_sheet/widgets/character_story_tab.dart`: sin issues.
       - `dart analyze lib/features/characters/presentation/character_sheet/widgets/character_proficiency_sections.dart`: sin issues.
       - `dart analyze lib/features/characters/presentation/character_sheet/widgets/character_sheet_header.dart`: sin issues.
-      - `dart analyze lib/screens/character_sheet_screen.dart`: sin errores; quedan infos conocidos, principalmente `withOpacity` y `use_build_context_synchronously`.
+      - `dart analyze lib/features/characters/presentation/character_sheet/widgets/character_death_saves_section.dart`: sin issues.
+      - `dart analyze lib/features/characters/presentation/character_sheet/widgets/character_hp_panel.dart`: sin issues.
+      - `dart analyze lib/models/character.dart lib/screens/character_sheet_screen.dart`: sin issues.
+      - `dart analyze lib/screens/character_sheet_screen.dart`: sin issues; ya no quedan infos `use_build_context_synchronously` ni `withOpacity` en la pantalla.
+      - `dart analyze lib/screens/level_up_screen.dart`: sin issues.
+      - `dart analyze lib/features/characters/presentation/character_sheet/widgets/character_sheet_header.dart`: sin issues despues del rediseño hero.
+      - `dart analyze lib/features/characters/presentation/character_sheet/widgets/character_overview_tab.dart`: sin issues despues del rediseño Overview.
     - Proximo paso recomendado al retomar:
-      - Empezar a corregir `use_build_context_synchronously` en flujos de navegacion/dialogos, o extraer otra pieza chica de UI de la ficha.
-      - Dejar la migracion masiva `withOpacity -> withValues` para una pasada mecanica separada, porque toca muchas lineas.
+      - Continuar con `Actions & Combat` o extraer summary cards restantes del Overview.
+      - Si se quiere seguir bajando ruido de analyzer, hacer pasadas controladas `withOpacity -> withValues` por widget extraido, no en todo el repo de golpe.
   - Flujo de creacion de personaje:
     - Orden corregido: raza -> clase -> nivel -> subclase solo si el nivel de clase la habilita -> background -> skills -> stats -> nombre.
     - `SelectLevelScreen` consulta `ClassDataService.getSubclassChoiceLevel` y solo abre `/subclass-selection` si el nivel elegido alcanza ese umbral y la clase tiene subclases.

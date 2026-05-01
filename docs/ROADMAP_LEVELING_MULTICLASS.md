@@ -374,3 +374,16 @@ Pendientes inmediatos:
 - La sheet conserva la orquestacion de provider para gastar/recuperar recursos, pero ya no contiene el render ni la agrupacion de features.
 - Se extrajo el header visual de la ficha a `lib/features/characters/presentation/character_sheet/widgets/character_sheet_header.dart`, manteniendo en la sheet solo la composicion del tab.
 - La etiqueta/chips de identidad multiclass quedan centralizados en `CharacterSheetHeader` y se reutilizan desde `CharacterStoryTab`.
+- Se extrajo Death Saves a `lib/features/characters/presentation/character_sheet/widgets/character_death_saves_section.dart`, con estado tactico y acciones compactas; la sheet conserva solo callbacks y actualizaciones de provider.
+- Se extrajo el panel de HP a `lib/features/characters/presentation/character_sheet/widgets/character_hp_panel.dart`, con estados tacticos, barra mas visible, dano/curacion rapida, `Set HP`, HP temporal y `Long Rest`.
+- `Character` persiste `tempHp`; el dano consume HP temporal antes de HP actual y el descanso largo lo limpia.
+- `LevelUpScreen` se rediseño visualmente como flujo tactico tipo D&D Beyond:
+  - hero con imagen de clase y metricas de progreso,
+  - selector horizontal visual de clases,
+  - validacion multiclass integrada,
+  - decisiones de HP/subclase/skill multiclass en cards,
+  - resumen lateral/responsive de ganancias del nivel y progresion actual.
+- Primer salto visual de la ficha:
+  - `CharacterSheetHeader` pasa a hero con arte de clase, overlay oscuro, retrato grande y chips de identidad.
+  - `CharacterOverviewTab` usa superficie de hoja tactica con command bar integrado y paneles mas densos.
+  - Summary cards y ability cards se rediseñan con icon badges, sombras, acentos verdosos y jerarquia visual mas fuerte.
