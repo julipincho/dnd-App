@@ -543,10 +543,54 @@ class CharacterOverviewTab extends StatelessWidget {
     );
   }
 
+  Widget _buildTopCombatDashboard({
+    required Widget hpCard,
+    required Widget initiativeCard,
+    required List<Widget> summaryCards,
+    required Widget abilityRail,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const spacing = 10.0;
+        final leftWidth = constraints.maxWidth < 1120 ? 330.0 : 355.0;
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: leftWidth,
+              child: Column(
+                children: [
+                  hpCard,
+                  const SizedBox(height: spacing),
+                  initiativeCard,
+                ],
+              ),
+            ),
+            const SizedBox(width: spacing),
+            Expanded(
+              child: Column(
+                children: [
+                  _buildMetricStrip(
+                    cards: summaryCards,
+                    columns: 3,
+                  ),
+                  const SizedBox(height: spacing),
+                  abilityRail,
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Widget _buildAbilityRail({
     required Character char,
     required bool isTablet,
     required bool isLargeTablet,
+    bool compact = false,
     required int statColumns,
     required double statAspectRatio,
     required int str,
@@ -556,9 +600,13 @@ class CharacterOverviewTab extends StatelessWidget {
     required int wis,
     required int cha,
   }) {
+    final panelPadding = compact ? 10.0 : 12.0;
+    final titleBottomPadding = compact ? 6.0 : 8.0;
+    final gridSpacing = compact ? 6.0 : 8.0;
+
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(12),
+      padding: EdgeInsets.all(panelPadding),
       decoration: BoxDecoration(
         color: const Color(0xFF111720),
         borderRadius: BorderRadius.circular(8),
@@ -576,7 +624,7 @@ class CharacterOverviewTab extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.only(left: 2, bottom: 8),
+            padding: EdgeInsets.only(left: 2, bottom: titleBottomPadding),
             child: Text(
               'ABILITIES',
               style: TextStyle(
@@ -591,8 +639,8 @@ class CharacterOverviewTab extends StatelessWidget {
             crossAxisCount: statColumns,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            crossAxisSpacing: 8,
-            mainAxisSpacing: 8,
+            crossAxisSpacing: gridSpacing,
+            mainAxisSpacing: gridSpacing,
             childAspectRatio: statAspectRatio,
             children: [
               buildAbilityCard(
@@ -600,42 +648,42 @@ class CharacterOverviewTab extends StatelessWidget {
                 "STR",
                 str,
                 isTablet: isTablet,
-                isLargeTablet: isLargeTablet,
+                isLargeTablet: isLargeTablet && !compact,
               ),
               buildAbilityCard(
                 char,
                 "DEX",
                 dex,
                 isTablet: isTablet,
-                isLargeTablet: isLargeTablet,
+                isLargeTablet: isLargeTablet && !compact,
               ),
               buildAbilityCard(
                 char,
                 "CON",
                 con,
                 isTablet: isTablet,
-                isLargeTablet: isLargeTablet,
+                isLargeTablet: isLargeTablet && !compact,
               ),
               buildAbilityCard(
                 char,
                 "INT",
                 intScore,
                 isTablet: isTablet,
-                isLargeTablet: isLargeTablet,
+                isLargeTablet: isLargeTablet && !compact,
               ),
               buildAbilityCard(
                 char,
                 "WIS",
                 wis,
                 isTablet: isTablet,
-                isLargeTablet: isLargeTablet,
+                isLargeTablet: isLargeTablet && !compact,
               ),
               buildAbilityCard(
                 char,
                 "CHA",
                 cha,
                 isTablet: isTablet,
-                isLargeTablet: isLargeTablet,
+                isLargeTablet: isLargeTablet && !compact,
               ),
             ],
           ),
@@ -654,6 +702,7 @@ class CharacterOverviewTab extends StatelessWidget {
     final pagePadding = isLargeTablet ? 26.0 : (isTablet ? 20.0 : 14.0);
     final statColumns = isLargeTablet ? 6 : 3;
     final statAspectRatio = isLargeTablet ? 1.28 : (isTablet ? 1.12 : 0.98);
+    final compactStatAspectRatio = isLargeTablet ? 1.42 : statAspectRatio;
     final dashboardColumns = isLargeTablet ? 4 : (isTablet ? 3 : 2);
 
     final str = getStat("STR");
@@ -789,26 +838,48 @@ class CharacterOverviewTab extends StatelessWidget {
                 const SizedBox(height: 10),
                 _buildCommandBar(isTablet: isTablet),
                 const SizedBox(height: 10),
-                _buildMetricDashboard(
-                  hpCard: hpCard,
-                  initiativeCard: initiativeCard,
-                  cards: summaryCards,
-                  columns: dashboardColumns,
-                ),
-                const SizedBox(height: 10),
-                _buildAbilityRail(
-                  char: char,
-                  isTablet: isTablet,
-                  isLargeTablet: isLargeTablet,
-                  statColumns: statColumns,
-                  statAspectRatio: statAspectRatio,
-                  str: str,
-                  dex: dex,
-                  con: con,
-                  intScore: intScore,
-                  wis: wis,
-                  cha: cha,
-                ),
+                if (isLargeTablet)
+                  _buildTopCombatDashboard(
+                    hpCard: hpCard,
+                    initiativeCard: initiativeCard,
+                    summaryCards: summaryCards,
+                    abilityRail: _buildAbilityRail(
+                      char: char,
+                      isTablet: isTablet,
+                      isLargeTablet: isLargeTablet,
+                      compact: true,
+                      statColumns: statColumns,
+                      statAspectRatio: compactStatAspectRatio,
+                      str: str,
+                      dex: dex,
+                      con: con,
+                      intScore: intScore,
+                      wis: wis,
+                      cha: cha,
+                    ),
+                  )
+                else ...[
+                  _buildMetricDashboard(
+                    hpCard: hpCard,
+                    initiativeCard: initiativeCard,
+                    cards: summaryCards,
+                    columns: dashboardColumns,
+                  ),
+                  const SizedBox(height: 10),
+                  _buildAbilityRail(
+                    char: char,
+                    isTablet: isTablet,
+                    isLargeTablet: isLargeTablet,
+                    statColumns: statColumns,
+                    statAspectRatio: statAspectRatio,
+                    str: str,
+                    dex: dex,
+                    con: con,
+                    intScore: intScore,
+                    wis: wis,
+                    cha: cha,
+                  ),
+                ],
                 const SizedBox(height: 18),
                 if (isLargeTablet)
                   Row(

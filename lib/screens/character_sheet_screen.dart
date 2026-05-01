@@ -2508,40 +2508,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     });
   }
 
-  Future<void> _updateCharacterHp(
-    BuildContext context,
-    Character char,
-    int delta,
-  ) async {
-    final provider = context.read<CharacterProvider>();
-
-    final maxHp = (char.maxHp ?? 0) <= 0 ? 1 : char.maxHp!;
-    final currentHp = (char.currentHp ?? 0).clamp(0, maxHp);
-    final currentTempHp = (char.tempHp ?? 0).clamp(0, 999);
-    var newHp = currentHp;
-    var newTempHp = currentTempHp;
-
-    if (delta < 0) {
-      var remainingDamage = -delta;
-      final absorbedByTemp = remainingDamage.clamp(0, newTempHp);
-      newTempHp -= absorbedByTemp;
-      remainingDamage -= absorbedByTemp;
-      newHp = (newHp - remainingDamage).clamp(0, maxHp);
-    } else {
-      newHp = (newHp + delta).clamp(0, maxHp);
-    }
-
-    await provider.updateCharacterById(char.id, (ch) {
-      ch.currentHp = newHp;
-      ch.tempHp = newTempHp;
-
-      if (newHp > 0) {
-        ch.deathSaveSuccesses = 0;
-        ch.deathSaveFailures = 0;
-      }
-    });
-  }
-
   Future<void> _setCharacterHp(
     BuildContext context,
     Character char,
@@ -3829,8 +3795,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       tempHp: tempHp,
       isTablet: isTablet,
       isLargeTablet: isLargeTablet,
-      onDamageOne: () => _updateCharacterHp(context, char, -1),
-      onHealOne: () => _updateCharacterHp(context, char, 1),
       onSetHp: () => _setCharacterHp(context, char),
       onSetTempHp: () => _setCharacterTempHp(context, char),
       onLongRest: () => _longRest(context, char),
@@ -4164,7 +4128,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
   }) {
     final mod = _abilityMod(score);
     final labelSize = isLargeTablet ? 11.0 : 10.0;
-    final modSize = isLargeTablet ? 28.0 : (isTablet ? 25.0 : 22.0);
+    final modSize = isLargeTablet ? 24.0 : (isTablet ? 23.0 : 21.0);
     final scoreSize = isLargeTablet ? 15.0 : 13.0;
 
     return Material(
@@ -4194,7 +4158,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               ),
             ],
           ),
-          padding: const EdgeInsets.fromLTRB(8, 9, 8, 8),
+          padding: const EdgeInsets.fromLTRB(8, 7, 8, 7),
           child: Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -4211,7 +4175,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     letterSpacing: 0,
                   ),
                 ),
-                const SizedBox(height: 3),
+                const SizedBox(height: 2),
                 Text(
                   _formatSigned(mod),
                   style: TextStyle(
@@ -4221,11 +4185,11 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     height: 1,
                   ),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 5),
                 Container(
                   constraints: const BoxConstraints(minWidth: 38),
                   padding: const EdgeInsets.symmetric(
-                    vertical: 4,
+                    vertical: 3,
                     horizontal: 10,
                   ),
                   decoration: BoxDecoration(

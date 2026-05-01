@@ -6,8 +6,6 @@ class CharacterHpPanel extends StatelessWidget {
   final int tempHp;
   final bool isTablet;
   final bool isLargeTablet;
-  final VoidCallback onDamageOne;
-  final VoidCallback onHealOne;
   final VoidCallback onSetHp;
   final VoidCallback onSetTempHp;
   final VoidCallback onLongRest;
@@ -19,8 +17,6 @@ class CharacterHpPanel extends StatelessWidget {
     required this.tempHp,
     required this.isTablet,
     required this.isLargeTablet,
-    required this.onDamageOne,
-    required this.onHealOne,
     required this.onSetHp,
     required this.onSetTempHp,
     required this.onLongRest,
@@ -145,41 +141,26 @@ class CharacterHpPanel extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              _HpActionButton(
-                label: 'Damage',
-                tooltip: 'Take 1 damage',
-                color: Colors.redAccent,
-                onPressed: onDamageOne,
-              ),
-              _HpActionButton(
-                label: 'Heal',
-                tooltip: 'Heal 1 HP',
-                color: Colors.greenAccent,
-                onPressed: onHealOne,
-              ),
-              OutlinedButton.icon(
-                onPressed: onLongRest,
-                icon: const Icon(Icons.hotel_outlined, size: 15),
-                label: const Text('Long Rest'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  side: BorderSide(
-                    color: Colors.deepPurpleAccent.withValues(alpha: 0.28),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 9),
-                  minimumSize: const Size(0, 32),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
+          const SizedBox(height: 6),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: onLongRest,
+              icon: const Icon(Icons.hotel_outlined, size: 15),
+              label: const Text('Long Rest'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white,
+                side: BorderSide(
+                  color: Colors.deepPurpleAccent.withValues(alpha: 0.28),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                minimumSize: const Size(0, 32),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
                 ),
               ),
-            ],
+            ),
           ),
         ],
       ),
@@ -336,42 +317,6 @@ class _StatusMark extends StatelessWidget {
         status.icon,
         color: status.color,
         size: 20,
-      ),
-    );
-  }
-}
-
-class _HpActionButton extends StatelessWidget {
-  final String label;
-  final String tooltip;
-  final Color color;
-  final VoidCallback onPressed;
-
-  const _HpActionButton({
-    required this.label,
-    required this.tooltip,
-    required this.color,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: OutlinedButton(
-        onPressed: onPressed,
-        style: OutlinedButton.styleFrom(
-          foregroundColor: Colors.white,
-          side: BorderSide(color: color.withValues(alpha: 0.32)),
-          backgroundColor: color.withValues(alpha: 0.10),
-          padding: const EdgeInsets.symmetric(horizontal: 9),
-          minimumSize: const Size(0, 32),
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
-        ),
-        child: Text(label),
       ),
     );
   }
