@@ -372,3 +372,5 @@ Pendientes inmediatos:
   - `lib/features/characters/presentation/character_sheet/widgets/character_features_section.dart`
   - `lib/features/characters/presentation/character_sheet/widgets/character_resources_section.dart`
 - La sheet conserva la orquestacion de provider para gastar/recuperar recursos, pero ya no contiene el render ni la agrupacion de features.
+- Se extrajo el header visual de la ficha a `lib/features/characters/presentation/character_sheet/widgets/character_sheet_header.dart`, manteniendo en la sheet solo la composicion del tab.
+- La etiqueta/chips de identidad multiclass quedan centralizados en `CharacterSheetHeader` y se reutilizan desde `CharacterStoryTab`.

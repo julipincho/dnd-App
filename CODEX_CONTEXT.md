@@ -267,6 +267,27 @@ Listar assets razas:
     - `CODEX_CONTEXT.md` registra que la ficha debe acercarse al patron D&D Beyond: densa, accionable, confiable y preparada para combate compartido.
     - `CharacterOverviewTab` ahora prioriza abilities, dashboard de combate y columnas tacticas para saves, skills, defensas, proficiencies, acciones y rolls.
     - `CharacterCombatSummarySection` ahora funciona como panel `Actions & Combat`, destacando accion primaria equipada con tiradas directas de ataque/dano y metricas defensivas.
+  - UI/UX de ficha, saneamiento reciente:
+    - `CharacterSheetScreen` conserva la orquestacion principal, pero se sigue reduciendo para evitar spaghetti.
+    - Se agrego tab `Story` y se separo de `Notes / Journal`; notas quedan en su propia vista/tab, historia/backstory e identidad narrativa quedan en Story.
+    - `lib/features/characters/presentation/character_sheet/widgets/character_story_tab.dart` extrae la UI de Story: portrait, identidad, backstory y background feature.
+    - El header de personaje ahora muestra raza/nivel y clases como chips compactos; en multiclass cada chip incluye class/subclass y nivel de clase cuando corresponde.
+    - Helper actual en sheet: `_buildClassIdentityParts` / `_buildClassIdentityLabel`, usando `character.subclassForClass(className)` con fallback legacy para la clase primaria.
+    - `lib/features/characters/presentation/character_sheet/widgets/character_proficiency_sections.dart` extrae UI de Saving Throws y Skills.
+    - `CharacterSavingThrowsSection` y `CharacterSkillsSection` reciben character, estado expandido, callbacks de calculo/proficiencia y callback de roll; la sheet mantiene reglas/calculos y pasa closures.
+    - El widget nuevo usa `withValues` y analiza limpio.
+    - Se extrajo el header de ficha a `lib/features/characters/presentation/character_sheet/widgets/character_sheet_header.dart`.
+    - `CharacterSheetHeader` contiene portrait, identidad visual y chips compactos de clases; tambien expone `buildCharacterClassIdentityLabel` para reutilizar la misma etiqueta multiclass en `CharacterStoryTab`.
+    - Se limpiaron comentarios con mojibake visibles en `character_sheet_screen.dart` y se retiraron prints de debug del picker de Magic Initiate.
+    - Verificacion reciente:
+      - `dart format` aplicado a `character_sheet_screen.dart`, `character_story_tab.dart` y `character_proficiency_sections.dart`.
+      - `dart analyze lib/features/characters/presentation/character_sheet/widgets/character_story_tab.dart`: sin issues.
+      - `dart analyze lib/features/characters/presentation/character_sheet/widgets/character_proficiency_sections.dart`: sin issues.
+      - `dart analyze lib/features/characters/presentation/character_sheet/widgets/character_sheet_header.dart`: sin issues.
+      - `dart analyze lib/screens/character_sheet_screen.dart`: sin errores; quedan infos conocidos, principalmente `withOpacity` y `use_build_context_synchronously`.
+    - Proximo paso recomendado al retomar:
+      - Empezar a corregir `use_build_context_synchronously` en flujos de navegacion/dialogos, o extraer otra pieza chica de UI de la ficha.
+      - Dejar la migracion masiva `withOpacity -> withValues` para una pasada mecanica separada, porque toca muchas lineas.
   - Flujo de creacion de personaje:
     - Orden corregido: raza -> clase -> nivel -> subclase solo si el nivel de clase la habilita -> background -> skills -> stats -> nombre.
     - `SelectLevelScreen` consulta `ClassDataService.getSubclassChoiceLevel` y solo abre `/subclass-selection` si el nivel elegido alcanza ese umbral y la clase tiene subclases.

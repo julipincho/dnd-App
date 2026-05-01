@@ -42,6 +42,9 @@ import 'package:stitch_app/features/characters/presentation/character_sheet/widg
 import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_spellcasting_summary_section.dart';
 import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_spell_slots_section.dart';
 import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_spell_selector_modal.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_proficiency_sections.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_sheet_header.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_story_tab.dart';
 import '../services/character_pact_service.dart';
 import '../services/character_spell_slot_service.dart';
 import '../logic/character_option_effects.dart';
@@ -1629,9 +1632,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         children: List.generate(3, (index) {
           final active = index < filled;
           return Container(
-            width: 14,
-            height: 14,
-            margin: const EdgeInsets.symmetric(horizontal: 4),
+            width: 10,
+            height: 10,
+            margin: const EdgeInsets.symmetric(horizontal: 3),
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: active ? color : Colors.white.withOpacity(0.08),
@@ -1659,10 +1662,10 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       required Color color,
     }) {
       return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         decoration: BoxDecoration(
           color: const Color(0xFF262632),
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(10),
           border: Border.all(
             color: color.withOpacity(0.22),
           ),
@@ -1676,10 +1679,10 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w700,
-                fontSize: 14,
+                fontSize: 12,
               ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 7),
             buildDots(value, color),
           ],
         ),
@@ -1705,7 +1708,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               });
             },
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               child: Row(
                 children: [
                   Expanded(
@@ -1726,9 +1729,10 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   Icon(
                     _deathSavesExpanded ? Icons.expand_less : Icons.expand_more,
+                    size: 20,
                     color: Colors.white70,
                   ),
                 ],
@@ -1738,7 +1742,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
           if (_deathSavesExpanded) ...[
             const Divider(height: 1, color: Colors.white12),
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
@@ -1750,34 +1754,34 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     style: TextStyle(
                       color: Colors.white.withOpacity(0.72),
                       height: 1.35,
+                      fontSize: 12,
                     ),
                   ),
-                  const SizedBox(height: 14),
-                  GridView.count(
-                    crossAxisCount: isLargeTablet ? 2 : 1,
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
-                    childAspectRatio: isLargeTablet ? 3.2 : 4.4,
+                  const SizedBox(height: 10),
+                  Row(
                     children: [
-                      buildStateCard(
-                        title: 'Successes',
-                        value: successes,
-                        color: Colors.greenAccent,
+                      Expanded(
+                        child: buildStateCard(
+                          title: 'Successes',
+                          value: successes,
+                          color: Colors.greenAccent,
+                        ),
                       ),
-                      buildStateCard(
-                        title: 'Failures',
-                        value: failures,
-                        color: Colors.redAccent,
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: buildStateCard(
+                          title: 'Failures',
+                          value: failures,
+                          color: Colors.redAccent,
+                        ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 10),
                   Wrap(
                     alignment: WrapAlignment.center,
-                    spacing: 8,
-                    runSpacing: 8,
+                    spacing: 6,
+                    runSpacing: 6,
                     children: [
                       FilledButton(
                         onPressed: isActive
@@ -1839,14 +1843,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
   String _formatSigned(int value) => value >= 0 ? '+$value' : '$value';
 
-  static const Map<String, List<String>> _skillsByAbility = {
-    'STR': ['Athletics'],
-    'DEX': ['Acrobatics', 'Sleight of Hand', 'Stealth'],
-    'INT': ['Arcana', 'History', 'Investigation', 'Nature', 'Religion'],
-    'WIS': ['Animal Handling', 'Insight', 'Medicine', 'Perception', 'Survival'],
-    'CHA': ['Deception', 'Intimidation', 'Performance', 'Persuasion'],
-  };
-
   static const Map<String, String> _skillAbilityMap = {
     'Acrobatics': 'DEX',
     'Animal Handling': 'WIS',
@@ -1867,15 +1863,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     'Stealth': 'DEX',
     'Survival': 'WIS',
   };
-
-  static const List<String> _savingThrowAbilities = [
-    'STR',
-    'DEX',
-    'CON',
-    'INT',
-    'WIS',
-    'CHA',
-  ];
 
   bool _isSavingThrowProficient(Character char, String ability) {
     final className = char.charClass.toLowerCase().trim();
@@ -2309,238 +2296,29 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     required bool isTablet,
     required bool isLargeTablet,
   }) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.28),
-        ),
+    final equipmentProvider = context.read<EquipmentProvider>();
+    final compendiumProvider = context.read<CompendiumProvider>();
+
+    return CharacterSavingThrowsSection(
+      character: char,
+      isExpanded: _savingThrowsExpanded,
+      isTablet: isTablet,
+      isLargeTablet: isLargeTablet,
+      onToggleExpanded: () {
+        setState(() {
+          _savingThrowsExpanded = !_savingThrowsExpanded;
+        });
+      },
+      getSavingThrowBonus: (character, ability) => _getSavingThrowBonus(
+        character,
+        ability,
+        equipmentProvider,
+        compendiumProvider,
       ),
-      child: Column(
-        children: [
-          InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: () {
-              setState(() {
-                _savingThrowsExpanded = !_savingThrowsExpanded;
-              });
-            },
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Saving Throws',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: isTablet ? 16 : 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  Text(
-                    _savingThrowsExpanded ? 'Hide' : 'Show',
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.6),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Icon(
-                    _savingThrowsExpanded
-                        ? Icons.expand_less
-                        : Icons.expand_more,
-                    color: Colors.white70,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (_savingThrowsExpanded) ...[
-            const Divider(height: 1, color: Colors.white12),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final crossAxisCount =
-                      isLargeTablet && constraints.maxWidth > 420 ? 2 : 1;
-                  const spacing = 10.0;
-                  final itemWidth = crossAxisCount == 1
-                      ? constraints.maxWidth
-                      : (constraints.maxWidth - spacing) / crossAxisCount;
-
-                  return Wrap(
-                    spacing: spacing,
-                    runSpacing: spacing,
-                    children: _savingThrowAbilities.map((ability) {
-                      final bonus = _getSavingThrowBonus(
-                        char,
-                        ability,
-                        context.read<EquipmentProvider>(),
-                        context.read<CompendiumProvider>(),
-                      );
-                      final proficient =
-                          _isSavingThrowProficient(char, ability);
-
-                      return SizedBox(
-                        width: itemWidth,
-                        child: _buildSavingThrowCard(
-                          ability: ability,
-                          bonus: bonus,
-                          isProficient: proficient,
-                          onRoll: () => _rollFromSheet(
-                            label: '$ability Save',
-                            modifier: bonus,
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  );
-                },
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSavingThrowCard({
-    required String ability,
-    required int bonus,
-    required bool isProficient,
-    required VoidCallback onRoll,
-  }) {
-    final abilityLabel = _getAbilityLabel(ability);
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onRoll,
-        child: Ink(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Color(0xFF2A2A38),
-                Color(0xFF22222E),
-              ],
-            ),
-            border: Border.all(
-              color: isProficient
-                  ? Colors.deepPurpleAccent.withOpacity(0.45)
-                  : Colors.white.withOpacity(0.08),
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.16),
-                blurRadius: 12,
-                offset: const Offset(0, 6),
-              ),
-              if (isProficient)
-                BoxShadow(
-                  color: Colors.deepPurpleAccent.withOpacity(0.10),
-                  blurRadius: 12,
-                  spreadRadius: 1,
-                ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 30,
-                height: 30,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: isProficient
-                      ? Colors.deepPurpleAccent.withOpacity(0.20)
-                      : Colors.white.withOpacity(0.05),
-                  border: Border.all(
-                    color: isProficient
-                        ? Colors.deepPurpleAccent.withOpacity(0.35)
-                        : Colors.white.withOpacity(0.08),
-                  ),
-                ),
-                alignment: Alignment.center,
-                child: Icon(
-                  isProficient ? Icons.check_rounded : Icons.circle_outlined,
-                  size: isProficient ? 17 : 13,
-                  color: Colors.white70,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      ability,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.92),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        height: 1.1,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      abilityLabel,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.48),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
-                        height: 1.1,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 10),
-              Container(
-                constraints: const BoxConstraints(minWidth: 48),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 7,
-                ),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(10),
-                  color: isProficient
-                      ? Colors.deepPurpleAccent.withOpacity(0.18)
-                      : Colors.white.withOpacity(0.05),
-                  border: Border.all(
-                    color: isProficient
-                        ? Colors.deepPurpleAccent.withOpacity(0.28)
-                        : Colors.white.withOpacity(0.10),
-                  ),
-                ),
-                child: Text(
-                  _formatSigned(bonus),
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 17,
-                    fontWeight: FontWeight.bold,
-                    height: 1,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+      isSavingThrowProficient: _isSavingThrowProficient,
+      getAbilityLabel: _getAbilityLabel,
+      formatSigned: _formatSigned,
+      onRoll: _rollFromSheet,
     );
   }
 
@@ -2550,228 +2328,29 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     required bool isTablet,
     required bool isLargeTablet,
   }) {
-    final totalSkills = _skillAbilityMap.length;
-    final double expandedBodyHeight = isLargeTablet ? 440 : 395;
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.28),
-        ),
-      ),
-      child: Column(
-        children: [
-          InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: () {
-              setState(() {
-                _skillsExpanded = !_skillsExpanded;
-              });
-            },
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.auto_awesome_motion_outlined,
-                    color: Colors.white70,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Skills ($totalSkills)',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: isTablet ? 16 : 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  Text(
-                    _skillsExpanded ? 'Hide' : 'Show',
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.6),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Icon(
-                    _skillsExpanded ? Icons.expand_less : Icons.expand_more,
-                    color: Colors.white70,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (_skillsExpanded) ...[
-            const Divider(height: 1, color: Colors.white12),
-            SizedBox(
-              height: expandedBodyHeight,
-              child: Scrollbar(
-                controller: _skillsScrollController,
-                thumbVisibility: true,
-                child: SingleChildScrollView(
-                  controller: _skillsScrollController,
-                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: _skillsByAbility.entries.map((entry) {
-                      final ability = entry.key;
-                      final skills = entry.value;
+    final equipmentProvider = context.read<EquipmentProvider>();
+    final compendiumProvider = context.read<CompendiumProvider>();
 
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 16),
-                        child: _buildSkillGroup(
-                          context,
-                          char,
-                          ability: ability,
-                          skills: skills,
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ],
+    return CharacterSkillsSection(
+      character: char,
+      isExpanded: _skillsExpanded,
+      isTablet: isTablet,
+      isLargeTablet: isLargeTablet,
+      scrollController: _skillsScrollController,
+      onToggleExpanded: () {
+        setState(() {
+          _skillsExpanded = !_skillsExpanded;
+        });
+      },
+      getSkillBonus: (character, skillName) => _getSkillBonus(
+        character,
+        skillName,
+        equipmentProvider,
+        compendiumProvider,
       ),
-    );
-  }
-
-  Widget _buildSkillGroup(
-    BuildContext context,
-    Character char, {
-    required String ability,
-    required List<String> skills,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: Colors.deepPurpleAccent.withOpacity(0.16),
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Text(
-            ability,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
-              fontSize: 12,
-            ),
-          ),
-        ),
-        const SizedBox(height: 10),
-        ...skills.map((skillName) {
-          final bonus = _getSkillBonus(
-            char,
-            skillName,
-            context.read<EquipmentProvider>(),
-            context.read<CompendiumProvider>(),
-          );
-          final proficient = _isSkillProficient(char, skillName);
-
-          return _buildRollableStatRow(
-            label: skillName,
-            subtitle: proficient ? 'Proficient' : 'Normal',
-            value: _formatSigned(bonus),
-            isProficient: proficient,
-            onRoll: () => _rollFromSheet(
-              label: skillName,
-              modifier: bonus,
-            ),
-          );
-        }),
-      ],
-    );
-  }
-
-  Widget _buildRollableStatRow({
-    required String label,
-    required String subtitle,
-    required String value,
-    required bool isProficient,
-    required VoidCallback onRoll,
-  }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF262632),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: isProficient
-              ? Colors.deepPurpleAccent.withOpacity(0.32)
-              : Colors.white.withOpacity(0.08),
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 28,
-            height: 28,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: isProficient
-                  ? Colors.deepPurpleAccent.withOpacity(0.22)
-                  : Colors.white.withOpacity(0.05),
-            ),
-            alignment: Alignment.center,
-            child: Icon(
-              isProficient ? Icons.check : Icons.circle_outlined,
-              size: isProficient ? 15 : 12,
-              color: Colors.white70,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.55),
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            value,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(width: 6),
-          IconButton(
-            tooltip: 'Roll',
-            onPressed: onRoll,
-            icon: const Icon(
-              Icons.casino_outlined,
-              color: Colors.white70,
-            ),
-          ),
-        ],
-      ),
+      isSkillProficient: _isSkillProficient,
+      formatSigned: _formatSigned,
+      onRoll: _rollFromSheet,
     );
   }
 
@@ -4085,7 +3664,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     }
 
     return DefaultTabController(
-      length: 5,
+      length: 6,
       child: Scaffold(
         backgroundColor: const Color(0xFF15151A),
         appBar: AppBar(
@@ -4097,7 +3676,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
           ),
           centerTitle: true,
           actions: [
-            // ðŸ‘‰ Ir a campaÃ±a (SIEMPRE disponible)
+            // Go to campaign is always available.
             if (char.campaignId != null)
               IconButton(
                 icon: const Icon(Icons.flag_outlined, color: Colors.white),
@@ -4123,7 +3702,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 },
               ),
 
-            // ðŸ‘‰ SOLO SI ES TUYO â†’ EDITAR
+            // Owner actions.
             if (isOwnedByCurrentUser)
               IconButton(
                 icon: const Icon(Icons.edit, color: Colors.white),
@@ -4132,7 +3711,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 },
               ),
 
-            // ðŸ‘‰ SOLO SI ES TUYO â†’ BORRAR
             if (isOwnedByCurrentUser)
               IconButton(
                 icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
@@ -4187,6 +3765,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               Tab(text: "Inventory"),
               Tab(text: "Spells"),
               Tab(text: "Features"),
+              Tab(text: "Story"),
               Tab(text: "Notes / Journal"),
             ],
           ),
@@ -4194,101 +3773,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         body: TabBarView(
           children: [
             CharacterOverviewTab(
-              header: Builder(
-                builder: (context) {
-                  final screenWidth = MediaQuery.of(context).size.width;
-                  final isTablet = screenWidth >= 600;
-                  final isLargeTablet = screenWidth >= 900;
-
-                  final cardPadding =
-                      isLargeTablet ? 24.0 : (isTablet ? 20.0 : 16.0);
-                  final avatarRadius =
-                      isLargeTablet ? 56.0 : (isTablet ? 48.0 : 38.0);
-                  final titleSize =
-                      isLargeTablet ? 30.0 : (isTablet ? 26.0 : 22.0);
-                  final subtitleSize =
-                      isLargeTablet ? 16.0 : (isTablet ? 15.0 : 14.0);
-                  final smallSubtitleSize =
-                      isLargeTablet ? 15.0 : (isTablet ? 14.0 : 13.0);
-
-                  return Container(
-                    padding: EdgeInsets.all(cardPadding),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF2D1B4C), Color(0xFF171821)],
-                      ),
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(
-                        color: Colors.deepPurpleAccent.withOpacity(0.6),
-                      ),
-                    ),
-                    child: isTablet
-                        ? Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              CircleAvatar(
-                                radius: avatarRadius,
-                                backgroundColor: Colors.deepPurpleAccent,
-                                backgroundImage:
-                                    hasDisplayableImagePath(char.portraitPath)
-                                        ? imageProviderFromPath(
-                                            char.portraitPath!,
-                                          )
-                                        : null,
-                                child:
-                                    !hasDisplayableImagePath(char.portraitPath)
-                                        ? const Icon(
-                                            Icons.person,
-                                            size: 42,
-                                            color: Colors.white,
-                                          )
-                                        : null,
-                              ),
-                              const SizedBox(width: 20),
-                              Expanded(
-                                child: _buildHeaderTextBlock(
-                                  char,
-                                  titleSize: titleSize,
-                                  subtitleSize: subtitleSize,
-                                  smallSubtitleSize: smallSubtitleSize,
-                                  isCentered: false,
-                                ),
-                              ),
-                            ],
-                          )
-                        : Column(
-                            children: [
-                              CircleAvatar(
-                                radius: avatarRadius,
-                                backgroundColor: Colors.deepPurpleAccent,
-                                backgroundImage:
-                                    hasDisplayableImagePath(char.portraitPath)
-                                        ? imageProviderFromPath(
-                                            char.portraitPath!,
-                                          )
-                                        : null,
-                                child:
-                                    !hasDisplayableImagePath(char.portraitPath)
-                                        ? const Icon(
-                                            Icons.person,
-                                            size: 36,
-                                            color: Colors.white,
-                                          )
-                                        : null,
-                              ),
-                              const SizedBox(height: 16),
-                              _buildHeaderTextBlock(
-                                char,
-                                titleSize: titleSize,
-                                subtitleSize: subtitleSize,
-                                smallSubtitleSize: smallSubtitleSize,
-                                isCentered: true,
-                              ),
-                            ],
-                          ),
-                  );
-                },
-              ),
+              header: CharacterSheetHeader(character: char),
               char: char,
               equipmentProvider: equipmentProvider,
               compendiumProvider: compendiumProvider,
@@ -4347,14 +3832,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               buildSavingThrowsSection: _buildSavingThrowsSection,
               buildSkillsSection: _buildSkillsSection,
               buildDeathSavesSection: _buildDeathSavesSection,
-              buildNarrativeCard: ({
-                required title,
-                required content,
-              }) =>
-                  _narrativeCard(
-                title: title,
-                content: content,
-              ),
               onOpenDiceRoller: _openDiceRoller,
               onLevelUp: () async {
                 if (!isOwnedByCurrentUser) return;
@@ -4442,6 +3919,10 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
             ),
             _buildSpellsTab(context, char, spellProvider),
             _buildFeaturesTab(context, char),
+            CharacterStoryTab(
+              character: char,
+              classIdentityLabel: buildCharacterClassIdentityLabel(char),
+            ),
             _buildNotesTab(
               context,
               char,
@@ -4582,61 +4063,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     );
   }
 
-  Widget _buildHeaderTextBlock(
-    Character char, {
-    required double titleSize,
-    required double subtitleSize,
-    required double smallSubtitleSize,
-    required bool isCentered,
-  }) {
-    return Column(
-      crossAxisAlignment:
-          isCentered ? CrossAxisAlignment.center : CrossAxisAlignment.start,
-      children: [
-        Text(
-          char.name.isEmpty ? "Unnamed Character" : char.name,
-          textAlign: isCentered ? TextAlign.center : TextAlign.start,
-          style: TextStyle(
-            fontSize: titleSize,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          "${char.race}${char.subrace != null ? ' (${char.subrace})' : ''} - ${char.charClass}${char.subclass != null ? ' / ${char.subclass}' : ''} - Level ${char.level}",
-          textAlign: isCentered ? TextAlign.center : TextAlign.start,
-          style: TextStyle(
-            fontSize: subtitleSize,
-            color: Colors.white.withOpacity(0.82),
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        if (char.classLevels.length > 1) ...[
-          const SizedBox(height: 4),
-          Text(
-            char.classProgressionLabel,
-            textAlign: isCentered ? TextAlign.center : TextAlign.start,
-            style: TextStyle(
-              fontSize: smallSubtitleSize,
-              color: Colors.white.withOpacity(0.72),
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-        const SizedBox(height: 4),
-        Text(
-          "${char.background.name} - ${char.alignment ?? 'True Neutral'}",
-          textAlign: isCentered ? TextAlign.center : TextAlign.start,
-          style: TextStyle(
-            fontSize: smallSubtitleSize,
-            color: Colors.white.withOpacity(0.7),
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _summaryCard({
     required String label,
     required String value,
@@ -4649,6 +4075,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final iconSize = isLargeTablet ? 20.0 : 18.0;
 
     return Container(
+      constraints: const BoxConstraints(minHeight: 74),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: const Color(0xFF202028),
@@ -4658,6 +4085,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         ),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Icon(icon, color: Colors.white70, size: iconSize),
           const SizedBox(width: 10),
@@ -4714,6 +4142,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         borderRadius: BorderRadius.circular(8),
         onTap: onTap,
         child: Ink(
+          height: 74,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             color: const Color(0xFF202028),
@@ -4723,6 +4152,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
             ),
           ),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Icon(icon, color: Colors.white70, size: iconSize),
               const SizedBox(width: 10),
@@ -4920,44 +4350,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     );
   }
 
-  Widget _narrativeCard({
-    required String title,
-    required String content,
-  }) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.28),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
-              fontSize: 16,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            content,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.86),
-              height: 1.45,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _ability(
     Character char,
     String label,
@@ -4966,58 +4358,73 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     bool isLargeTablet = false,
   }) {
     final mod = _abilityMod(score);
-    final labelSize = isLargeTablet ? 18.0 : (isTablet ? 17.0 : 16.0);
-    final scoreSize = isLargeTablet ? 28.0 : (isTablet ? 24.0 : 22.0);
-    final verticalPadding = isLargeTablet ? 16.0 : (isTablet ? 14.0 : 12.0);
+    final labelSize = isLargeTablet ? 11.0 : 10.0;
+    final modSize = isLargeTablet ? 26.0 : (isTablet ? 23.0 : 21.0);
+    final scoreSize = isLargeTablet ? 15.0 : 13.0;
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(8),
         onTap: () => _rollAbilityCheck(char, label),
         child: Ink(
           decoration: BoxDecoration(
-            color: const Color(0xFF202028),
-            borderRadius: BorderRadius.circular(12),
+            color: const Color(0xFF20232C),
+            borderRadius: BorderRadius.circular(8),
             border: Border.all(
-              color: Colors.deepPurpleAccent.withOpacity(0.5),
+              color: Colors.redAccent.withOpacity(0.34),
             ),
           ),
-          padding: EdgeInsets.symmetric(vertical: verticalPadding),
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 7),
           child: Center(
-            // ðŸ‘ˆ CLAVE: esto centra TODO el contenido
             child: Column(
-              mainAxisSize: MainAxisSize.min, // ðŸ‘ˆ evita que se estire raro
+              mainAxisSize: MainAxisSize.min,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
                   label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: labelSize,
-                    color: Colors.white70,
+                    color: Colors.white.withOpacity(0.72),
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0,
                   ),
                 ),
+                const SizedBox(height: 3),
                 Text(
-                  "$score",
+                  _formatSigned(mod),
                   style: TextStyle(
-                    fontSize: scoreSize,
+                    fontSize: modSize,
                     color: Colors.white,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w900,
+                    height: 1,
                   ),
                 ),
+                const SizedBox(height: 6),
                 Container(
-                  margin: const EdgeInsets.only(top: 6),
+                  constraints: const BoxConstraints(minWidth: 38),
                   padding: const EdgeInsets.symmetric(
                     vertical: 4,
                     horizontal: 10,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.deepPurpleAccent.withOpacity(0.3),
+                    color: const Color(0xFF14151C),
                     borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: Colors.white.withOpacity(0.16),
+                    ),
                   ),
                   child: Text(
-                    _formatSigned(mod),
-                    style: const TextStyle(color: Colors.white),
+                    "$score",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.9),
+                      fontSize: scoreSize,
+                      fontWeight: FontWeight.w800,
+                      height: 1,
+                    ),
                   ),
                 ),
               ],
@@ -7365,7 +6772,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         ),
                       ),
 
-                      // ðŸ”’ SOLO SI ES TUYO â†’ MENÃš
+                      // Owner menu.
                       if (isOwnedByCurrentUser)
                         PopupMenuButton<String>(
                           icon: const Icon(
@@ -7431,7 +6838,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     ),
                   ],
 
-                  // ðŸ”¹ MENSAJE SOLO LECTURA
+                  // Read-only message.
                   if (!isOwnedByCurrentUser) ...[
                     const SizedBox(height: 8),
                     Text(
@@ -8376,12 +7783,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final selection = rawSelection is Map
         ? Map<String, dynamic>.from(rawSelection)
         : <String, dynamic>{};
-    print('--- MAGIC INITIATE SPELL PICKER DEBUG ---');
-    print('grant.title: ${grant.title}');
-    print('className raw: $className');
-    print('level: $level');
-    print('spellProvider loaded: ${spellProvider.isLoaded}');
-    print('total spells loaded: ${spellProvider.spells.length}');
     final tempSelectedIds = <String>{
       if (level == 0)
         ...((selection['selectedCantripIds'] as List?) ?? const [])
@@ -8389,10 +7790,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       if (level == 1 && selection['selectedLevel1SpellId'] != null)
         selection['selectedLevel1SpellId'].toString(),
     };
-    print('filtered spells count: ${spells.length}');
-    if (spells.isNotEmpty) {
-      print('first 10 spells: ${spells.take(10).map((s) => s.name).toList()}');
-    }
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,

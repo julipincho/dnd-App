@@ -74,11 +74,6 @@ class CharacterOverviewTab extends StatelessWidget {
     required bool isLargeTablet,
   }) buildDeathSavesSection;
 
-  final Widget Function({
-    required String title,
-    required String content,
-  }) buildNarrativeCard;
-
   final Future<void> Function() onOpenDiceRoller;
   final Future<void> Function() onLevelUp;
   final VoidCallback onGoToCampaign;
@@ -189,7 +184,6 @@ class CharacterOverviewTab extends StatelessWidget {
     required this.buildSavingThrowsSection,
     required this.buildSkillsSection,
     required this.buildDeathSavesSection,
-    required this.buildNarrativeCard,
     required this.onOpenDiceRoller,
     required this.onLevelUp,
     required this.onGoToCampaign,
@@ -383,17 +377,259 @@ class CharacterOverviewTab extends StatelessWidget {
     );
   }
 
+  Widget _buildCommandBar({
+    required bool isTablet,
+  }) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      alignment: WrapAlignment.end,
+      children: [
+        if (char.campaignId != null && char.campaignId!.isNotEmpty)
+          _buildCommandButton(
+            label: 'Campaign',
+            icon: Icons.flag_outlined,
+            color: Colors.deepPurpleAccent,
+            onTap: onGoToCampaign,
+          ),
+        _buildCommandButton(
+          label: char.campaignId == null || char.campaignId!.isEmpty
+              ? 'Assign Campaign'
+              : 'Manage Campaign',
+          icon: Icons.groups_outlined,
+          color: Colors.blueAccent,
+          onTap: onManageCampaign,
+        ),
+        _buildCommandButton(
+          label: 'Dice',
+          icon: Icons.casino_outlined,
+          color: Colors.redAccent,
+          onTap: onOpenDiceRoller,
+        ),
+        _buildCommandButton(
+          label: 'Level Up',
+          icon: Icons.arrow_upward,
+          color: Colors.greenAccent,
+          onTap: onLevelUp,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCommandButton({
+    required String label,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: onTap,
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.13),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: color.withOpacity(0.28)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, color: Colors.white, size: 16),
+              const SizedBox(width: 7),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMetricStrip({
+    required List<Widget> cards,
+    required int columns,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const spacing = 8.0;
+        final itemWidth = columns == 1
+            ? constraints.maxWidth
+            : (constraints.maxWidth - (spacing * (columns - 1))) / columns;
+
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: cards
+              .map(
+                (card) => SizedBox(
+                  width: itemWidth,
+                  child: card,
+                ),
+              )
+              .toList(),
+        );
+      },
+    );
+  }
+
+  Widget _buildMetricDashboard({
+    required Widget hpCard,
+    required Widget initiativeCard,
+    required List<Widget> cards,
+    required int columns,
+  }) {
+    if (columns <= 1) {
+      return _buildMetricStrip(
+        cards: [hpCard, initiativeCard, ...cards],
+        columns: 1,
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const spacing = 8.0;
+        final primaryWidth =
+            (constraints.maxWidth - (spacing * (columns - 1))) / columns;
+        final secondaryColumns = columns - 1;
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: primaryWidth,
+              child: Column(
+                children: [
+                  hpCard,
+                  const SizedBox(height: spacing),
+                  initiativeCard,
+                ],
+              ),
+            ),
+            const SizedBox(width: spacing),
+            Expanded(
+              child: _buildMetricStrip(
+                cards: cards,
+                columns: secondaryColumns,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildAbilityRail({
+    required Character char,
+    required bool isTablet,
+    required bool isLargeTablet,
+    required int statColumns,
+    required double statAspectRatio,
+    required int str,
+    required int dex,
+    required int con,
+    required int intScore,
+    required int wis,
+    required int cha,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF191A22),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 2, bottom: 8),
+            child: Text(
+              'ABILITIES',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.68),
+                fontSize: 11,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0,
+              ),
+            ),
+          ),
+          GridView.count(
+            crossAxisCount: statColumns,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisSpacing: 8,
+            mainAxisSpacing: 8,
+            childAspectRatio: statAspectRatio,
+            children: [
+              buildAbilityCard(
+                char,
+                "STR",
+                str,
+                isTablet: isTablet,
+                isLargeTablet: isLargeTablet,
+              ),
+              buildAbilityCard(
+                char,
+                "DEX",
+                dex,
+                isTablet: isTablet,
+                isLargeTablet: isLargeTablet,
+              ),
+              buildAbilityCard(
+                char,
+                "CON",
+                con,
+                isTablet: isTablet,
+                isLargeTablet: isLargeTablet,
+              ),
+              buildAbilityCard(
+                char,
+                "INT",
+                intScore,
+                isTablet: isTablet,
+                isLargeTablet: isLargeTablet,
+              ),
+              buildAbilityCard(
+                char,
+                "WIS",
+                wis,
+                isTablet: isTablet,
+                isLargeTablet: isLargeTablet,
+              ),
+              buildAbilityCard(
+                char,
+                "CHA",
+                cha,
+                isTablet: isTablet,
+                isLargeTablet: isLargeTablet,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     final isTablet = screenWidth >= 600;
     final isLargeTablet = screenWidth >= 900;
 
-    final maxContentWidth = isLargeTablet ? 1100.0 : 900.0;
+    final maxContentWidth = isLargeTablet ? 1180.0 : 900.0;
     final pagePadding = isLargeTablet ? 28.0 : (isTablet ? 24.0 : 16.0);
-    final sectionTitleSize = isLargeTablet ? 22.0 : (isTablet ? 20.0 : 18.0);
     final statColumns = isLargeTablet ? 6 : 3;
-    final statAspectRatio = isLargeTablet ? 1.12 : (isTablet ? 0.98 : 0.88);
+    final statAspectRatio = isLargeTablet ? 1.28 : (isTablet ? 1.12 : 0.98);
     final dashboardColumns = isLargeTablet ? 4 : (isTablet ? 3 : 2);
 
     final str = getStat("STR");
@@ -431,13 +667,26 @@ class CharacterOverviewTab extends StatelessWidget {
       compendiumProvider,
     );
 
-    final summaryCards = <Widget>[
-      buildHpQuickActionsCard(
-        context: context,
-        char: char,
-        isTablet: isTablet,
-        isLargeTablet: isLargeTablet,
+    final hpCard = buildHpQuickActionsCard(
+      context: context,
+      char: char,
+      isTablet: isTablet,
+      isLargeTablet: isLargeTablet,
+    );
+
+    final initiativeCard = buildInteractiveSummaryCard(
+      label: 'Initiative',
+      value: formatSigned(initiative),
+      icon: Icons.bolt_outlined,
+      isTablet: isTablet,
+      isLargeTablet: isLargeTablet,
+      onTap: () => onRollFromSheet(
+        label: 'Initiative',
+        modifier: initiative,
       ),
+    );
+
+    final summaryCards = <Widget>[
       buildSummaryCard(
         label: 'AC',
         value: '$liveArmorClass',
@@ -466,17 +715,6 @@ class CharacterOverviewTab extends StatelessWidget {
         icon: Icons.military_tech_outlined,
         isTablet: isTablet,
         isLargeTablet: isLargeTablet,
-      ),
-      buildInteractiveSummaryCard(
-        label: 'Initiative',
-        value: formatSigned(initiative),
-        icon: Icons.bolt_outlined,
-        isTablet: isTablet,
-        isLargeTablet: isLargeTablet,
-        onTap: () => onRollFromSheet(
-          label: 'Initiative',
-          modifier: initiative,
-        ),
       ),
       buildSummaryCard(
         label: 'Passive Perception',
@@ -512,181 +750,31 @@ class CharacterOverviewTab extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               header,
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  if (char.campaignId != null && char.campaignId!.isNotEmpty)
-                    GestureDetector(
-                      onTap: onGoToCampaign,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.deepPurpleAccent.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(999),
-                          border: Border.all(
-                            color: Colors.deepPurpleAccent.withOpacity(0.25),
-                          ),
-                        ),
-                        child: Text(
-                          "View Campaign",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: isTablet ? 14 : 13,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ),
-                  GestureDetector(
-                    onTap: onManageCampaign,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.blueAccent.withOpacity(0.16),
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(
-                          color: Colors.blueAccent.withOpacity(0.24),
-                        ),
-                      ),
-                      child: Text(
-                        char.campaignId == null || char.campaignId!.isEmpty
-                            ? "Assign to Campaign"
-                            : "Manage Campaign",
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: isTablet ? 14 : 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerRight,
+                child: _buildCommandBar(isTablet: isTablet),
               ),
-              const SizedBox(height: 18),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Expanded(
-                    child: Text(
-                      "Ability Scores",
-                      style: TextStyle(
-                        fontSize: sectionTitleSize,
-                        color: Colors.white.withOpacity(0.95),
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      ElevatedButton.icon(
-                        onPressed: onOpenDiceRoller,
-                        icon: const Icon(Icons.casino_outlined),
-                        label: const Text('Dice Roller'),
-                      ),
-                      ElevatedButton.icon(
-                        onPressed: onLevelUp,
-                        icon: const Icon(Icons.arrow_upward),
-                        label: const Text('Level Up'),
-                      ),
-                    ],
-                  ),
-                ],
+              const SizedBox(height: 10),
+              _buildMetricDashboard(
+                hpCard: hpCard,
+                initiativeCard: initiativeCard,
+                cards: summaryCards,
+                columns: dashboardColumns,
               ),
-              const SizedBox(height: 12),
-              GridView.count(
-                crossAxisCount: statColumns,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-                childAspectRatio: statAspectRatio,
-                children: [
-                  buildAbilityCard(
-                    char,
-                    "STR",
-                    str,
-                    isTablet: isTablet,
-                    isLargeTablet: isLargeTablet,
-                  ),
-                  buildAbilityCard(
-                    char,
-                    "DEX",
-                    dex,
-                    isTablet: isTablet,
-                    isLargeTablet: isLargeTablet,
-                  ),
-                  buildAbilityCard(
-                    char,
-                    "CON",
-                    con,
-                    isTablet: isTablet,
-                    isLargeTablet: isLargeTablet,
-                  ),
-                  buildAbilityCard(
-                    char,
-                    "INT",
-                    intScore,
-                    isTablet: isTablet,
-                    isLargeTablet: isLargeTablet,
-                  ),
-                  buildAbilityCard(
-                    char,
-                    "WIS",
-                    wis,
-                    isTablet: isTablet,
-                    isLargeTablet: isLargeTablet,
-                  ),
-                  buildAbilityCard(
-                    char,
-                    "CHA",
-                    cha,
-                    isTablet: isTablet,
-                    isLargeTablet: isLargeTablet,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 18),
-              Text(
-                "Combat",
-                style: TextStyle(
-                  fontSize: sectionTitleSize,
-                  color: Colors.white.withOpacity(0.95),
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 12),
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  const spacing = 12.0;
-                  final itemWidth = dashboardColumns == 1
-                      ? constraints.maxWidth
-                      : (constraints.maxWidth -
-                              (spacing * (dashboardColumns - 1))) /
-                          dashboardColumns;
-
-                  return Wrap(
-                    spacing: spacing,
-                    runSpacing: spacing,
-                    children: summaryCards
-                        .map(
-                          (card) => SizedBox(
-                            width: itemWidth,
-                            child: card,
-                          ),
-                        )
-                        .toList(),
-                  );
-                },
+              const SizedBox(height: 10),
+              _buildAbilityRail(
+                char: char,
+                isTablet: isTablet,
+                isLargeTablet: isLargeTablet,
+                statColumns: statColumns,
+                statAspectRatio: statAspectRatio,
+                str: str,
+                dex: dex,
+                con: con,
+                intScore: intScore,
+                wis: wis,
+                cha: cha,
               ),
               const SizedBox(height: 18),
               if (isLargeTablet)
@@ -817,55 +905,7 @@ class CharacterOverviewTab extends StatelessWidget {
                   isLargeTablet: isLargeTablet,
                 ),
               ],
-              const SizedBox(height: 24),
-              Text(
-                "Narrative",
-                style: TextStyle(
-                  fontSize: sectionTitleSize,
-                  color: Colors.white.withOpacity(0.95),
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 12),
-              if (isLargeTablet)
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: buildNarrativeCard(
-                        title: 'Backstory',
-                        content: (char.backstory ?? '').trim().isEmpty
-                            ? 'No backstory yet.'
-                            : char.backstory!.trim(),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: buildNarrativeCard(
-                        title: 'Notes',
-                        content: (char.notes ?? '').trim().isEmpty
-                            ? 'No notes yet.'
-                            : char.notes!.trim(),
-                      ),
-                    ),
-                  ],
-                )
-              else ...[
-                buildNarrativeCard(
-                  title: 'Backstory',
-                  content: (char.backstory ?? '').trim().isEmpty
-                      ? 'No backstory yet.'
-                      : char.backstory!.trim(),
-                ),
-                const SizedBox(height: 12),
-                buildNarrativeCard(
-                  title: 'Notes',
-                  content: (char.notes ?? '').trim().isEmpty
-                      ? 'No notes yet.'
-                      : char.notes!.trim(),
-                ),
-              ],
-              const SizedBox(height: 24),
+              const SizedBox(height: 18),
               if (spellAbilityKey != null)
                 Text(
                   'Spellcasting: $spellAbilityKey (${formatSigned(spellAbilityModifier)})',
