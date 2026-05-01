@@ -360,6 +360,14 @@ Pendientes inmediatos:
 - `CharacterSheetScreen` conserva el calculo de summaries y el estado de clase activa, pero ya no renderiza esas cards.
 - Se extrajo el render de Spell Slots y Pact Magic Slots a `lib/features/characters/presentation/character_sheet/widgets/character_spell_slots_section.dart`.
 - `CharacterSheetScreen` conserva las acciones de provider y el dialogo de configuracion manual de slots, pero ya no renderiza las cards/grillas de slots.
+- Se inicio redireccion de producto de la ficha hacia una hoja tipo D&D Beyond:
+  - `CharacterOverviewTab` ahora prioriza abilities, dashboard de combate y columnas tacticas para saves, skills, defensas, proficiencies, acciones y rolls.
+  - El objetivo es una ficha densa, accionable y preparada para combate compartido, sin copiar 1:1 la UI externa.
+- `CharacterCombatSummarySection` se reconvirtio en un panel `Actions & Combat`:
+  - destaca la accion primaria equipada,
+  - muestra ataque/dano/stat en chips compactos,
+  - mantiene botones directos para tirar ataque y dano,
+  - conserva metricas defensivas de armadura/escudo y mano principal.
 - Se extrajeron `Features` y `Resources` a widgets dedicados:
   - `lib/features/characters/presentation/character_sheet/widgets/character_features_section.dart`
   - `lib/features/characters/presentation/character_sheet/widgets/character_resources_section.dart`

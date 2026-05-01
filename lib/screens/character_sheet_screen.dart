@@ -2364,34 +2364,41 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
             const Divider(height: 1, color: Colors.white12),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-              child: GridView.builder(
-                itemCount: _savingThrowAbilities.length,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: isLargeTablet ? 3 : 2,
-                  crossAxisSpacing: 10,
-                  mainAxisSpacing: 10,
-                  mainAxisExtent: 184,
-                ),
-                itemBuilder: (_, index) {
-                  final ability = _savingThrowAbilities[index];
-                  final bonus = _getSavingThrowBonus(
-                    char,
-                    ability,
-                    context.read<EquipmentProvider>(),
-                    context.read<CompendiumProvider>(),
-                  );
-                  final proficient = _isSavingThrowProficient(char, ability);
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final crossAxisCount =
+                      isLargeTablet && constraints.maxWidth > 420 ? 2 : 1;
+                  const spacing = 10.0;
+                  final itemWidth = crossAxisCount == 1
+                      ? constraints.maxWidth
+                      : (constraints.maxWidth - spacing) / crossAxisCount;
 
-                  return _buildSavingThrowCard(
-                    ability: ability,
-                    bonus: bonus,
-                    isProficient: proficient,
-                    onRoll: () => _rollFromSheet(
-                      label: '$ability Save',
-                      modifier: bonus,
-                    ),
+                  return Wrap(
+                    spacing: spacing,
+                    runSpacing: spacing,
+                    children: _savingThrowAbilities.map((ability) {
+                      final bonus = _getSavingThrowBonus(
+                        char,
+                        ability,
+                        context.read<EquipmentProvider>(),
+                        context.read<CompendiumProvider>(),
+                      );
+                      final proficient =
+                          _isSavingThrowProficient(char, ability);
+
+                      return SizedBox(
+                        width: itemWidth,
+                        child: _buildSavingThrowCard(
+                          ability: ability,
+                          bonus: bonus,
+                          isProficient: proficient,
+                          onRoll: () => _rollFromSheet(
+                            label: '$ability Save',
+                            modifier: bonus,
+                          ),
+                        ),
+                      );
+                    }).toList(),
                   );
                 },
               ),
@@ -2413,12 +2420,12 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(12),
         onTap: onRoll,
         child: Ink(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(12),
             gradient: const LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
@@ -2446,13 +2453,11 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 ),
             ],
           ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.center,
+          child: Row(
             children: [
               Container(
-                width: 34,
-                height: 34,
+                width: 30,
+                height: 30,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: isProficient
@@ -2467,45 +2472,51 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 alignment: Alignment.center,
                 child: Icon(
                   isProficient ? Icons.check_rounded : Icons.circle_outlined,
-                  size: isProficient ? 18 : 14,
+                  size: isProficient ? 17 : 13,
                   color: Colors.white70,
                 ),
               ),
-              const SizedBox(height: 14),
-              Text(
-                ability,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.92),
-                  fontSize: 14,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.4,
-                  height: 1.1,
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      ability,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.92),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        height: 1.1,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      abilityLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.48),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        height: 1.1,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 4),
-              Text(
-                abilityLabel,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.48),
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  height: 1.1,
-                ),
-              ),
-              const SizedBox(height: 14),
+              const SizedBox(width: 10),
               Container(
+                constraints: const BoxConstraints(minWidth: 48),
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
+                  horizontal: 10,
+                  vertical: 7,
                 ),
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(999),
+                  borderRadius: BorderRadius.circular(10),
                   color: isProficient
                       ? Colors.deepPurpleAccent.withOpacity(0.18)
                       : Colors.white.withOpacity(0.05),
@@ -2517,9 +2528,10 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 ),
                 child: Text(
                   _formatSigned(bonus),
+                  textAlign: TextAlign.center,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 22,
+                    fontSize: 17,
                     fontWeight: FontWeight.bold,
                     height: 1,
                   ),
@@ -4461,19 +4473,22 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       hpColor = Colors.redAccent;
     }
 
-    final labelSize = isLargeTablet ? 14.0 : (isTablet ? 13.0 : 12.0);
-    final valueSize = isLargeTablet ? 24.0 : (isTablet ? 22.0 : 20.0);
+    final labelSize = isLargeTablet ? 12.0 : 11.0;
+    final valueSize = isLargeTablet ? 20.0 : 18.0;
 
     Widget quickButton(String text, int delta) {
-      return Expanded(
+      return SizedBox(
+        height: 30,
         child: OutlinedButton(
           onPressed: () => _updateCharacterHp(context, char, delta),
           style: OutlinedButton.styleFrom(
             foregroundColor: Colors.white,
             side: BorderSide(color: Colors.white.withOpacity(0.15)),
-            padding: const EdgeInsets.symmetric(vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 9),
+            minimumSize: Size.zero,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(8),
             ),
           ),
           child: Text(text),
@@ -4481,11 +4496,32 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       );
     }
 
+    Widget restButton() {
+      return SizedBox(
+        height: 30,
+        child: OutlinedButton.icon(
+          onPressed: () => _longRest(context, char),
+          icon: const Icon(Icons.hotel_outlined, size: 15),
+          label: const Text('Long Rest'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: Colors.white,
+            side: BorderSide(color: Colors.deepPurpleAccent.withOpacity(0.28)),
+            padding: const EdgeInsets.symmetric(horizontal: 9),
+            minimumSize: Size.zero,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+        ),
+      );
+    }
+
     return Container(
-      padding: EdgeInsets.all(isLargeTablet ? 18 : 16),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: Colors.deepPurpleAccent.withOpacity(0.35),
         ),
@@ -4497,15 +4533,18 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
             children: [
               Icon(Icons.favorite, color: hpColor, size: 20),
               const SizedBox(width: 8),
-              Text(
-                'Hit Points',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: labelSize,
-                  fontWeight: FontWeight.w700,
+              Expanded(
+                child: Text(
+                  'Hit Points',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: labelSize,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
-              const Spacer(),
               Text(
                 '$currentHp / $maxHp',
                 style: TextStyle(
@@ -4516,45 +4555,27 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           ClipRRect(
             borderRadius: BorderRadius.circular(999),
             child: LinearProgressIndicator(
               value: hpPercent.clamp(0.0, 1.0),
-              minHeight: 10,
+              minHeight: 7,
               backgroundColor: Colors.white.withOpacity(0.08),
               valueColor: AlwaysStoppedAnimation<Color>(hpColor),
             ),
           ),
-          const SizedBox(height: 14),
-          Row(
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
             children: [
               quickButton('-1', -1),
-              const SizedBox(width: 8),
               quickButton('-5', -5),
-              const SizedBox(width: 8),
               quickButton('+1', 1),
-              const SizedBox(width: 8),
               quickButton('+5', 5),
+              restButton(),
             ],
-          ),
-          const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () => _longRest(context, char),
-              icon: const Icon(Icons.hotel_outlined),
-              label: const Text('Long Rest'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.deepPurpleAccent.withOpacity(0.25),
-                foregroundColor: Colors.white,
-                elevation: 0,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            ),
           ),
         ],
       ),
@@ -4623,45 +4644,51 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     required bool isTablet,
     required bool isLargeTablet,
   }) {
-    final labelSize = isLargeTablet ? 14.0 : (isTablet ? 13.0 : 12.0);
-    final valueSize = isLargeTablet ? 24.0 : (isTablet ? 22.0 : 20.0);
-    final iconSize = isLargeTablet ? 22.0 : 20.0;
+    final labelSize = isLargeTablet ? 12.0 : 11.0;
+    final valueSize = isLargeTablet ? 20.0 : 18.0;
+    final iconSize = isLargeTablet ? 20.0 : 18.0;
 
     return Container(
-      padding: EdgeInsets.all(isLargeTablet ? 18 : 16),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: Colors.deepPurpleAccent.withOpacity(0.35),
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        mainAxisAlignment: MainAxisAlignment.center,
+      child: Row(
         children: [
           Icon(icon, color: Colors.white70, size: iconSize),
-          const SizedBox(height: 10),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: valueSize,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white70,
-              fontSize: labelSize,
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: valueSize,
+                    fontWeight: FontWeight.bold,
+                    height: 1.05,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: labelSize,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -4677,66 +4704,62 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     required bool isLargeTablet,
     required VoidCallback onTap,
   }) {
-    final labelSize = isLargeTablet ? 14.0 : (isTablet ? 13.0 : 12.0);
-    final valueSize = isLargeTablet ? 24.0 : (isTablet ? 22.0 : 20.0);
-    final iconSize = isLargeTablet ? 22.0 : 20.0;
+    final labelSize = isLargeTablet ? 12.0 : 11.0;
+    final valueSize = isLargeTablet ? 20.0 : 18.0;
+    final iconSize = isLargeTablet ? 20.0 : 18.0;
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(8),
         onTap: onTap,
         child: Ink(
-          padding: EdgeInsets.all(isLargeTablet ? 18 : 16),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             color: const Color(0xFF202028),
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(8),
             border: Border.all(
               color: Colors.deepPurpleAccent.withOpacity(0.35),
             ),
           ),
-          child: Stack(
+          child: Row(
             children: [
-              Positioned(
-                top: 0,
-                right: 0,
-                child: Icon(
-                  Icons.edit_outlined,
-                  color: Colors.white38,
-                  size: isLargeTablet ? 18 : 16,
-                ),
-              ),
-              Center(
+              Icon(icon, color: Colors.white70, size: iconSize),
+              const SizedBox(width: 10),
+              Expanded(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(icon, color: Colors.white70, size: iconSize),
-                    const SizedBox(height: 10),
                     Text(
                       value,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: valueSize,
                         fontWeight: FontWeight.bold,
+                        height: 1.05,
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 3),
                     Text(
                       label,
-                      maxLines: 2,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
                       style: TextStyle(
                         color: Colors.white70,
                         fontSize: labelSize,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
                 ),
+              ),
+              Icon(
+                Icons.edit_outlined,
+                color: Colors.white38,
+                size: isLargeTablet ? 16 : 14,
               ),
             ],
           ),

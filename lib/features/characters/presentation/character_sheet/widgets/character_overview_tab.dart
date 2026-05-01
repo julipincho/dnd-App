@@ -217,18 +217,35 @@ class CharacterOverviewTab extends StatelessWidget {
     required this.rollMainHandAttack,
     required this.rollMainHandDamage,
   });
-  Widget _buildTagSection({
-    required String title,
-    required List<String> values,
-  }) {
-    if (values.isEmpty) return const SizedBox.shrink();
+  List<String> _uniqueValues(List<String> values) {
+    final seen = <String>{};
+    final result = <String>[];
 
+    for (final value in values) {
+      final normalized = value.trim();
+      if (normalized.isEmpty) continue;
+
+      final key = normalized.toLowerCase();
+      if (seen.add(key)) {
+        result.add(normalized);
+      }
+    }
+
+    result.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return result;
+  }
+
+  Widget _buildSheetPanel({
+    required String title,
+    required Widget child,
+    EdgeInsetsGeometry padding = const EdgeInsets.all(14),
+  }) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: padding,
       decoration: BoxDecoration(
         color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: Colors.deepPurpleAccent.withOpacity(0.28),
         ),
@@ -237,101 +254,133 @@ class CharacterOverviewTab extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            title,
+            title.toUpperCase(),
             style: const TextStyle(
               color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0,
             ),
           ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: values.map((value) {
-              return Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.deepPurpleAccent.withOpacity(0.18),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  value,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              );
-            }).toList(),
+          const SizedBox(height: 10),
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoBlock(String label, List<String> values) {
+    final cleanValues = _uniqueValues(values);
+    if (cleanValues.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label.toUpperCase(),
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.58),
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            cleanValues.join(', '),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              height: 1.35,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ),
     );
   }
 
-  List<Widget> _buildRacialTraitCards(Character char) {
-    final sections = <Widget>[];
+  Widget _buildProficienciesPanel(Character char) {
+    final armor = [
+      ...char.racialArmorProficiencies,
+      ...char.featArmorProficiencies,
+    ];
+    final weapons = [
+      ...char.racialWeaponProficiencies,
+      ...char.featWeaponProficiencies,
+    ];
+    final tools = [
+      ...char.racialToolProficiencies,
+      ...char.featToolProficiencies,
+    ];
+    final languages = [
+      ...char.racialLanguageProficiencies,
+      ...char.featLanguageProficiencies,
+    ];
 
-    void addSection(String title, List<String> values) {
-      if (values.isEmpty) return;
-
-      sections.add(
-        _buildTagSection(
-          title: title,
-          values: values,
-        ),
-      );
-    }
-
-    addSection('Senses', char.racialSenses);
-    addSection('Immunities', char.racialImmunities);
-    addSection('Armor Proficiencies', char.racialArmorProficiencies);
-    addSection('Resistances', char.racialResistances);
-    addSection('Condition Protections', char.racialConditionImmunities);
-    addSection('Weapon Proficiencies', char.racialWeaponProficiencies);
-    addSection('Tool Proficiencies', char.racialToolProficiencies);
-    addSection('Languages', char.racialLanguageProficiencies);
-
-    return sections;
-  }
-
-  Widget _buildRacialTraitsSection({
-    required Character char,
-    required bool isTablet,
-    required bool isLargeTablet,
-  }) {
-    final sections = _buildRacialTraitCards(char);
-
-    if (sections.isEmpty) return const SizedBox.shrink();
-
-    return GridView.builder(
-      itemCount: sections.length,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: isLargeTablet ? 2 : 1,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-        mainAxisExtent: isTablet ? 116 : 108,
+    return _buildSheetPanel(
+      title: 'Proficiencies & Languages',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildInfoBlock('Armor', armor),
+          _buildInfoBlock('Weapons', weapons),
+          _buildInfoBlock('Tools', tools),
+          _buildInfoBlock('Languages', languages),
+          if ([armor, weapons, tools, languages].every((list) => list.isEmpty))
+            Text(
+              'No proficiencies recorded yet.',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.65),
+                fontSize: 13,
+              ),
+            ),
+        ],
       ),
-      itemBuilder: (_, index) => sections[index],
     );
   }
 
-  bool _hasAnyRacialDetails(Character char) {
-    return char.racialSenses.isNotEmpty ||
-        char.racialResistances.isNotEmpty ||
-        char.racialImmunities.isNotEmpty ||
-        char.racialConditionImmunities.isNotEmpty ||
-        char.racialWeaponProficiencies.isNotEmpty ||
-        char.racialToolProficiencies.isNotEmpty ||
-        char.racialArmorProficiencies.isNotEmpty ||
-        char.racialLanguageProficiencies.isNotEmpty;
+  Widget _buildDefensesPanel(Character char) {
+    final resistances = [
+      ...char.racialResistances,
+      ...char.featResistances,
+    ];
+    final immunities = [
+      ...char.racialImmunities,
+      ...char.featImmunities,
+    ];
+    final conditionImmunities = [
+      ...char.racialConditionImmunities,
+      ...char.featConditionImmunities,
+    ];
+    final senses = [
+      ...char.racialSenses,
+      ...char.featSenses,
+    ];
+
+    return _buildSheetPanel(
+      title: 'Defenses & Senses',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildInfoBlock('Resistances', resistances),
+          _buildInfoBlock('Immunities', immunities),
+          _buildInfoBlock('Conditions', conditionImmunities),
+          _buildInfoBlock('Senses', senses),
+          if ([resistances, immunities, conditionImmunities, senses]
+              .every((list) => list.isEmpty))
+            Text(
+              'No defenses or senses recorded yet.',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.65),
+                fontSize: 13,
+              ),
+            ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -345,6 +394,7 @@ class CharacterOverviewTab extends StatelessWidget {
     final sectionTitleSize = isLargeTablet ? 22.0 : (isTablet ? 20.0 : 18.0);
     final statColumns = isLargeTablet ? 6 : 3;
     final statAspectRatio = isLargeTablet ? 1.12 : (isTablet ? 0.98 : 0.88);
+    final dashboardColumns = isLargeTablet ? 4 : (isTablet ? 3 : 2);
 
     final str = getStat("STR");
     final dex = getStat("DEX");
@@ -356,10 +406,6 @@ class CharacterOverviewTab extends StatelessWidget {
     final proficiency = getProficiencyBonus(char);
     final initiative = getInitiative(dex);
     final passivePerception = getPassivePerception(char, wis);
-
-    final hpText = (char.currentHp != null && char.maxHp != null)
-        ? '${char.currentHp}/${char.maxHp}'
-        : (char.maxHp != null ? '${char.maxHp}' : '—');
 
     final liveArmorClass = getEffectiveArmorClass(
       char,
@@ -402,7 +448,7 @@ class CharacterOverviewTab extends StatelessWidget {
       FutureBuilder<int>(
         future: speedFuture,
         builder: (context, snapshot) {
-          final value = snapshot.hasData ? '${snapshot.data} ft' : '—';
+          final value = snapshot.hasData ? '${snapshot.data} ft' : '-';
 
           return buildInteractiveSummaryCard(
             label: 'Speed',
@@ -441,7 +487,7 @@ class CharacterOverviewTab extends StatelessWidget {
       ),
       buildSummaryCard(
         label: 'Spell Save DC',
-        value: spellAbilityKey == null ? '—' : '$spellSaveDc',
+        value: spellAbilityKey == null ? '-' : '$spellSaveDc',
         icon: Icons.shield_moon_outlined,
         isTablet: isTablet,
         isLargeTablet: isLargeTablet,
@@ -449,7 +495,7 @@ class CharacterOverviewTab extends StatelessWidget {
       buildSummaryCard(
         label: 'Spell Attack',
         value: spellAbilityKey == null
-            ? '—'
+            ? '-'
             : formatSigned(currentSpellAttackBonus),
         icon: Icons.bolt_outlined,
         isTablet: isTablet,
@@ -524,12 +570,13 @@ class CharacterOverviewTab extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 18),
               Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Expanded(
                     child: Text(
-                      "Combat & Core",
+                      "Ability Scores",
                       style: TextStyle(
                         fontSize: sectionTitleSize,
                         color: Colors.white.withOpacity(0.95),
@@ -554,50 +601,6 @@ class CharacterOverviewTab extends StatelessWidget {
                     ],
                   ),
                 ],
-              ),
-              const SizedBox(height: 12),
-              GridView.builder(
-                itemCount: summaryCards.length,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: isLargeTablet ? 4 : (isTablet ? 3 : 2),
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  childAspectRatio:
-                      isLargeTablet ? 1.15 : (isTablet ? 1.05 : 0.92),
-                ),
-                itemBuilder: (_, index) => summaryCards[index],
-              ),
-              const SizedBox(height: 24),
-              CharacterCombatSummarySection(
-                char: char,
-                equipmentProvider: equipmentProvider,
-                compendiumProvider: compendiumProvider,
-                isTablet: isTablet,
-                isLargeTablet: isLargeTablet,
-                resolveEquippedMainHandItem: resolveEquippedMainHandItem,
-                isMainHandWeapon: isMainHandWeapon,
-                isMainHandFocus: isMainHandFocus,
-                findInventoryItemById: findInventoryItemById,
-                resolveInventoryItem: resolveInventoryItem,
-                calculateMainHandAttackBonus: calculateMainHandAttackBonus,
-                buildMainHandDamageText: buildMainHandDamageText,
-                getWeaponAttackAbilityLabel: getWeaponAttackAbilityLabel,
-                computeSpellAttackBonus: computeSpellAttackBonus,
-                normalizedSpellcastingAbility: normalizedSpellcastingAbility,
-                rollMainHandAttack: rollMainHandAttack,
-                rollMainHandDamage: rollMainHandDamage,
-                formatSigned: formatSigned,
-              ),
-              const SizedBox(height: 24),
-              Text(
-                "Ability Scores",
-                style: TextStyle(
-                  fontSize: sectionTitleSize,
-                  color: Colors.white.withOpacity(0.95),
-                  fontWeight: FontWeight.bold,
-                ),
               ),
               const SizedBox(height: 12),
               GridView.count(
@@ -652,26 +655,9 @@ class CharacterOverviewTab extends StatelessWidget {
                   ),
                 ],
               ),
-              if (_hasAnyRacialDetails(char)) ...[
-                const SizedBox(height: 24),
-                Text(
-                  "Racial Traits",
-                  style: TextStyle(
-                    fontSize: sectionTitleSize,
-                    color: Colors.white.withOpacity(0.95),
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                _buildRacialTraitsSection(
-                  char: char,
-                  isTablet: isTablet,
-                  isLargeTablet: isLargeTablet,
-                ),
-              ],
-              const SizedBox(height: 24),
+              const SizedBox(height: 18),
               Text(
-                "Recent Rolls",
+                "Combat",
                 style: TextStyle(
                   fontSize: sectionTitleSize,
                   color: Colors.white.withOpacity(0.95),
@@ -679,17 +665,55 @@ class CharacterOverviewTab extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 12),
-              buildRecentDiceRolls(
-                isTablet: isTablet,
-                isLargeTablet: isLargeTablet,
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  const spacing = 12.0;
+                  final itemWidth = dashboardColumns == 1
+                      ? constraints.maxWidth
+                      : (constraints.maxWidth -
+                              (spacing * (dashboardColumns - 1))) /
+                          dashboardColumns;
+
+                  return Wrap(
+                    spacing: spacing,
+                    runSpacing: spacing,
+                    children: summaryCards
+                        .map(
+                          (card) => SizedBox(
+                            width: itemWidth,
+                            child: card,
+                          ),
+                        )
+                        .toList(),
+                  );
+                },
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 18),
               if (isLargeTablet)
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: buildSavingThrowsSection(
+                    SizedBox(
+                      width: 280,
+                      child: Column(
+                        children: [
+                          buildSavingThrowsSection(
+                            context,
+                            char,
+                            isTablet: isTablet,
+                            isLargeTablet: isLargeTablet,
+                          ),
+                          const SizedBox(height: 12),
+                          _buildDefensesPanel(char),
+                          const SizedBox(height: 12),
+                          _buildProficienciesPanel(char),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    SizedBox(
+                      width: 300,
+                      child: buildSkillsSection(
                         context,
                         char,
                         isTablet: isTablet,
@@ -698,16 +722,71 @@ class CharacterOverviewTab extends StatelessWidget {
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: buildSkillsSection(
-                        context,
-                        char,
-                        isTablet: isTablet,
-                        isLargeTablet: isLargeTablet,
+                      child: Column(
+                        children: [
+                          CharacterCombatSummarySection(
+                            char: char,
+                            equipmentProvider: equipmentProvider,
+                            compendiumProvider: compendiumProvider,
+                            isTablet: isTablet,
+                            isLargeTablet: isLargeTablet,
+                            resolveEquippedMainHandItem:
+                                resolveEquippedMainHandItem,
+                            isMainHandWeapon: isMainHandWeapon,
+                            isMainHandFocus: isMainHandFocus,
+                            findInventoryItemById: findInventoryItemById,
+                            resolveInventoryItem: resolveInventoryItem,
+                            calculateMainHandAttackBonus:
+                                calculateMainHandAttackBonus,
+                            buildMainHandDamageText: buildMainHandDamageText,
+                            getWeaponAttackAbilityLabel:
+                                getWeaponAttackAbilityLabel,
+                            computeSpellAttackBonus: computeSpellAttackBonus,
+                            normalizedSpellcastingAbility:
+                                normalizedSpellcastingAbility,
+                            rollMainHandAttack: rollMainHandAttack,
+                            rollMainHandDamage: rollMainHandDamage,
+                            formatSigned: formatSigned,
+                          ),
+                          const SizedBox(height: 12),
+                          buildDeathSavesSection(
+                            context,
+                            char,
+                            isTablet: isTablet,
+                            isLargeTablet: isLargeTablet,
+                          ),
+                          const SizedBox(height: 12),
+                          buildRecentDiceRolls(
+                            isTablet: isTablet,
+                            isLargeTablet: isLargeTablet,
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 )
               else ...[
+                CharacterCombatSummarySection(
+                  char: char,
+                  equipmentProvider: equipmentProvider,
+                  compendiumProvider: compendiumProvider,
+                  isTablet: isTablet,
+                  isLargeTablet: isLargeTablet,
+                  resolveEquippedMainHandItem: resolveEquippedMainHandItem,
+                  isMainHandWeapon: isMainHandWeapon,
+                  isMainHandFocus: isMainHandFocus,
+                  findInventoryItemById: findInventoryItemById,
+                  resolveInventoryItem: resolveInventoryItem,
+                  calculateMainHandAttackBonus: calculateMainHandAttackBonus,
+                  buildMainHandDamageText: buildMainHandDamageText,
+                  getWeaponAttackAbilityLabel: getWeaponAttackAbilityLabel,
+                  computeSpellAttackBonus: computeSpellAttackBonus,
+                  normalizedSpellcastingAbility: normalizedSpellcastingAbility,
+                  rollMainHandAttack: rollMainHandAttack,
+                  rollMainHandDamage: rollMainHandDamage,
+                  formatSigned: formatSigned,
+                ),
+                const SizedBox(height: 12),
                 buildSavingThrowsSection(
                   context,
                   char,
@@ -721,14 +800,23 @@ class CharacterOverviewTab extends StatelessWidget {
                   isTablet: isTablet,
                   isLargeTablet: isLargeTablet,
                 ),
+                const SizedBox(height: 12),
+                _buildDefensesPanel(char),
+                const SizedBox(height: 12),
+                _buildProficienciesPanel(char),
+                const SizedBox(height: 12),
+                buildDeathSavesSection(
+                  context,
+                  char,
+                  isTablet: isTablet,
+                  isLargeTablet: isLargeTablet,
+                ),
+                const SizedBox(height: 12),
+                buildRecentDiceRolls(
+                  isTablet: isTablet,
+                  isLargeTablet: isLargeTablet,
+                ),
               ],
-              const SizedBox(height: 24),
-              buildDeathSavesSection(
-                context,
-                char,
-                isTablet: isTablet,
-                isLargeTablet: isLargeTablet,
-              ),
               const SizedBox(height: 24),
               Text(
                 "Narrative",
@@ -786,7 +874,6 @@ class CharacterOverviewTab extends StatelessWidget {
                     fontSize: 13,
                   ),
                 ),
-              if (hpText.isNotEmpty) const SizedBox.shrink(),
             ],
           ),
         ),

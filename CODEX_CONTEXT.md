@@ -158,6 +158,20 @@ Listar assets razas:
   `C:\Users\jnsaurralde\.codex\generated_images\...`
   hacia la carpeta de assets correspondiente.
 
+## Direccion de Producto: Character Sheet
+
+- La ficha de personaje debe acercarse al patron de D&D Beyond: informacion densa, consistente, accionable y util durante juego real.
+- Objetivo visual/funcional:
+  - Cabecera compacta con identidad, raza/clase/nivel y acciones clave.
+  - Abilities y metricas criticas visibles arriba: HP, AC, iniciativa, speed, proficiency, passive perception, spell DC/attack.
+  - Layout tipo hoja para tablet/desktop: columna de saves/proficiencies/defensas, columna de skills y columna principal de combate/acciones/inventario/features/spells segun tab.
+  - Mobile debe conservar la misma jerarquia pero apilada y escaneable.
+- La ficha debe pensarse para uso profundo y compartido en combate:
+  - acciones rapidas para tirar dados, atacar, dano, gastar/recuperar recursos, descansos y estados.
+  - datos derivados deben ser confiables y visibles sin abrir multiples pantallas.
+  - la UI debe facilitar futuras vistas colaborativas DM/jugadores, no solo edicion local.
+- Evitar clonar D&D Beyond 1:1; tomar su arquitectura de informacion y densidad funcional manteniendo identidad visual propia del proyecto.
+
 ## Roadmaps Pendientes
 
 - Personajes / backgrounds:
@@ -249,6 +263,10 @@ Listar assets razas:
   - Bug corregido: `CharacterProvider.getCharacterById` ahora tambien busca en `campaignCharacters`, para que el DM pueda modificar personajes de campana que no estan en su lista personal.
   - Bug corregido: al guardar cambios sobre personajes de campana de otro usuario, `CharacterProvider` conserva la sesion activa del usuario actual y refresca tambien los personajes de campana.
   - Bug corregido: `Add item` ya no queda deshabilitado solo porque no existan items en el compendio de campana; se puede usar armory/manual.
+  - Redireccion de ficha hacia uso tactico:
+    - `CODEX_CONTEXT.md` registra que la ficha debe acercarse al patron D&D Beyond: densa, accionable, confiable y preparada para combate compartido.
+    - `CharacterOverviewTab` ahora prioriza abilities, dashboard de combate y columnas tacticas para saves, skills, defensas, proficiencies, acciones y rolls.
+    - `CharacterCombatSummarySection` ahora funciona como panel `Actions & Combat`, destacando accion primaria equipada con tiradas directas de ataque/dano y metricas defensivas.
   - Flujo de creacion de personaje:
     - Orden corregido: raza -> clase -> nivel -> subclase solo si el nivel de clase la habilita -> background -> skills -> stats -> nombre.
     - `SelectLevelScreen` consulta `ClassDataService.getSubclassChoiceLevel` y solo abre `/subclass-selection` si el nivel elegido alcanza ese umbral y la clase tiene subclases.
