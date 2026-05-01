@@ -7,6 +7,10 @@ import '../../../../../providers/equipment_provider.dart';
 import '../../../models/resolved_inventory_item.dart';
 
 class CharacterCombatSummarySection extends StatelessWidget {
+  static const Color _panelColor = Color(0xFF151922);
+  static const Color _accentColor = Color(0xFFE14658);
+  static const Color _supportColor = Color(0xFF8BAA6F);
+
   final Character char;
   final EquipmentProvider equipmentProvider;
   final CompendiumProvider compendiumProvider;
@@ -205,26 +209,51 @@ class CharacterCombatSummarySection extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFF202028),
+        color: _panelColor,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: Colors.deepPurpleAccent.withValues(alpha: 0.28),
+          color: _supportColor.withValues(alpha: 0.24),
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 14,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: _accentColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: _accentColor.withValues(alpha: 0.22),
+                  ),
+                ),
+                child: const Icon(
+                  Icons.sports_martial_arts_outlined,
+                  color: _accentColor,
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'Actions & Combat',
+                  'ACTIONS & COMBAT',
                   style: TextStyle(
-                    color: Colors.white,
-                    fontSize: isLargeTablet ? 18 : 16,
-                    fontWeight: FontWeight.w800,
+                    color: _supportColor.withValues(alpha: 0.88),
+                    fontSize: isLargeTablet ? 12 : 11,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0,
                   ),
                 ),
               ),
@@ -419,10 +448,17 @@ class _PrimaryActionCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFF272432),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF1B2230),
+            Color(0xFF111720),
+          ],
+        ),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: Colors.redAccent.withValues(alpha: 0.34),
+          color: const Color(0xFFE14658).withValues(alpha: 0.34),
         ),
       ),
       child: Column(
@@ -437,6 +473,9 @@ class _PrimaryActionCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: Colors.redAccent.withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: Colors.redAccent.withValues(alpha: 0.24),
+                  ),
                 ),
                 child: const Icon(
                   Icons.sports_martial_arts_outlined,
@@ -498,11 +537,27 @@ class _PrimaryActionCard extends StatelessWidget {
                 onPressed: action.onAttack,
                 icon: const Icon(Icons.casino_outlined),
                 label: const Text('Attack'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFE14658),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
               ),
               OutlinedButton.icon(
                 onPressed: action.canRollDamage ? action.onDamage : null,
                 icon: const Icon(Icons.auto_fix_high_outlined),
                 label: const Text('Damage'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: BorderSide(
+                    color: Colors.redAccent.withValues(alpha: 0.28),
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
               ),
             ],
           ),
@@ -566,16 +621,24 @@ class _CombatMetricTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF262632),
+        color: const Color(0xFF111720),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
+          color: const Color(0xFF8BAA6F).withValues(alpha: 0.18),
         ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: Colors.white70, size: 18),
+          Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: const Color(0xFF8BAA6F).withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: const Color(0xFFB7D28A), size: 16),
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -628,7 +691,7 @@ class _CompactBadge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: color.withValues(alpha: 0.34),
         ),

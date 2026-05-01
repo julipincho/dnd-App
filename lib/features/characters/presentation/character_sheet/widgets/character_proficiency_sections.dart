@@ -17,6 +17,8 @@ typedef CharacterStatRollHandler = Future<void> Function({
 });
 
 class CharacterSavingThrowsSection extends StatelessWidget {
+  static const Color _accentColor = Color(0xFF8BAA6F);
+
   static const List<String> abilities = [
     'STR',
     'DEX',
@@ -55,6 +57,8 @@ class CharacterSavingThrowsSection extends StatelessWidget {
   Widget build(BuildContext context) {
     return _ExpandableStatSection(
       title: 'Saving Throws',
+      icon: Icons.shield_outlined,
+      accentColor: _accentColor,
       isExpanded: isExpanded,
       isTablet: isTablet,
       onToggleExpanded: onToggleExpanded,
@@ -99,6 +103,8 @@ class CharacterSavingThrowsSection extends StatelessWidget {
 }
 
 class CharacterSkillsSection extends StatelessWidget {
+  static const Color _accentColor = Color(0xFF8BAA6F);
+
   static const Map<String, List<String>> skillsByAbility = {
     'STR': ['Athletics'],
     'DEX': ['Acrobatics', 'Sleight of Hand', 'Stealth'],
@@ -145,6 +151,8 @@ class CharacterSkillsSection extends StatelessWidget {
 
     return _ExpandableStatSection(
       title: 'Skills ($totalSkills)',
+      icon: Icons.list_alt_outlined,
+      accentColor: _accentColor,
       isExpanded: isExpanded,
       isTablet: isTablet,
       onToggleExpanded: onToggleExpanded,
@@ -182,6 +190,8 @@ class CharacterSkillsSection extends StatelessWidget {
 
 class _ExpandableStatSection extends StatelessWidget {
   final String title;
+  final IconData icon;
+  final Color accentColor;
   final bool isExpanded;
   final bool isTablet;
   final VoidCallback onToggleExpanded;
@@ -189,6 +199,8 @@ class _ExpandableStatSection extends StatelessWidget {
 
   const _ExpandableStatSection({
     required this.title,
+    required this.icon,
+    required this.accentColor,
     required this.isExpanded,
     required this.isTablet,
     required this.onToggleExpanded,
@@ -200,28 +212,49 @@ class _ExpandableStatSection extends StatelessWidget {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(16),
+        color: const Color(0xFF151922),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: Colors.deepPurpleAccent.withValues(alpha: 0.28),
+          color: accentColor.withValues(alpha: 0.24),
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 14,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Column(
         children: [
           InkWell(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(8),
             onTap: onToggleExpanded,
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               child: Row(
                 children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: accentColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: accentColor.withValues(alpha: 0.22),
+                      ),
+                    ),
+                    child: Icon(icon, color: accentColor, size: 18),
+                  ),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      title,
+                      title.toUpperCase(),
                       style: TextStyle(
-                        color: Colors.white,
-                        fontSize: isTablet ? 16 : 15,
-                        fontWeight: FontWeight.w700,
+                        color: accentColor.withValues(alpha: 0.88),
+                        fontSize: isTablet ? 12 : 11,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0,
                       ),
                     ),
                   ),
@@ -236,7 +269,7 @@ class _ExpandableStatSection extends StatelessWidget {
                   const SizedBox(width: 8),
                   Icon(
                     isExpanded ? Icons.expand_less : Icons.expand_more,
-                    color: Colors.white70,
+                    color: Colors.white54,
                   ),
                 ],
               ),
@@ -279,15 +312,19 @@ class _SkillGroup extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-            color: Colors.deepPurpleAccent.withValues(alpha: 0.16),
-            borderRadius: BorderRadius.circular(999),
+            color: const Color(0xFF8BAA6F).withValues(alpha: 0.14),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: const Color(0xFF8BAA6F).withValues(alpha: 0.22),
+            ),
           ),
           child: Text(
             ability,
             style: const TextStyle(
               color: Colors.white,
-              fontWeight: FontWeight.w700,
-              fontSize: 12,
+              fontWeight: FontWeight.w900,
+              fontSize: 11,
+              letterSpacing: 0,
             ),
           ),
         ),
@@ -330,28 +367,28 @@ class _RollableStatRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.only(bottom: 8),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(8),
           onTap: onRoll,
           child: Ink(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(8),
               gradient: const LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  Color(0xFF2A2A38),
-                  Color(0xFF22222E),
+                  Color(0xFF1B2230),
+                  Color(0xFF111720),
                 ],
               ),
               border: Border.all(
                 color: isProficient
-                    ? Colors.deepPurpleAccent.withValues(alpha: 0.45)
-                    : Colors.white.withValues(alpha: 0.08),
+                    ? const Color(0xFF8BAA6F).withValues(alpha: 0.42)
+                    : const Color(0xFF8BAA6F).withValues(alpha: 0.16),
               ),
               boxShadow: [
                 BoxShadow(
@@ -361,7 +398,7 @@ class _RollableStatRow extends StatelessWidget {
                 ),
                 if (isProficient)
                   BoxShadow(
-                    color: Colors.deepPurpleAccent.withValues(alpha: 0.10),
+                    color: const Color(0xFF8BAA6F).withValues(alpha: 0.10),
                     blurRadius: 12,
                     spreadRadius: 1,
                   ),
@@ -431,11 +468,11 @@ class _ProficiencyIndicator extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: isProficient
-            ? Colors.deepPurpleAccent.withValues(alpha: 0.20)
+            ? const Color(0xFF8BAA6F).withValues(alpha: 0.20)
             : Colors.white.withValues(alpha: 0.05),
         border: Border.all(
           color: isProficient
-              ? Colors.deepPurpleAccent.withValues(alpha: 0.35)
+              ? const Color(0xFF8BAA6F).withValues(alpha: 0.35)
               : Colors.white.withValues(alpha: 0.08),
         ),
       ),
@@ -469,11 +506,11 @@ class _BonusBadge extends StatelessWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(10),
         color: isProficient
-            ? Colors.deepPurpleAccent.withValues(alpha: 0.18)
+            ? const Color(0xFF8BAA6F).withValues(alpha: 0.18)
             : Colors.white.withValues(alpha: 0.05),
         border: Border.all(
           color: isProficient
-              ? Colors.deepPurpleAccent.withValues(alpha: 0.28)
+              ? const Color(0xFF8BAA6F).withValues(alpha: 0.30)
               : Colors.white.withValues(alpha: 0.10),
         ),
       ),
