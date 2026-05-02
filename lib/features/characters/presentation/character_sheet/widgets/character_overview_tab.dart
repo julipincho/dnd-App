@@ -75,6 +75,7 @@ class CharacterOverviewTab extends StatelessWidget {
   }) buildDeathSavesSection;
 
   final Future<void> Function() onOpenDiceRoller;
+  final VoidCallback onOpenCombatMode;
   final Future<void> Function() onLevelUp;
   final VoidCallback onGoToCampaign;
   final Future<void> Function() onEditSpeed;
@@ -185,6 +186,7 @@ class CharacterOverviewTab extends StatelessWidget {
     required this.buildSkillsSection,
     required this.buildDeathSavesSection,
     required this.onOpenDiceRoller,
+    required this.onOpenCombatMode,
     required this.onLevelUp,
     required this.onGoToCampaign,
     required this.onEditSpeed,
@@ -448,6 +450,12 @@ class CharacterOverviewTab extends StatelessWidget {
             icon: Icons.casino_outlined,
             color: const Color(0xFFE14658),
             onTap: onOpenDiceRoller,
+          ),
+          _buildCommandButton(
+            label: 'Combat',
+            icon: Icons.sports_martial_arts_outlined,
+            color: Colors.orangeAccent,
+            onTap: onOpenCombatMode,
           ),
           _buildCommandButton(
             label: 'Level Up',

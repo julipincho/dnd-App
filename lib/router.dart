@@ -33,6 +33,7 @@ import 'screens/home_screen.dart';
 import 'screens/level_up_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
+import 'screens/combat_mode_screen.dart';
 
 final GoRouter appRouter = GoRouter(
   initialLocation: '/',
@@ -210,6 +211,18 @@ final GoRouter appRouter = GoRouter(
       builder: (_, state) {
         final id = state.pathParameters['id']!;
         return LevelUpScreen(characterId: id);
+      },
+    ),
+
+    GoRoute(
+      path: '/combat-mode',
+      builder: (_, __) => const CombatModeScreen(),
+    ),
+    GoRoute(
+      path: '/combat-mode/:id',
+      builder: (_, state) {
+        final id = state.pathParameters['id']!;
+        return CombatModeScreen(characterId: id);
       },
     ),
 

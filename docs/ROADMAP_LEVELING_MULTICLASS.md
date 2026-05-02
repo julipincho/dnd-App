@@ -387,3 +387,48 @@ Pendientes inmediatos:
   - `CharacterSheetHeader` pasa a hero con arte de clase, overlay oscuro, retrato grande y chips de identidad.
   - `CharacterOverviewTab` usa superficie de hoja tactica con command bar integrado y paneles mas densos.
   - Summary cards y ability cards se rediseñan con icon badges, sombras, acentos verdosos y jerarquia visual mas fuerte.
+
+## Combat Mode / Encounter System
+
+Nueva direccion de producto para despues del saneamiento de la ficha: separar la experiencia de combate en una vista dedicada, inspirada en RPGs por turnos y herramientas tipo tarjetas preparadas.
+
+Objetivo:
+
+- La ficha responde "quien soy y que tengo".
+- Combat Mode responde "que hago ahora mismo en esta ronda".
+- El DM puede iniciar un encuentro, pedir iniciativa y guiar turnos.
+- Jugadores tienen acciones preparadas listas: ataques, dano, critico, spells, features y recursos.
+- El sistema debe terminar conectado a campanas/cloud para combate compartido DM/jugadores.
+
+Fase 1 - Prototipo hardcodeado:
+
+- Crear `lib/screens/combat_mode_screen.dart` como vista dedicada.
+- Agregar rutas `/combat-mode` y `/combat-mode/:id`.
+- Agregar entrada desde el command bar del Overview.
+- Cargar el personaje real cuando se entra desde la ficha y completar el resto del encuentro con enemigos demo.
+- Mostrar iniciativa, ronda actual, combatiente activo, acciones preparadas, objetivo seleccionado y feed de actividad.
+- Agregar campo de batalla visual Party vs Threats con HP, activo, objetivo y estado down.
+- Subir la direccion visual del modo combate: fondo cinematico pintado, spotlight activo vs objetivo, terreno tactico y cartas de accion con presencia premium.
+- Replantear desktop/tablet como vista fija de juego por ventanas: turn order superior, arena tactica central, panel activo/objetivo laterales, log/targets compactos y command deck inferior por capas estilo RPG.
+- Usar `DiceRollerService.rollFormula` para demostrar acciones con formulas como `d20+7`, `1d8+4`, `2d10`.
+- Diferenciar acciones demo de personajes y enemigos.
+- Generar primeras acciones de personaje desde armas del inventario/equipo, usando STR/DEX/CHA segun arma, proficiency y dados de dano.
+- Agregar accion generica de Spell Attack cuando el personaje tenga habilidad de lanzamiento configurada.
+- Migrar acciones de arma a la logica real compartida: inventario resuelto, compendium equipment, proficiency, bonos de item, infusiones, opciones, AC efectivo y spell attack pasivo.
+- Escalar el command deck para muchos poderes: acciones por capa con lista horizontal, boton Use para features/resources sin tirada y ventanas compactas.
+- Agregar feedback visual de tiradas dentro del mapa de combate, reutilizando resultado/formula/rollsText para que atacar, danar o curar no se sienta automatico.
+- Iniciar migracion de spells/features/resources reales desde la sheet como comandos de combate.
+- Comparar ataques contra AC del objetivo para feedback de hit, miss, natural 1 y critico.
+- Mostrar economia de turno local: Action, Bonus Action, Reaction y Movement.
+- Aplicar dano/curacion localmente sobre el objetivo o el propio combatiente.
+- No persistir aun, no sincronizar aun, no conectar todavia a enemigos reales.
+
+Fases siguientes:
+
+- Modelar `CombatEncounter`, `Combatant`, `InitiativeEntry` y `PreparedCombatAction`.
+- Generar acciones automaticas desde armas equipadas, spell attacks, features y recursos.
+- Permitir acciones custom estilo tarjetas preparadas.
+- Conectar gasto de recursos: spell slots, superiority dice, ki, sorcery points, rage, etc.
+- Crear vista DM para turnos, enemigos, estados y solicitudes de tiradas.
+- Crear vista jugador para turno activo, acciones disponibles y feedback de tiradas.
+- Sincronizar encounter state con campana activa en cloud.

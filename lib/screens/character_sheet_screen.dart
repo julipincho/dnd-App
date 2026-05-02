@@ -3677,6 +3677,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               buildSkillsSection: _buildSkillsSection,
               buildDeathSavesSection: _buildDeathSavesSection,
               onOpenDiceRoller: _openDiceRoller,
+              onOpenCombatMode: () {
+                context.push('/combat-mode/${char.id}');
+              },
               onLevelUp: () async {
                 if (!isOwnedByCurrentUser) return;
                 await context.push('/level-up/${char.id}');
