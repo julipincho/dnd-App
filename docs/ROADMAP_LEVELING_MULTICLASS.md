@@ -418,6 +418,25 @@ Fase 1 - Prototipo hardcodeado:
 - Escalar el command deck para muchos poderes: acciones por capa con lista horizontal, boton Use para features/resources sin tirada y ventanas compactas.
 - Agregar feedback visual de tiradas dentro del mapa de combate, reutilizando resultado/formula/rollsText para que atacar, danar o curar no se sienta automatico.
 - Iniciar migracion de spells/features/resources reales desde la sheet como comandos de combate.
+- Separar visualmente Party/Enemies con Combat Registry lateral, preparado para ocultar HP enemiga en vista jugador y mostrarla en vista DM.
+- Derivar primeras senales de combate desde recursos del personaje: rage, bardic inspiration, ki, sorcery, channel divinity, lay on hands y spellcasting.
+- Reemplazar el tablero grande por un foco compacto de combate: formacion reducida, objetivo seleccionado con retrato/estadisticas y dado visible como centro de feedback.
+- Agregar primer Turn Plan local: preparar una accion por timing y lanzar el turno con tiradas visibles, hit/miss/crit y dano aplicado localmente.
+- Separar jerarquia visual en dos modos: Turn para actuar con un combatiente enfocado y Overview para revisar el estado completo del encuentro.
+- Agregar tabs por combatiente para enfocar rapidamente quien esta actuando y reducir la carga visual durante el turno.
+- Agregar Run Demo para simular una ronda completa y validar rapidamente iniciativa, objetivos, tiradas, dano, bajas y feedback visual.
+- Pulir legibilidad del Combat Mode: HUD superior reducido, tabs sin overflow, Overview por columnas Party/Enemies y Turn Plan con mayor peso visual.
+- Reducir protagonismo del dado en Overview/Turn para que acompane el feedback sin desplazar la lectura tactica ni la preparacion de acciones.
+- Clarificar Turn Plan: mostrar actor, objetivo, slots preparados, estado vacio y formula/uso de cada accion antes de lanzar el turno.
+- Mejorar lectura de HP en tabs y overview con barra + valor compacto para aliados/enemigos visibles.
+- Reducir redundancia del Combat Mode: el turn order es tambien selector de combatiente, la card de objetivo concentra la seleccion de target y el plan preparado vive dentro del dock de acciones.
+- Mejorar cards de accion con icono, tags compactos, boton Prepare y vista de detalle para leer formulas/timing sin saturar la card.
+- Reforzar la card del combatiente con retrato superior, stats inferiores, chips de recursos/condiciones y soporte visual para temp HP/inspiraciones.
+- Pulir pass visual del Turn workspace: feedback de dado mas compacto, dock inferior con mas altura real para action cards y panel activo sin overflows.
+- Usar arte existente de clases/razas como retrato provisional en Combat Mode, con fallback iconografico para enemigos o personajes sin asset.
+- Hacer visibles los estados activados localmente por comandos: Rage/Raging, Bardic Inspiration, Inspired, Concentrating y temp HP como chips con iconografia.
+- Aplicar temp HP en la resolucion local de dano antes de bajar HP real, manteniendo el cambio visible en feedback y log.
+- Incorporar senales pasivas raciales/de feats en combate: resistencias, inmunidades, sentidos, no sorpresa, no ventaja por atacantes ocultos, AC condicional y velocidad.
 - Comparar ataques contra AC del objetivo para feedback de hit, miss, natural 1 y critico.
 - Mostrar economia de turno local: Action, Bonus Action, Reaction y Movement.
 - Aplicar dano/curacion localmente sobre el objetivo o el propio combatiente.
@@ -431,4 +450,7 @@ Fases siguientes:
 - Conectar gasto de recursos: spell slots, superiority dice, ki, sorcery points, rage, etc.
 - Crear vista DM para turnos, enemigos, estados y solicitudes de tiradas.
 - Crear vista jugador para turno activo, acciones disponibles y feedback de tiradas.
+- Convertir la visibilidad DM/Jugador en permisos reales: vida enemiga, notas del encuentro, estados ocultos y datos tacticos sensibles.
+- Modelar motor de estados/activos de combate: concentracion, rage, bardic inspiration, condiciones del manual, duracion por rondas, fuente y objetivo.
+- Conectar recursos gastables a las acciones: consumos, recuperacion por descanso, usos restantes y feedback visual al jugador.
 - Sincronizar encounter state con campana activa en cloud.
