@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:stitch_app/models/spell.dart';
+import 'package:stitch_app/theme.dart';
 
 class CharacterSpellbookSection extends StatelessWidget {
   final String title;
@@ -47,19 +48,71 @@ class CharacterSpellbookSection extends StatelessWidget {
     for (final spell in spells) {
       grouped.putIfAbsent(spell.level, () => []).add(spell);
     }
+    for (final levelSpells in grouped.values) {
+      levelSpells.sort((a, b) => a.name.compareTo(b.name));
+    }
     return grouped;
   }
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.stitch;
     final spellsByLevel = _spellsByLevel;
     final sortedLevels = spellsByLevel.keys.toList()..sort();
 
-    return _SpellbookFrame(
-      title: title,
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: tokens.panel,
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(color: tokens.accentMagic.withValues(alpha: 0.24)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 14,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: tokens.accentMagic.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(tokens.radiusSm),
+                  border: Border.all(
+                    color: tokens.accentMagic.withValues(alpha: 0.24),
+                  ),
+                ),
+                child: const Icon(
+                  Icons.menu_book_outlined,
+                  color: Colors.white,
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: tokens.accentReadSoft.withValues(alpha: 0.88),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
           Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -96,7 +149,7 @@ class CharacterSpellbookSection extends StatelessWidget {
             Text(
               'Preparation: $preparedSpellLimitLabel',
               style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.62),
+                color: tokens.textSecondary,
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
               ),
@@ -104,10 +157,7 @@ class CharacterSpellbookSection extends StatelessWidget {
           ],
           const SizedBox(height: 14),
           if (spells.isEmpty)
-            const Text(
-              'No spells selected yet.',
-              style: TextStyle(color: Colors.white70),
-            )
+            _EmptySpellbook(title: title)
           else
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -116,24 +166,12 @@ class CharacterSpellbookSection extends StatelessWidget {
 
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _levelLabel(level),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: levelSpells.map(_buildSpellChip).toList(),
-                      ),
-                    ],
+                  child: _SpellLevelGroup(
+                    label: _levelLabel(level),
+                    spells: levelSpells,
+                    usesPreparedSpells: usesPreparedSpells,
+                    preparedSpellIds: preparedSpellIds,
+                    onSpellTap: onSpellTap,
                   ),
                 );
               }).toList(),
@@ -142,76 +180,109 @@ class CharacterSpellbookSection extends StatelessWidget {
       ),
     );
   }
-
-  Widget _buildSpellChip(Spell spell) {
-    final isPrepared =
-        usesPreparedSpells && preparedSpellIds.contains(spell.id);
-
-    return ActionChip(
-      label: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (isPrepared) ...[
-            const Icon(
-              Icons.check_circle,
-              size: 16,
-              color: Colors.white,
-            ),
-            const SizedBox(width: 6),
-          ],
-          Flexible(
-            child: Text(
-              spell.name,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
-      backgroundColor: isPrepared
-          ? Colors.deepPurpleAccent.withValues(alpha: 0.35)
-          : const Color(0xFF2A2A35),
-      labelStyle: const TextStyle(color: Colors.white),
-      onPressed: () => onSpellTap(spell),
-    );
-  }
 }
 
-class _SpellbookFrame extends StatelessWidget {
-  final String title;
-  final Widget child;
+class _SpellLevelGroup extends StatelessWidget {
+  final String label;
+  final List<Spell> spells;
+  final bool usesPreparedSpells;
+  final Set<String> preparedSpellIds;
+  final ValueChanged<Spell> onSpellTap;
 
-  const _SpellbookFrame({
-    required this.title,
-    required this.child,
+  const _SpellLevelGroup({
+    required this.label,
+    required this.spells,
+    required this.usesPreparedSpells,
+    required this.preparedSpellIds,
+    required this.onSpellTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withValues(alpha: 0.28),
-        ),
+        color: tokens.surface,
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(color: tokens.accentMagic.withValues(alpha: 0.14)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  label.toUpperCase(),
+                  style: TextStyle(
+                    color: tokens.accentReadSoft.withValues(alpha: 0.82),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0,
+                  ),
+                ),
+              ),
+              _SmallCountBadge(value: '${spells.length}'),
+            ],
           ),
-          const SizedBox(height: 14),
-          child,
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: spells.map((spell) {
+              final isPrepared =
+                  usesPreparedSpells && preparedSpellIds.contains(spell.id);
+              return _SpellChip(
+                spell: spell,
+                isPrepared: isPrepared,
+                onPressed: () => onSpellTap(spell),
+              );
+            }).toList(),
+          ),
         ],
       ),
+    );
+  }
+}
+
+class _SpellChip extends StatelessWidget {
+  final Spell spell;
+  final bool isPrepared;
+  final VoidCallback onPressed;
+
+  const _SpellChip({
+    required this.spell,
+    required this.isPrepared,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final color = isPrepared ? tokens.accentSuccess : tokens.accentMagic;
+
+    return ActionChip(
+      avatar: Icon(
+        isPrepared ? Icons.check_circle : Icons.auto_awesome_outlined,
+        size: 15,
+        color: Colors.white,
+      ),
+      label: Text(spell.name),
+      backgroundColor: color.withValues(alpha: isPrepared ? 0.18 : 0.12),
+      side:
+          BorderSide(color: color.withValues(alpha: isPrepared ? 0.34 : 0.22)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+      ),
+      labelStyle: const TextStyle(
+        color: Colors.white,
+        fontSize: 12,
+        fontWeight: FontWeight.w800,
+      ),
+      onPressed: onPressed,
     );
   }
 }
@@ -229,28 +300,85 @@ class _ProgressSpellPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.stitch;
     final isOverLimit = max != null && current > max!;
     final value = max == null ? '$current' : '$current / $max';
+    final color = isOverLimit ? tokens.accentWarning : tokens.accentMagic;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
       decoration: BoxDecoration(
-        color: isOverLimit
-            ? Colors.orangeAccent.withValues(alpha: 0.18)
-            : Colors.deepPurpleAccent.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: isOverLimit
-              ? Colors.orangeAccent.withValues(alpha: 0.45)
-              : Colors.deepPurpleAccent.withValues(alpha: 0.25),
-        ),
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
       ),
       child: Text(
         '$label $value',
         style: TextStyle(
-          color: isOverLimit ? Colors.orangeAccent : Colors.white,
-          fontSize: 12,
-          fontWeight: FontWeight.w700,
+          color: isOverLimit ? tokens.accentWarning : Colors.white,
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+class _SmallCountBadge extends StatelessWidget {
+  final String value;
+
+  const _SmallCountBadge({
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: tokens.accentMagic.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(color: tokens.accentMagic.withValues(alpha: 0.22)),
+      ),
+      child: Text(
+        value,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 11,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptySpellbook extends StatelessWidget {
+  final String title;
+
+  const _EmptySpellbook({
+    required this.title,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: tokens.surface,
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(color: tokens.accentMagic.withValues(alpha: 0.14)),
+      ),
+      child: Text(
+        'No spells selected yet.',
+        style: TextStyle(
+          color: tokens.textSecondary,
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
         ),
       ),
     );

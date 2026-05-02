@@ -39,16 +39,23 @@ class CharacterDeathSavesSection extends StatelessWidget {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(16),
+        color: const Color(0xFF151922),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: status.color.withValues(alpha: isExpanded ? 0.36 : 0.22),
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 14,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Column(
         children: [
           InkWell(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(8),
             onTap: onToggleExpanded,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -61,11 +68,12 @@ class CharacterDeathSavesSection extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Death Saves',
+                          'DEATH SAVES',
                           style: TextStyle(
-                            color: Colors.white,
-                            fontSize: isTablet ? 16 : 15,
-                            fontWeight: FontWeight.w800,
+                            color: status.color.withValues(alpha: 0.92),
+                            fontSize: isTablet ? 12 : 11,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0,
                           ),
                         ),
                         const SizedBox(height: 3),
@@ -242,7 +250,7 @@ class _StatusBanner extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: status.color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: status.color.withValues(alpha: 0.22),
         ),
@@ -285,8 +293,8 @@ class _DeathSaveTrack extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF262632),
-        borderRadius: BorderRadius.circular(10),
+        color: const Color(0xFF111720),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: color.withValues(alpha: 0.22),
         ),

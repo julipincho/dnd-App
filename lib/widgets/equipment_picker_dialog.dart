@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/equipment_compendium_item.dart';
+import '../theme.dart';
 
 Future<EquipmentCompendiumItem?> showEquipmentPickerDialog(
   BuildContext context, {
@@ -85,12 +86,12 @@ class _EquipmentPickerDialogState extends State<EquipmentPickerDialog> {
     return filtered;
   }
 
-  Color _typeColor(EquipmentCompendiumItem item) {
-    if (item.isWeapon) return Colors.redAccent;
-    if (item.isArmor) return Colors.blueAccent;
-    if (item.isShield) return Colors.tealAccent;
-    if (item.isAccessory) return Colors.amberAccent;
-    return Colors.deepPurpleAccent;
+  Color _typeColor(EquipmentCompendiumItem item, StitchThemeTokens tokens) {
+    if (item.isMagic) return tokens.accentMagic;
+    if (item.isWeapon) return tokens.accentAction;
+    if (item.isArmor || item.isShield) return tokens.accentRead;
+    if (item.isAccessory) return tokens.accentWarning;
+    return tokens.accentInfo;
   }
 
   String _buildMeta(EquipmentCompendiumItem item) {
@@ -123,110 +124,143 @@ class _EquipmentPickerDialogState extends State<EquipmentPickerDialog> {
 
     parts.add(item.source);
 
-    return parts.join(' • ');
+    return parts.join(' - ');
   }
 
   IconData _itemIcon(EquipmentCompendiumItem item) {
     if (item.isWeapon) return Icons.gavel_outlined;
     if (item.isArmor) return Icons.checkroom_outlined;
     if (item.isShield) return Icons.shield_outlined;
-    if (item.isAccessory) return Icons.auto_awesome_outlined;
+    if (item.isAccessory) return Icons.diamond_outlined;
     return Icons.inventory_2_outlined;
   }
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.stitch;
     final filteredItems = _filteredItems;
     final screenWidth = MediaQuery.of(context).size.width;
     final isTablet = screenWidth >= 600;
 
-    return AlertDialog(
-      title: Text(widget.title),
-      content: SizedBox(
-        width: isTablet ? 520 : 360,
-        height: isTablet ? 620 : 520,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Search by name, type, or source...',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: _query.isEmpty
-                    ? null
-                    : IconButton(
-                        onPressed: () {
-                          _searchController.clear();
-                          setState(() {
-                            _query = '';
-                          });
-                        },
-                        icon: const Icon(Icons.close),
-                      ),
-              ),
-              onChanged: (value) {
-                setState(() {
-                  _query = value;
-                });
-              },
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: EdgeInsets.symmetric(
+        horizontal: isTablet ? 28 : 14,
+        vertical: isTablet ? 24 : 14,
+      ),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: isTablet ? 680 : 420,
+          maxHeight: MediaQuery.of(context).size.height * 0.88,
+        ),
+        child: Container(
+          decoration: BoxDecoration(
+            color: tokens.panel,
+            borderRadius: BorderRadius.circular(tokens.radiusMd),
+            border: Border.all(
+              color: tokens.accentRead.withValues(alpha: 0.26),
             ),
-            const SizedBox(height: 12),
-            SizedBox(
-              height: 38,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                children: _filterLabels.entries.map((entry) {
-                  final key = entry.key;
-                  final label = entry.value;
-
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: ChoiceChip(
-                      label: Text(label),
-                      selected: _selectedFilter == key,
-                      onSelected: (_) {
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.32),
+                blurRadius: 28,
+                offset: const Offset(0, 16),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              _PickerHeader(
+                title: widget.title,
+                resultCount: filteredItems.length,
+                totalCount: widget.items.length,
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+                child: Column(
+                  children: [
+                    TextField(
+                      controller: _searchController,
+                      decoration: InputDecoration(
+                        hintText: 'Search by name, type, or source...',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: _query.isEmpty
+                            ? null
+                            : IconButton(
+                                onPressed: () {
+                                  _searchController.clear();
+                                  setState(() {
+                                    _query = '';
+                                  });
+                                },
+                                icon: const Icon(Icons.close),
+                              ),
+                      ),
+                      onChanged: (value) {
                         setState(() {
-                          _selectedFilter = key;
+                          _query = value;
                         });
                       },
                     ),
-                  );
-                }).toList(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              '${filteredItems.length} result${filteredItems.length == 1 ? '' : 's'}',
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.65),
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Expanded(
-              child: filteredItems.isEmpty
-                  ? Center(
-                      child: Text(
-                        'No equipment items found.',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.7),
-                        ),
-                      ),
-                    )
-                  : ListView.separated(
-                      itemCount: filteredItems.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 8),
-                      itemBuilder: (context, index) {
-                        final item = filteredItems[index];
-                        final selected = _selectedItem?.id == item.id;
-                        final accent = _typeColor(item);
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      height: 38,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        children: _filterLabels.entries.map((entry) {
+                          final key = entry.key;
+                          final label = entry.value;
+                          final selected = _selectedFilter == key;
 
-                        return Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(14),
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: ChoiceChip(
+                              label: Text(label),
+                              selected: selected,
+                              selectedColor:
+                                  tokens.accentRead.withValues(alpha: 0.18),
+                              backgroundColor:
+                                  tokens.surface.withValues(alpha: 0.80),
+                              side: BorderSide(
+                                color: selected
+                                    ? tokens.accentRead.withValues(alpha: 0.34)
+                                    : Colors.white.withValues(alpha: 0.08),
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius:
+                                    BorderRadius.circular(tokens.radiusSm),
+                              ),
+                              onSelected: (_) {
+                                setState(() {
+                                  _selectedFilter = key;
+                                });
+                              },
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: filteredItems.isEmpty
+                    ? _PickerEmptyState(query: _query)
+                    : ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                        itemCount: filteredItems.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (context, index) {
+                          final item = filteredItems[index];
+                          final selected = _selectedItem?.id == item.id;
+                          final accent = _typeColor(item, tokens);
+
+                          return _EquipmentResultTile(
+                            item: item,
+                            selected: selected,
+                            accent: accent,
+                            icon: _itemIcon(item),
+                            meta: _buildMeta(item),
                             onTap: () {
                               setState(() {
                                 _selectedItem = item;
@@ -235,160 +269,355 @@ class _EquipmentPickerDialogState extends State<EquipmentPickerDialog> {
                             onDoubleTap: () {
                               Navigator.of(context).pop(item);
                             },
-                            child: Ink(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF202028),
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
-                                  color: selected
-                                      ? accent.withOpacity(0.8)
-                                      : Colors.deepPurpleAccent
-                                          .withOpacity(0.22),
-                                  width: selected ? 1.5 : 1,
-                                ),
-                                boxShadow: selected
-                                    ? [
-                                        BoxShadow(
-                                          color: accent.withOpacity(0.16),
-                                          blurRadius: 10,
-                                          spreadRadius: 1,
-                                        ),
-                                      ]
-                                    : null,
-                              ),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Container(
-                                    width: 42,
-                                    height: 42,
-                                    decoration: BoxDecoration(
-                                      color: accent.withOpacity(0.14),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    alignment: Alignment.center,
-                                    child: Icon(
-                                      _itemIcon(item),
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          item.name,
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.w700,
-                                            fontSize: 15,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          _buildMeta(item),
-                                          style: TextStyle(
-                                            color:
-                                                Colors.white.withOpacity(0.68),
-                                            fontSize: 12,
-                                            height: 1.35,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Wrap(
-                                          spacing: 8,
-                                          runSpacing: 8,
-                                          children: [
-                                            _MiniChip(label: item.type),
-                                            if (item.isMagic)
-                                              const _MiniChip(label: 'Magic'),
-                                            if (item.requiresAttunement)
-                                              const _MiniChip(
-                                                label: 'Attunement',
-                                              ),
-                                          ],
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Icon(
-                                    selected
-                                        ? Icons.check_circle
-                                        : Icons.circle_outlined,
-                                    color: selected
-                                        ? accent
-                                        : Colors.white.withOpacity(0.45),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-            if (_selectedItem != null) ...[
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.deepPurpleAccent.withOpacity(0.10),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: Colors.deepPurpleAccent.withOpacity(0.22),
-                  ),
+                          );
+                        },
+                      ),
+              ),
+              if (_selectedItem != null)
+                _SelectedEquipmentPreview(
+                  item: _selectedItem!,
+                  accent: _typeColor(_selectedItem!, tokens),
+                  meta: _buildMeta(_selectedItem!),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+                child: Row(
                   children: [
-                    Text(
-                      _selectedItem!.name,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('Cancel'),
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      _buildMeta(_selectedItem!),
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.72),
-                        fontSize: 12,
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: _selectedItem == null
+                            ? null
+                            : () => Navigator.of(context).pop(_selectedItem),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: tokens.accentRead,
+                          foregroundColor: Colors.white,
+                        ),
+                        child: const Text('Select'),
                       ),
                     ),
                   ],
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PickerHeader extends StatelessWidget {
+  final String title;
+  final int resultCount;
+  final int totalCount;
+
+  const _PickerHeader({
+    required this.title,
+    required this.resultCount,
+    required this.totalCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
+    return Padding(
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: tokens.accentRead.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(tokens.radiusSm),
+              border: Border.all(
+                color: tokens.accentRead.withValues(alpha: 0.24),
+              ),
+            ),
+            child: Icon(
+              Icons.manage_search_outlined,
+              color: tokens.accentReadSoft,
+              size: 21,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: tokens.accentReadSoft.withValues(alpha: 0.9),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '$resultCount results from $totalCount armory items',
+                  style: TextStyle(
+                    color: tokens.textSecondary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: () => Navigator.of(context).pop(),
+            icon: const Icon(Icons.close),
+            color: tokens.textSecondary,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EquipmentResultTile extends StatelessWidget {
+  final EquipmentCompendiumItem item;
+  final bool selected;
+  final Color accent;
+  final IconData icon;
+  final String meta;
+  final VoidCallback onTap;
+  final VoidCallback onDoubleTap;
+
+  const _EquipmentResultTile({
+    required this.item,
+    required this.selected,
+    required this.accent,
+    required this.icon,
+    required this.meta,
+    required this.onTap,
+    required this.onDoubleTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        onTap: onTap,
+        onDoubleTap: onDoubleTap,
+        child: Ink(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            gradient: selected
+                ? LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      accent.withValues(alpha: 0.18),
+                      tokens.surface,
+                    ],
+                  )
+                : null,
+            color: selected ? null : tokens.surface,
+            borderRadius: BorderRadius.circular(tokens.radiusSm),
+            border: Border.all(
+              color: selected
+                  ? accent.withValues(alpha: 0.70)
+                  : tokens.accentRead.withValues(alpha: 0.16),
+              width: selected ? 1.4 : 1,
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(tokens.radiusSm),
+                  border: Border.all(color: accent.withValues(alpha: 0.24)),
+                ),
+                alignment: Alignment.center,
+                child: Icon(icon, color: Colors.white, size: 21),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      meta,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: tokens.textSecondary,
+                        fontSize: 12,
+                        height: 1.3,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 7,
+                      runSpacing: 7,
+                      children: [
+                        _MiniChip(label: item.type, color: accent),
+                        if (item.isMagic)
+                          _MiniChip(label: 'Magic', color: tokens.accentMagic),
+                        if (item.requiresAttunement)
+                          _MiniChip(
+                            label: 'Attunement',
+                            color: tokens.accentWarning,
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(
+                selected ? Icons.check_circle : Icons.circle_outlined,
+                color: selected ? accent : tokens.textMuted,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SelectedEquipmentPreview extends StatelessWidget {
+  final EquipmentCompendiumItem item;
+  final Color accent;
+  final String meta;
+
+  const _SelectedEquipmentPreview({
+    required this.item,
+    required this.accent,
+    required this.meta,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(14, 0, 14, 0),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(color: accent.withValues(alpha: 0.24)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            item.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            meta,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: tokens.textSecondary,
+              fontSize: 12,
+              height: 1.3,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PickerEmptyState extends StatelessWidget {
+  final String query;
+
+  const _PickerEmptyState({
+    required this.query,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.search_off_outlined,
+              color: tokens.accentReadSoft,
+              size: 34,
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'No equipment found.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            if (query.trim().isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Try another search or filter.',
+                style: TextStyle(
+                  color: tokens.textSecondary,
+                  fontSize: 12,
+                ),
+              ),
+            ],
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: _selectedItem == null
-              ? null
-              : () => Navigator.of(context).pop(_selectedItem),
-          child: const Text('Select'),
-        ),
-      ],
     );
   }
 }
 
 class _MiniChip extends StatelessWidget {
   final String label;
+  final Color color;
 
   const _MiniChip({
     required this.label,
+    required this.color,
   });
 
   @override
@@ -396,18 +625,18 @@ class _MiniChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.06),
-        borderRadius: BorderRadius.circular(999),
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: Colors.white.withOpacity(0.08),
+          color: color.withValues(alpha: 0.22),
         ),
       ),
       child: Text(
         label,
-        style: TextStyle(
-          color: Colors.white.withOpacity(0.82),
+        style: const TextStyle(
+          color: Colors.white,
           fontSize: 11,
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.w800,
         ),
       ),
     );

@@ -231,6 +231,7 @@ class CharacterOverviewTab extends StatelessWidget {
 
   Widget _buildSheetPanel({
     required String title,
+    required IconData icon,
     required Widget child,
     EdgeInsetsGeometry padding = const EdgeInsets.all(14),
   }) {
@@ -254,14 +255,39 @@ class CharacterOverviewTab extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title.toUpperCase(),
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0,
-            ),
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF8BAA6F).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: const Color(0xFF8BAA6F).withValues(alpha: 0.22),
+                  ),
+                ),
+                child: Icon(
+                  icon,
+                  color: const Color(0xFFB7D28A),
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: const Color(0xFFB7D28A).withValues(alpha: 0.88),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0,
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 10),
           child,
@@ -323,6 +349,7 @@ class CharacterOverviewTab extends StatelessWidget {
 
     return _buildSheetPanel(
       title: 'Proficiencies & Languages',
+      icon: Icons.workspace_premium_outlined,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -363,6 +390,7 @@ class CharacterOverviewTab extends StatelessWidget {
 
     return _buildSheetPanel(
       title: 'Defenses & Senses',
+      icon: Icons.health_and_safety_outlined,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -692,14 +720,197 @@ class CharacterOverviewTab extends StatelessWidget {
     );
   }
 
+  Widget _buildDetailsColumn({
+    required List<Widget> children,
+    double spacing = 12,
+  }) {
+    return Column(
+      children: [
+        for (var index = 0; index < children.length; index++) ...[
+          if (index > 0) SizedBox(height: spacing),
+          children[index],
+        ],
+      ],
+    );
+  }
+
+  Widget _buildLargeDetailsLayout({
+    required BuildContext context,
+    required bool useDesktopColumns,
+    required bool isTablet,
+    required bool isLargeTablet,
+  }) {
+    final savingThrows = buildSavingThrowsSection(
+      context,
+      char,
+      isTablet: isTablet,
+      isLargeTablet: isLargeTablet,
+    );
+    final skills = buildSkillsSection(
+      context,
+      char,
+      isTablet: isTablet,
+      isLargeTablet: isLargeTablet,
+    );
+    final combat = CharacterCombatSummarySection(
+      char: char,
+      equipmentProvider: equipmentProvider,
+      compendiumProvider: compendiumProvider,
+      isTablet: isTablet,
+      isLargeTablet: isLargeTablet,
+      resolveEquippedMainHandItem: resolveEquippedMainHandItem,
+      isMainHandWeapon: isMainHandWeapon,
+      isMainHandFocus: isMainHandFocus,
+      findInventoryItemById: findInventoryItemById,
+      resolveInventoryItem: resolveInventoryItem,
+      calculateMainHandAttackBonus: calculateMainHandAttackBonus,
+      buildMainHandDamageText: buildMainHandDamageText,
+      getWeaponAttackAbilityLabel: getWeaponAttackAbilityLabel,
+      computeSpellAttackBonus: computeSpellAttackBonus,
+      normalizedSpellcastingAbility: normalizedSpellcastingAbility,
+      rollMainHandAttack: rollMainHandAttack,
+      rollMainHandDamage: rollMainHandDamage,
+      formatSigned: formatSigned,
+    );
+    final deathSaves = buildDeathSavesSection(
+      context,
+      char,
+      isTablet: isTablet,
+      isLargeTablet: isLargeTablet,
+    );
+    final recentRolls = buildRecentDiceRolls(
+      isTablet: isTablet,
+      isLargeTablet: isLargeTablet,
+    );
+    final defenses = _buildDefensesPanel(char);
+    final proficiencies = _buildProficienciesPanel(char);
+
+    if (useDesktopColumns) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 292,
+            child: _buildDetailsColumn(
+              children: [
+                savingThrows,
+                defenses,
+                proficiencies,
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          SizedBox(
+            width: 318,
+            child: skills,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _buildDetailsColumn(
+              children: [
+                combat,
+                deathSaves,
+                recentRolls,
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          flex: 8,
+          child: _buildDetailsColumn(
+            children: [
+              savingThrows,
+              skills,
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          flex: 9,
+          child: _buildDetailsColumn(
+            children: [
+              combat,
+              deathSaves,
+              defenses,
+              proficiencies,
+              recentRolls,
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStackedDetailsLayout({
+    required BuildContext context,
+    required bool isTablet,
+    required bool isLargeTablet,
+  }) {
+    return _buildDetailsColumn(
+      children: [
+        CharacterCombatSummarySection(
+          char: char,
+          equipmentProvider: equipmentProvider,
+          compendiumProvider: compendiumProvider,
+          isTablet: isTablet,
+          isLargeTablet: isLargeTablet,
+          resolveEquippedMainHandItem: resolveEquippedMainHandItem,
+          isMainHandWeapon: isMainHandWeapon,
+          isMainHandFocus: isMainHandFocus,
+          findInventoryItemById: findInventoryItemById,
+          resolveInventoryItem: resolveInventoryItem,
+          calculateMainHandAttackBonus: calculateMainHandAttackBonus,
+          buildMainHandDamageText: buildMainHandDamageText,
+          getWeaponAttackAbilityLabel: getWeaponAttackAbilityLabel,
+          computeSpellAttackBonus: computeSpellAttackBonus,
+          normalizedSpellcastingAbility: normalizedSpellcastingAbility,
+          rollMainHandAttack: rollMainHandAttack,
+          rollMainHandDamage: rollMainHandDamage,
+          formatSigned: formatSigned,
+        ),
+        buildSavingThrowsSection(
+          context,
+          char,
+          isTablet: isTablet,
+          isLargeTablet: isLargeTablet,
+        ),
+        buildSkillsSection(
+          context,
+          char,
+          isTablet: isTablet,
+          isLargeTablet: isLargeTablet,
+        ),
+        _buildDefensesPanel(char),
+        _buildProficienciesPanel(char),
+        buildDeathSavesSection(
+          context,
+          char,
+          isTablet: isTablet,
+          isLargeTablet: isLargeTablet,
+        ),
+        buildRecentDiceRolls(
+          isTablet: isTablet,
+          isLargeTablet: isLargeTablet,
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     final isTablet = screenWidth >= 600;
     final isLargeTablet = screenWidth >= 900;
+    final useDesktopColumns = screenWidth >= 1180;
 
-    final maxContentWidth = isLargeTablet ? 1280.0 : 940.0;
-    final pagePadding = isLargeTablet ? 26.0 : (isTablet ? 20.0 : 14.0);
+    final maxContentWidth = useDesktopColumns ? 1280.0 : 1040.0;
+    final pagePadding = useDesktopColumns ? 26.0 : (isTablet ? 20.0 : 14.0);
     final statColumns = isLargeTablet ? 6 : 3;
     final statAspectRatio = isLargeTablet ? 1.28 : (isTablet ? 1.12 : 0.98);
     final compactStatAspectRatio = isLargeTablet ? 1.42 : statAspectRatio;
@@ -882,134 +1093,18 @@ class CharacterOverviewTab extends StatelessWidget {
                 ],
                 const SizedBox(height: 18),
                 if (isLargeTablet)
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SizedBox(
-                        width: 280,
-                        child: Column(
-                          children: [
-                            buildSavingThrowsSection(
-                              context,
-                              char,
-                              isTablet: isTablet,
-                              isLargeTablet: isLargeTablet,
-                            ),
-                            const SizedBox(height: 12),
-                            _buildDefensesPanel(char),
-                            const SizedBox(height: 12),
-                            _buildProficienciesPanel(char),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      SizedBox(
-                        width: 300,
-                        child: buildSkillsSection(
-                          context,
-                          char,
-                          isTablet: isTablet,
-                          isLargeTablet: isLargeTablet,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          children: [
-                            CharacterCombatSummarySection(
-                              char: char,
-                              equipmentProvider: equipmentProvider,
-                              compendiumProvider: compendiumProvider,
-                              isTablet: isTablet,
-                              isLargeTablet: isLargeTablet,
-                              resolveEquippedMainHandItem:
-                                  resolveEquippedMainHandItem,
-                              isMainHandWeapon: isMainHandWeapon,
-                              isMainHandFocus: isMainHandFocus,
-                              findInventoryItemById: findInventoryItemById,
-                              resolveInventoryItem: resolveInventoryItem,
-                              calculateMainHandAttackBonus:
-                                  calculateMainHandAttackBonus,
-                              buildMainHandDamageText: buildMainHandDamageText,
-                              getWeaponAttackAbilityLabel:
-                                  getWeaponAttackAbilityLabel,
-                              computeSpellAttackBonus: computeSpellAttackBonus,
-                              normalizedSpellcastingAbility:
-                                  normalizedSpellcastingAbility,
-                              rollMainHandAttack: rollMainHandAttack,
-                              rollMainHandDamage: rollMainHandDamage,
-                              formatSigned: formatSigned,
-                            ),
-                            const SizedBox(height: 12),
-                            buildDeathSavesSection(
-                              context,
-                              char,
-                              isTablet: isTablet,
-                              isLargeTablet: isLargeTablet,
-                            ),
-                            const SizedBox(height: 12),
-                            buildRecentDiceRolls(
-                              isTablet: isTablet,
-                              isLargeTablet: isLargeTablet,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                  _buildLargeDetailsLayout(
+                    context: context,
+                    useDesktopColumns: useDesktopColumns,
+                    isTablet: isTablet,
+                    isLargeTablet: isLargeTablet,
                   )
-                else ...[
-                  CharacterCombatSummarySection(
-                    char: char,
-                    equipmentProvider: equipmentProvider,
-                    compendiumProvider: compendiumProvider,
-                    isTablet: isTablet,
-                    isLargeTablet: isLargeTablet,
-                    resolveEquippedMainHandItem: resolveEquippedMainHandItem,
-                    isMainHandWeapon: isMainHandWeapon,
-                    isMainHandFocus: isMainHandFocus,
-                    findInventoryItemById: findInventoryItemById,
-                    resolveInventoryItem: resolveInventoryItem,
-                    calculateMainHandAttackBonus: calculateMainHandAttackBonus,
-                    buildMainHandDamageText: buildMainHandDamageText,
-                    getWeaponAttackAbilityLabel: getWeaponAttackAbilityLabel,
-                    computeSpellAttackBonus: computeSpellAttackBonus,
-                    normalizedSpellcastingAbility:
-                        normalizedSpellcastingAbility,
-                    rollMainHandAttack: rollMainHandAttack,
-                    rollMainHandDamage: rollMainHandDamage,
-                    formatSigned: formatSigned,
-                  ),
-                  const SizedBox(height: 12),
-                  buildSavingThrowsSection(
-                    context,
-                    char,
+                else
+                  _buildStackedDetailsLayout(
+                    context: context,
                     isTablet: isTablet,
                     isLargeTablet: isLargeTablet,
                   ),
-                  const SizedBox(height: 12),
-                  buildSkillsSection(
-                    context,
-                    char,
-                    isTablet: isTablet,
-                    isLargeTablet: isLargeTablet,
-                  ),
-                  const SizedBox(height: 12),
-                  _buildDefensesPanel(char),
-                  const SizedBox(height: 12),
-                  _buildProficienciesPanel(char),
-                  const SizedBox(height: 12),
-                  buildDeathSavesSection(
-                    context,
-                    char,
-                    isTablet: isTablet,
-                    isLargeTablet: isLargeTablet,
-                  ),
-                  const SizedBox(height: 12),
-                  buildRecentDiceRolls(
-                    isTablet: isTablet,
-                    isLargeTablet: isLargeTablet,
-                  ),
-                ],
                 const SizedBox(height: 18),
                 if (spellAbilityKey != null)
                   Text(

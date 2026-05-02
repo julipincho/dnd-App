@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../../../theme.dart';
+
 class CharacterSpellcastingSummarySection extends StatelessWidget {
   final bool isTablet;
   final bool isLargeTablet;
@@ -32,93 +34,140 @@ class CharacterSpellcastingSummarySection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                'Spellcasting',
-                style: TextStyle(
+    final tokens = context.stitch;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: tokens.panel,
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(color: tokens.accentMagic.withValues(alpha: 0.24)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 14,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: tokens.accentMagic.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(tokens.radiusSm),
+                  border: Border.all(
+                    color: tokens.accentMagic.withValues(alpha: 0.26),
+                  ),
+                ),
+                child: const Icon(
+                  Icons.auto_awesome_outlined,
                   color: Colors.white,
-                  fontSize: isLargeTablet ? 24 : (isTablet ? 22 : 20),
-                  fontWeight: FontWeight.bold,
+                  size: 22,
                 ),
               ),
-            ),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                OutlinedButton.icon(
-                  onPressed:
-                      isOwnedByCurrentUser ? onConfigureSpellcasting : null,
-                  icon: const Icon(Icons.auto_awesome_outlined),
-                  label: Text(
-                    hasSpellcasting
-                        ? 'Edit Spellcasting'
-                        : 'Enable Spellcasting',
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'SPELLCASTING',
+                      style: TextStyle(
+                        color: tokens.accentReadSoft.withValues(alpha: 0.9),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      hasSpellcasting
+                          ? 'Spell lists are filtered by $className.'
+                          : 'No spellcasting ability configured yet.',
+                      style: TextStyle(
+                        color: tokens.textSecondary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                alignment: WrapAlignment.end,
+                children: [
+                  _SpellCommandButton(
+                    label: hasSpellcasting ? 'Edit' : 'Enable',
+                    icon: Icons.tune,
+                    color: tokens.accentMagic,
+                    onPressed:
+                        isOwnedByCurrentUser ? onConfigureSpellcasting : null,
                   ),
-                ),
-                OutlinedButton.icon(
-                  onPressed: isOwnedByCurrentUser ? onManageSlots : null,
-                  icon: const Icon(Icons.tune),
-                  label: const Text('Manage Slots'),
-                ),
-                if (canReplaceKnownSpell)
-                  OutlinedButton.icon(
-                    onPressed: isOwnedByCurrentUser && canReplaceSpell
-                        ? onReplaceSpell
-                        : null,
-                    icon: const Icon(Icons.swap_horiz),
-                    label: const Text('Replace Spell'),
+                  _SpellCommandButton(
+                    label: 'Slots',
+                    icon: Icons.data_saver_on_outlined,
+                    color: tokens.accentRead,
+                    onPressed: isOwnedByCurrentUser ? onManageSlots : null,
                   ),
-                ElevatedButton.icon(
-                  onPressed: isOwnedByCurrentUser ? onAddSpell : null,
-                  icon: const Icon(Icons.add),
-                  label: const Text('Add Spell'),
-                ),
-              ],
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Text(
-          'Spell lists are filtered by $className.',
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.6),
-            fontSize: 12,
+                  if (canReplaceKnownSpell)
+                    _SpellCommandButton(
+                      label: 'Replace',
+                      icon: Icons.swap_horiz,
+                      color: tokens.accentWarning,
+                      onPressed: isOwnedByCurrentUser && canReplaceSpell
+                          ? onReplaceSpell
+                          : null,
+                    ),
+                  FilledButton.icon(
+                    onPressed: isOwnedByCurrentUser ? onAddSpell : null,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add Spell'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: tokens.accentMagic,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
-        ),
-        const SizedBox(height: 8),
-        if (!hasSpellcasting)
-          _SpellSectionFrame(
-            title: 'Spellcasting Status',
-            child: const Text(
-              'This character has no spellcasting ability configured yet, but you can still attach spells manually.',
-              style: TextStyle(color: Colors.white70),
+          const SizedBox(height: 14),
+          if (!hasSpellcasting)
+            _SpellStatusPanel(
+              text:
+                  'This character can still attach spells manually, but DC, spell attack, preparation and slots become much more useful after configuration.',
+            )
+          else
+            GridView.count(
+              crossAxisCount: isLargeTablet ? 3 : (isTablet ? 2 : 1),
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              childAspectRatio: isLargeTablet ? 2.25 : (isTablet ? 2.0 : 2.4),
+              children: summaryItems
+                  .map(
+                    (item) => _SummaryCard(
+                      item: item,
+                      isTablet: isTablet,
+                      isLargeTablet: isLargeTablet,
+                    ),
+                  )
+                  .toList(),
             ),
-          )
-        else
-          GridView.count(
-            crossAxisCount: isLargeTablet ? 3 : (isTablet ? 2 : 1),
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: isLargeTablet ? 1.85 : (isTablet ? 1.7 : 2.1),
-            children: summaryItems
-                .map(
-                  (item) => _SummaryCard(
-                    item: item,
-                    isTablet: isTablet,
-                    isLargeTablet: isLargeTablet,
-                  ),
-                )
-                .toList(),
-          ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -148,31 +197,31 @@ class _SummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
-        ),
+        color: tokens.surface,
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(color: tokens.accentMagic.withValues(alpha: 0.18)),
       ),
       child: Row(
         children: [
           Container(
-            width: isLargeTablet ? 46 : 42,
-            height: isLargeTablet ? 46 : 42,
+            width: isLargeTablet ? 38 : 34,
+            height: isLargeTablet ? 38 : 34,
             decoration: BoxDecoration(
-              color: Colors.deepPurpleAccent.withValues(alpha: 0.16),
-              borderRadius: BorderRadius.circular(12),
+              color: tokens.accentMagic.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(tokens.radiusSm),
             ),
             child: Icon(
               item.icon,
               color: Colors.white,
-              size: isTablet ? 24 : 22,
+              size: isTablet ? 20 : 18,
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -183,20 +232,21 @@ class _SummaryCard extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.62),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
+                    color: tokens.textSecondary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-                const SizedBox(height: 5),
+                const SizedBox(height: 4),
                 Text(
                   item.value,
-                  maxLines: 2,
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: isLargeTablet ? 18 : 16,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w900,
+                    height: 1,
                   ),
                 ),
               ],
@@ -208,41 +258,60 @@ class _SummaryCard extends StatelessWidget {
   }
 }
 
-class _SpellSectionFrame extends StatelessWidget {
-  final String title;
-  final Widget child;
+class _SpellCommandButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color color;
+  final VoidCallback? onPressed;
 
-  const _SpellSectionFrame({
-    required this.title,
-    required this.child,
+  const _SpellCommandButton({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.onPressed,
   });
 
   @override
   Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 17),
+      label: Text(label),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: Colors.white,
+        side: BorderSide(color: color.withValues(alpha: 0.28)),
+      ),
+    );
+  }
+}
+
+class _SpellStatusPanel extends StatelessWidget {
+  final String text;
+
+  const _SpellStatusPanel({
+    required this.text,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
-        ),
+        color: tokens.surface,
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(color: tokens.accentMagic.withValues(alpha: 0.18)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 12),
-          child,
-        ],
+      child: Text(
+        text,
+        style: TextStyle(
+          color: tokens.textSecondary,
+          fontSize: 13,
+          height: 1.35,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }

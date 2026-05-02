@@ -62,6 +62,7 @@ import '../services/character_inventory_service.dart';
 import '../services/character_weapon_attack_service.dart';
 import '../services/multiclass_spellcasting_service.dart';
 import '../services/supabase_storage_service.dart';
+import '../theme.dart';
 import '../utils/image_path_utils.dart';
 
 enum _SpellChoiceSaveMode {
@@ -3975,37 +3976,57 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(16),
+        color: const Color(0xFF151922),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: Colors.deepPurpleAccent.withValues(alpha: 0.28),
+          color: const Color(0xFF8BAA6F).withValues(alpha: 0.24),
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 14,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Column(
         children: [
           InkWell(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(8),
             onTap: () {
               setState(() {
                 _recentRollsExpanded = !_recentRollsExpanded;
               });
             },
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               child: Row(
                 children: [
-                  const Icon(
-                    Icons.history,
-                    color: Colors.white70,
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF8BAA6F).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: const Color(0xFF8BAA6F).withValues(alpha: 0.22),
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.history,
+                      color: Color(0xFFB7D28A),
+                      size: 18,
+                    ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Recent Rolls (${_diceLog.length})',
+                      'RECENT ROLLS (${_diceLog.length})',
                       style: TextStyle(
-                        color: Colors.white,
-                        fontSize: isTablet ? 16 : 15,
-                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFFB7D28A).withValues(alpha: 0.88),
+                        fontSize: isTablet ? 12 : 11,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0,
                       ),
                     ),
                   ),
@@ -4054,11 +4075,12 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         margin: const EdgeInsets.only(bottom: 10),
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF262632),
-                          borderRadius: BorderRadius.circular(14),
+                          color: const Color(0xFF111720),
+                          borderRadius: BorderRadius.circular(8),
                           border: Border.all(
-                            color:
-                                Colors.deepPurpleAccent.withValues(alpha: 0.22),
+                            color: const Color(
+                              0xFF8BAA6F,
+                            ).withValues(alpha: 0.18),
                           ),
                         ),
                         child: Row(
@@ -4080,9 +4102,15 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                 vertical: 8,
                               ),
                               decoration: BoxDecoration(
-                                color: Colors.deepPurpleAccent
-                                    .withValues(alpha: 0.22),
+                                color: const Color(
+                                  0xFF8BAA6F,
+                                ).withValues(alpha: 0.18),
                                 borderRadius: BorderRadius.circular(999),
+                                border: Border.all(
+                                  color: const Color(
+                                    0xFF8BAA6F,
+                                  ).withValues(alpha: 0.28),
+                                ),
                               ),
                               child: Text(
                                 '${roll.total}',
@@ -8219,26 +8247,90 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            final tokens = context.stitch;
             final isManual = selectedSource == 'manual';
             final isEquipment = selectedSource == 'equipment';
             final isCampaign = selectedSource == 'campaign';
 
             return AlertDialog(
-              title: const Text('Add item'),
+              backgroundColor: tokens.panel,
+              surfaceTintColor: Colors.transparent,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(tokens.radiusMd),
+                side: BorderSide(
+                  color: tokens.accentRead.withValues(alpha: 0.26),
+                ),
+              ),
+              titlePadding: const EdgeInsets.fromLTRB(18, 18, 18, 8),
+              contentPadding: const EdgeInsets.fromLTRB(18, 8, 18, 10),
+              actionsPadding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+              title: Row(
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: tokens.accentRead.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(tokens.radiusSm),
+                      border: Border.all(
+                        color: tokens.accentRead.withValues(alpha: 0.24),
+                      ),
+                    ),
+                    child: Icon(
+                      Icons.add_shopping_cart_outlined,
+                      color: tokens.accentReadSoft,
+                      size: 21,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'ADD ITEM',
+                          style: TextStyle(
+                            color:
+                                tokens.accentReadSoft.withValues(alpha: 0.90),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          isManual
+                              ? 'Create a custom inventory entry'
+                              : isEquipment
+                                  ? 'Grant gear from the armory'
+                                  : 'Grant from campaign compendium',
+                          style: TextStyle(
+                            color: tokens.textSecondary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
               content: SingleChildScrollView(
                 child: SizedBox(
-                  width: 360,
+                  width: 460,
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Align(
                         alignment: Alignment.centerLeft,
                         child: Text(
-                          'Source',
+                          'SOURCE',
                           style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.7),
+                            color:
+                                tokens.accentReadSoft.withValues(alpha: 0.82),
                             fontSize: 12,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0,
                           ),
                         ),
                       ),
@@ -8250,6 +8342,18 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                           ChoiceChip(
                             label: const Text('Manual'),
                             selected: isManual,
+                            selectedColor:
+                                tokens.accentInfo.withValues(alpha: 0.18),
+                            backgroundColor: tokens.surface,
+                            side: BorderSide(
+                              color: isManual
+                                  ? tokens.accentInfo.withValues(alpha: 0.34)
+                                  : Colors.white.withValues(alpha: 0.08),
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius:
+                                  BorderRadius.circular(tokens.radiusSm),
+                            ),
                             onSelected: (_) {
                               setDialogState(() {
                                 selectedSource = 'manual';
@@ -8260,6 +8364,18 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                             ChoiceChip(
                               label: const Text('Armory'),
                               selected: isEquipment,
+                              selectedColor:
+                                  tokens.accentRead.withValues(alpha: 0.18),
+                              backgroundColor: tokens.surface,
+                              side: BorderSide(
+                                color: isEquipment
+                                    ? tokens.accentRead.withValues(alpha: 0.34)
+                                    : Colors.white.withValues(alpha: 0.08),
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius:
+                                    BorderRadius.circular(tokens.radiusSm),
+                              ),
                               onSelected: (_) {
                                 setDialogState(() {
                                   selectedSource = 'equipment';
@@ -8271,6 +8387,18 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                             ChoiceChip(
                               label: const Text('Campaign Compendium'),
                               selected: isCampaign,
+                              selectedColor:
+                                  tokens.accentMagic.withValues(alpha: 0.18),
+                              backgroundColor: tokens.surface,
+                              side: BorderSide(
+                                color: isCampaign
+                                    ? tokens.accentMagic.withValues(alpha: 0.34)
+                                    : Colors.white.withValues(alpha: 0.08),
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius:
+                                    BorderRadius.circular(tokens.radiusSm),
+                              ),
                               onSelected: (_) {
                                 setDialogState(() {
                                   selectedSource = 'campaign';
@@ -8285,11 +8413,13 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         Align(
                           alignment: Alignment.centerLeft,
                           child: Text(
-                            'Armory item',
+                            'ARMORY ITEM',
                             style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.7),
+                              color:
+                                  tokens.accentReadSoft.withValues(alpha: 0.82),
                               fontSize: 12,
-                              fontWeight: FontWeight.w600,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0,
                             ),
                           ),
                         ),
@@ -8314,11 +8444,12 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                             width: double.infinity,
                             padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF202028),
-                              borderRadius: BorderRadius.circular(12),
+                              color: tokens.surface,
+                              borderRadius:
+                                  BorderRadius.circular(tokens.radiusSm),
                               border: Border.all(
-                                color: Colors.deepPurpleAccent
-                                    .withValues(alpha: 0.28),
+                                color:
+                                    tokens.accentRead.withValues(alpha: 0.24),
                               ),
                             ),
                             child: selectedEquipmentEntry == null
@@ -8373,7 +8504,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                       Text(
                                         'Tap to change',
                                         style: TextStyle(
-                                          color: Colors.deepPurpleAccent
+                                          color: tokens.accentReadSoft
                                               .withValues(alpha: 0.95),
                                           fontSize: 12,
                                           fontWeight: FontWeight.w600,
@@ -8413,11 +8544,12 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                             width: double.infinity,
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF202028),
-                              borderRadius: BorderRadius.circular(12),
+                              color: tokens.surface,
+                              borderRadius:
+                                  BorderRadius.circular(tokens.radiusSm),
                               border: Border.all(
-                                color: Colors.deepPurpleAccent
-                                    .withValues(alpha: 0.22),
+                                color:
+                                    tokens.accentMagic.withValues(alpha: 0.22),
                               ),
                             ),
                             child: Text(
@@ -8616,6 +8748,10 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       ),
                     );
                   },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: tokens.accentRead,
+                    foregroundColor: Colors.white,
+                  ),
                   child: Text(isManual ? 'Add' : 'Grant'),
                 ),
               ],

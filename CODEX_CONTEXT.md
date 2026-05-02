@@ -268,6 +268,11 @@ Listar assets razas:
   - Bug corregido: `CharacterProvider.getCharacterById` ahora tambien busca en `campaignCharacters`, para que el DM pueda modificar personajes de campana que no estan en su lista personal.
   - Bug corregido: al guardar cambios sobre personajes de campana de otro usuario, `CharacterProvider` conserva la sesion activa del usuario actual y refresca tambien los personajes de campana.
   - Bug corregido: `Add item` ya no queda deshabilitado solo porque no existan items en el compendio de campana; se puede usar armory/manual.
+  - Pendiente visual consciente:
+    - Inventory/Equipment y Spells/Spellcasting estan en fase 1 de redisenio visual.
+    - El objetivo no es darlos por terminados todavia: hay que revisarlos a fondo mas adelante para optimizar uso de espacio, densidad, jerarquia, modales y experiencia jugable.
+    - `Add item` y `EquipmentPickerDialog` ya recibieron una primera pasada visual, pero tambien quedan como candidatos a una revision profunda de layout/espacio.
+    - Al retomar, tratar estos apartados como "buen primer corte" y no como version final.
   - Redireccion de ficha hacia uso tactico:
     - `CODEX_CONTEXT.md` registra que la ficha debe acercarse al patron D&D Beyond: densa, accionable, confiable y preparada para combate compartido.
     - `CharacterOverviewTab` ahora prioriza abilities, dashboard de combate y columnas tacticas para saves, skills, defensas, proficiencies, acciones y rolls.
