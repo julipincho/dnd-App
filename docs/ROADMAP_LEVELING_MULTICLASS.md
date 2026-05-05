@@ -433,6 +433,8 @@ Fase 1 - Prototipo hardcodeado:
 - Mejorar cards de accion con icono, tags compactos, boton Prepare y vista de detalle para leer formulas/timing sin saturar la card.
 - Reforzar la card del combatiente con retrato superior, stats inferiores, chips de recursos/condiciones y soporte visual para temp HP/inspiraciones.
 - Pulir pass visual del Turn workspace: feedback de dado mas compacto, dock inferior con mas altura real para action cards y panel activo sin overflows.
+- Mover el log del Turn principal a un tab dedicado para liberar espacio de la card activa y mantener Overview como lectura general.
+- Rebalancear Turn stage: feedback de tirada con menos ancho relativo, target/ally card con mas protagonismo y retratos sin recorte agresivo.
 - Usar arte existente de clases/razas como retrato provisional en Combat Mode, con fallback iconografico para enemigos o personajes sin asset.
 - Hacer visibles los estados activados localmente por comandos: Rage/Raging, Bardic Inspiration, Inspired, Concentrating y temp HP como chips con iconografia.
 - Aplicar temp HP en la resolucion local de dano antes de bajar HP real, manteniendo el cambio visible en feedback y log.
@@ -440,17 +442,113 @@ Fase 1 - Prototipo hardcodeado:
 - Comparar ataques contra AC del objetivo para feedback de hit, miss, natural 1 y critico.
 - Mostrar economia de turno local: Action, Bonus Action, Reaction y Movement.
 - Aplicar dano/curacion localmente sobre el objetivo o el propio combatiente.
-- No persistir aun, no sincronizar aun, no conectar todavia a enemigos reales.
+- No persistir aun ni sincronizar cloud; el estado local ya debe pasar progresivamente por el motor de encounter.
+- Primera integracion UI -> motor: iniciativa, turnos, dano/curacion con temp HP, acciones preparadas, gasto basico de recursos y efectos visibles empiezan a delegarse en `CombatEncounterEngine`.
 
-Fases siguientes:
+Roadmap completo pendiente:
 
-- Modelar `CombatEncounter`, `Combatant`, `InitiativeEntry` y `PreparedCombatAction`.
-- Generar acciones automaticas desde armas equipadas, spell attacks, features y recursos.
-- Permitir acciones custom estilo tarjetas preparadas.
-- Conectar gasto de recursos: spell slots, superiority dice, ki, sorcery points, rage, etc.
-- Crear vista DM para turnos, enemigos, estados y solicitudes de tiradas.
-- Crear vista jugador para turno activo, acciones disponibles y feedback de tiradas.
-- Convertir la visibilidad DM/Jugador en permisos reales: vida enemiga, notas del encuentro, estados ocultos y datos tacticos sensibles.
-- Modelar motor de estados/activos de combate: concentracion, rage, bardic inspiration, condiciones del manual, duracion por rondas, fuente y objetivo.
-- Conectar recursos gastables a las acciones: consumos, recuperacion por descanso, usos restantes y feedback visual al jugador.
-- Sincronizar encounter state con campana activa en cloud.
+Fase 2 - Motor de encuentro persistible:
+
+- Estado: iniciado. Base creada en `lib/models/combat_encounter.dart` y `lib/services/combat_encounter_engine.dart`.
+- `CombatModeScreen` empieza a usar `CombatEncounterEngine` como fuente local de verdad para orden de iniciativa, ronda/turno activo, acciones preparadas, dano, curacion, temp HP, recursos y efectos basicos.
+- Modelar `CombatEncounter`, `Combatant`, `InitiativeEntry`, `CombatTurn`, `PreparedCombatAction`, `CombatTarget`, `CombatEffect` y `CombatEvent`.
+- Separar entidades de combate de la UI actual para que el modo batalla no dependa de widgets ni datos hardcodeados.
+- Definir lifecycle del encuentro: draft, initiativeRequested, active, paused, completed.
+- Guardar ronda, indice activo, orden de iniciativa, combatientes, targets, estados activos, log y acciones preparadas.
+- Definir comandos del motor: start encounter, request initiative, roll initiative, set initiative, prepare action, execute action, apply damage, apply healing, apply condition, end turn, trigger reaction.
+- Mantener un combat log estructurado, no solo texto: actor, accion, target, tirada, formula, resultado, dano/curacion, estado aplicado y timestamp.
+- Dejar el motor listo para persistencia local primero y cloud despues.
+
+Fase 3 - Acciones reales del personaje:
+
+- Estado: iniciado. Base creada en `lib/services/character_combat_builder_service.dart`.
+- `CombatModeScreen` ya consume `CharacterCombatBuilderService` para crear el combatiente activo y sus acciones disponibles, reemplazando la logica local duplicada.
+- Construir un `CombatActionBuilder` que genere acciones desde toda la informacion real del personaje.
+- Incluir armas equipadas, armas del inventario, ataques desarmados, thrown/ranged/melee, magic weapons, infusiones y bonos pasivos.
+- Incluir spells preparados/conocidos relevantes para combate: spell attacks, saving throws, damage/healing formulas, area, range, concentration, duration y spell slots.
+- Incluir class features, subclass features, racial traits, feats, fighting styles, maneuvers, metamagic, invocations, infusions y recursos personalizados.
+- Convertir recursos actuales en acciones gastables: rage, bardic inspiration, ki, sorcery points, channel divinity, lay on hands, superiority dice, wild shape, action surge, second wind, pact slots, etc.
+- Determinar timing real de cada accion: Action, Bonus Action, Reaction, Movement, Free/Object Interaction, Passive, On Hit, On Damage Taken, Start/End of Turn.
+- Marcar acciones que no deben mostrarse como boton directo pero si como efecto pasivo o trigger contextual.
+- Resolver requisitos: usos restantes, spell slot disponible, concentracion activa, arma equipada, target valido, distancia/rango, estado del turno y permisos.
+- Permitir fallback editable cuando una feature no pueda parsearse perfectamente desde texto.
+
+Fase 4 - Economia de turnos y triggers:
+
+- Implementar economia real de turno: Action, Bonus Action, Reaction, Movement, Object Interaction y recursos especiales.
+- Permitir preparar el turno antes de actuar: el jugador elige target, accion, bonus action, movimiento, reacciones candidatas y confirmacion.
+- En la pantalla principal del turno mostrar solo lo preparado y lo urgente; el catalogo completo de habilidades vive en un emergente.
+- Estado inicial aplicado en UI: el command deck abre un Action Catalog emergente por timing y deja el turno principal centrado en el plan preparado.
+- Ajuste visual aplicado: el acceso al Action Catalog se mueve a la card del personaje activo y el dock inferior queda dedicado a la secuencia de acciones preparadas.
+- Action Catalog 2.0 iniciado: busqueda, filtros por categoria, conteos por timing y estados visibles de disponibilidad (`Available`, `Prepared`, `Timing spent`, `Damage pending`).
+- Primer filtro de usabilidad: features pasivas obvias ya no se convierten en botones de combate y las acciones con recurso muestran usos restantes/bloqueo por recurso agotado.
+- Bloquear o advertir acciones que ya no correspondan por timing gastado, recurso agotado o target invalido.
+- Gestionar reacciones fuera de turno: oportunidad, shield, hellish rebuke, counterspell, cutting words, sentinel, absorb elements.
+- Crear eventos que habiliten reacciones: enemy moved, attack declared, hit received, spell cast, ally damaged, creature enters range.
+- Soportar acciones "on hit" y "after roll": smite, sneak attack, maneuvers, bardic inspiration, bless, precision attack.
+- Hacer que el flujo de turnos sea vivo: el sistema indica "te toca", "puedes reaccionar", "esperando al DM", "prepara tu accion", "ejecuta".
+
+Fase 5 - Motor de estados, duraciones y concentracion:
+
+- Modelar estados del manual y estados propios: blinded, charmed, frightened, grappled, incapacitated, invisible, paralyzed, poisoned, prone, restrained, stunned, unconscious, exhaustion, concentration, raging, inspired, blessed, marked.
+- Fase 1 iniciada: el Combat Mode muestra `Active Effects` en la card del personaje, permite remover efectos simples como concentracion/rage/inspiration y aplica concentracion/rage desde acciones usadas o preparadas.
+- Cada estado debe tener fuente, target, duracion, ronda de inicio, condicion de finalizacion, visibilidad DM/jugador y efecto mecanico.
+- Implementar concentracion: un solo efecto activo, chequeos al recibir dano, ruptura manual y ruptura por lanzar otro spell de concentracion.
+- Implementar rage: duracion, usos, dano bonus, resistencias y fin por condiciones segun reglas elegidas.
+- Implementar bardic inspiration e inspiraciones similares como dados pendientes que pueden usarse en tiradas validas.
+- Conectar temp HP como capa de vida separada y visible en todas las cards.
+- Crear resumen visual de activos: buffs, debuffs, concentracion, recursos y estados ocultos.
+
+Fase 6 - Rediseno UI/UX premium:
+
+- Replantear la vista de Turn como pantalla limpia: personaje activo, target seleccionado, dado/resultado, plan preparado y botones principales.
+- Mover el catalogo completo de habilidades a un emergente/command palette, filtrable por timing, recurso, tipo, spell level, weapon, feature y reaction.
+- En el turno, mostrar solo acciones preparadas, acciones urgentes y triggers disponibles.
+- Mejorar target selection con cards claras, portrait, distancia/rango, amenaza, AC/HP segun permisos, estados y prioridad tactica.
+- Redisenar Overview para eliminar informacion repetida: una vista tactica clara con party, enemigos, iniciativa, estados clave, turn owner y ultimo evento.
+- Crear vista DM distinta de vista jugador: el DM ve todo, jugadores ven solo lo que corresponde.
+- Incorporar arte de clase/raza/monstruo y fondos de escena, sin saturar la legibilidad.
+- Mantener coherencia con la identidad visual de la character sheet: paneles oscuros, acentos, chips, stats compactos y jerarquia premium.
+- Optimizar desktop/tablet/mobile por separado; no intentar que una misma grilla resuelva todo.
+
+Fase 7 - Dado visual pro:
+
+- Mantener `DiceRollerService` como fuente logica de formulas y resultados.
+- Agregar una capa visual de dado rodando antes de revelar resultado.
+- Evaluar implementacion 3D con Three.js/Flutter texture/webview solo si no compromete performance; si no, usar animacion 2.5D nativa con sprites/canvas.
+- Mostrar dados por tipo: d4, d6, d8, d10, d12, d20, percentil.
+- Animar critico, pifia, dano alto, healing y saves importantes con feedback diferenciado.
+- Permitir ver detalle de la tirada: formula, modificadores, dados individuales, ventaja/desventaja, rerolls y bonuses aplicados.
+- Reusar el mismo feedback visual en sheet, combat mode y futuras tiradas solicitadas por DM.
+
+Fase 8 - Monstruos reales y encounter builder:
+
+- Integrar `assets/data/monsters.json` y/o `assets/data/5e-SRD-Monsters.json` con un `MonsterRepository`.
+- Estado: iniciado. `MonsterRepository` carga `assets/data/5e-SRD-Monsters.json`, normaliza statblocks SRD y el Combat Mode ya reemplaza enemigos demo por Hobgoblin/Goblin reales como primer encuentro integrado.
+- Primera conversion aplicada: AC, HP, speed, iniciativa por DEX, CR, hit dice, acciones de ataque y features accionables pasan a `Combatant` + `PreparedCombatAction`.
+- El encuentro demo mantiene fallback hardcodeado si el asset no carga, pero cuando el JSON esta disponible las acciones del enemigo salen de su statblock real: Scimitar, Shortbow, Longsword, Longbow, Nimble Escape, etc.
+- Normalizar statblocks a `Combatant`: nombre, tipo, CR, HP, AC, speed, saves, skills, senses, resistencias, inmunidades, condiciones, acciones, legendary actions, reactions y spells.
+- Convertir acciones de monstruos a `PreparedCombatAction`: ataque, multiattack, dano, recharge, area, saves DC, condiciones aplicadas y efectos.
+- Crear selector de monstruos para el DM: buscar por nombre, CR, tipo, ambiente, fuente y tags.
+- Permitir crear encounter desde monstruos reales: cantidad, HP promedio/manual, iniciativa, ocultar/mostrar HP, notas privadas.
+- Soportar enemigos custom y reskin rapido.
+- Esta fase debe empezar despues de Fase 2, porque primero necesitamos el modelo `Combatant`; puede avanzar en paralelo con Fase 3 si el parser se mantiene aislado.
+
+Fase 9 - Experiencia multiplayer y alertas:
+
+- Crear flujo DM: iniciar combate desde una campana/sesion y enviar alerta a jugadores.
+- Mostrar popup "Empieza el combate" con boton para entrar al Combat Mode.
+- Sincronizar encounter state en cloud: iniciativa, turn owner, acciones preparadas, tiradas, HP, estados y log.
+- Definir permisos por rol: DM, jugador propietario del personaje, espectador.
+- Permitir solicitudes del DM: tirar iniciativa, saving throw, ability check, ataque, dano o reaccion.
+- Manejar latencia y conflictos: optimistic UI, eventos idempotentes y reconciliacion del log.
+- Preparar notificaciones locales/push para "te toca", "puedes reaccionar" y "el DM solicita una tirada".
+
+Fase 10 - Pulido de producto:
+
+- Testing de motor: formulas, hit/miss/crit, temp HP, concentracion, recursos, estados y turnos.
+- Testing visual por tamanos: tablet landscape, desktop, mobile y ventanas estrechas.
+- Crear fixtures de combates: party vs goblins, boss con minions, caster con concentration, barbarian rage, bardic inspiration, reactions.
+- Medir performance con muchos combatientes y muchas acciones.
+- Agregar modo demo narrativo para probar una ronda completa con datos reales.
+- Documentar limites conocidos: reglas no parseadas, homebrew, monstruos incompletos y permisos pendientes.
