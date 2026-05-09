@@ -81,6 +81,15 @@ class CharacterCombatBuilderService {
           'characterId': character.id,
           'race': character.race,
           'classProgression': character.classProgressionLabel,
+          'abilityScores': {
+            for (final ability in ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'])
+              ability: _effectiveAbilityScore(
+                character,
+                ability,
+                equipmentItems,
+                compendiumEntries,
+              ),
+          },
           'availableActionCount': availableActions.length,
         },
       ),
@@ -101,6 +110,7 @@ class CharacterCombatBuilderService {
       equipmentItems,
       compendiumEntries,
     );
+    final attackActionCount = _extraAttackCount(character);
 
     for (final resolvedWeapon in weapons.take(6)) {
       final weapon = resolvedWeapon.effectiveItem;
@@ -165,7 +175,66 @@ class CharacterCombatBuilderService {
           },
         ),
       );
+
+      if (attackActionCount > 1) {
+        actions.add(
+          PreparedCombatAction(
+            id: _actionId(
+              character,
+              'weapon_multi',
+              '${weapon.id}_x$attackActionCount',
+            ),
+            name:
+                '${weapon.name.trim().isEmpty ? 'Weapon' : weapon.name} x$attackActionCount',
+            timing: CombatActionTiming.action,
+            rollKind: CombatActionRollKind.attack,
+            tags: [
+              abilityLabel,
+              'Extra Attack',
+              '$attackActionCount attacks',
+              if (weapon.isRanged) 'Ranged' else 'Melee',
+              if (damageType != null && damageType.isNotEmpty) damageType,
+            ],
+            metadata: {
+              'source': 'weaponMultiattack',
+              'baseWeaponActionId': weapon.id,
+              'attackCount': attackActionCount,
+              'multiattack': true,
+              'multiAttackSteps': [
+                for (var index = 0; index < attackActionCount; index++)
+                  {
+                    'name': weapon.name.trim().isEmpty
+                        ? 'Weapon Attack'
+                        : weapon.name,
+                    'attackFormula': _formatRollFormula('d20', attackBonus),
+                    'damageFormula': damageFormula,
+                    if (damageFormula != null)
+                      'criticalDamageFormula': _formatRollFormula(
+                        _doubleDiceFormula(damageDice),
+                        damageBonus,
+                      ),
+                    'tags': [
+                      abilityLabel,
+                      if (weapon.isRanged) 'Ranged' else 'Melee',
+                      if (damageType != null && damageType.isNotEmpty)
+                        damageType,
+                    ],
+                  },
+              ],
+            },
+          ),
+        );
+      }
     }
+
+    final spellActions = _spellActions(
+      character,
+      spells,
+      equipmentItems,
+      compendiumEntries,
+      proficiencyBonus,
+    );
+    actions.addAll(spellActions);
 
     final spellAttack = _spellAttackAction(
       character,
@@ -173,17 +242,7 @@ class CharacterCombatBuilderService {
       compendiumEntries,
       proficiencyBonus,
     );
-    if (spellAttack != null) actions.add(spellAttack);
-
-    actions.addAll(
-      _spellActions(
-        character,
-        spells,
-        equipmentItems,
-        compendiumEntries,
-        proficiencyBonus,
-      ),
-    );
+    if (spellAttack != null && spellActions.isEmpty) actions.add(spellAttack);
     actions.addAll(_featureActions(character));
     actions.addAll(_resourceActions(character));
 
@@ -398,6 +457,26 @@ class CharacterCombatBuilderService {
       final damageFormula = _firstDiceFormula(spell.description);
       final usesAttackRoll = _spellUsesAttackRoll(spell);
       final mentionsSave = _spellMentionsSave(spell);
+      final saveAbility =
+          mentionsSave ? _firstSaveAbility(spell.description) : null;
+      final healingSpell = _spellLooksLikeHealing(spell.description);
+      final saveDc = saveAbility == null
+          ? null
+          : _spellSaveDc(
+              character,
+              equipmentItems,
+              compendiumEntries,
+              proficiencyBonus,
+            );
+      final spellFlow = usesAttackRoll
+          ? 'attack'
+          : saveAbility != null
+              ? 'save'
+              : healingSpell
+                  ? 'healing'
+                  : damageFormula != null
+                      ? 'damage'
+                      : 'effect';
       actions.add(
         PreparedCombatAction(
           id: _actionId(character, 'spell', spell.id),
@@ -405,15 +484,20 @@ class CharacterCombatBuilderService {
           timing: _timingFromCastingTime(spell.castingTime),
           rollKind: usesAttackRoll
               ? CombatActionRollKind.attack
-              : damageFormula != null
-                  ? CombatActionRollKind.damage
-                  : CombatActionRollKind.none,
+              : saveAbility != null
+                  ? CombatActionRollKind.savingThrow
+                  : healingSpell
+                      ? CombatActionRollKind.healing
+                      : damageFormula != null
+                          ? CombatActionRollKind.damage
+                          : CombatActionRollKind.none,
           attackFormula: usesAttackRoll
               ? _formatRollFormula('d20', spellAttackBonus)
               : null,
-          damageFormula: damageFormula,
-          saveAbility:
-              mentionsSave ? _firstSaveAbility(spell.description) : null,
+          damageFormula: healingSpell ? null : damageFormula,
+          healingFormula: healingSpell ? damageFormula : null,
+          saveAbility: saveAbility,
+          saveDc: saveDc,
           resourceKey: spell.level > 0 ? 'spellSlot:${spell.level}' : null,
           resourceCost: spell.level > 0 ? 1 : 0,
           tags: [
@@ -422,14 +506,19 @@ class CharacterCombatBuilderService {
             if (spell.level == 0) 'Cantrip' else 'Slot ${spell.level}',
             if (spell.duration.toLowerCase().contains('concentration'))
               'Concentration',
-            if (mentionsSave) 'Save',
+            if (saveAbility != null && saveDc != null)
+              '$saveAbility DC $saveDc',
+            if (usesAttackRoll) 'Spell Attack',
+            if (healingSpell) 'Healing',
           ],
           metadata: {
             'source': 'spell',
+            'spellFlow': spellFlow,
             'spellId': spell.id,
             'level': spell.level,
             'castingTime': spell.castingTime,
             'duration': spell.duration,
+            'halfDamageOnSave': _spellDealsHalfDamageOnSave(spell.description),
             'criticalDamageFormula': usesAttackRoll && damageFormula != null
                 ? _doubleDamageFormula(damageFormula)
                 : null,
@@ -443,6 +532,9 @@ class CharacterCombatBuilderService {
   static List<PreparedCombatAction> _featureActions(Character character) {
     return character.features.where(_isUsableCombatFeature).map((feature) {
       final diceFormula = _firstDiceFormula(feature.description);
+      final grantsActionSurge = _isActionSurgeText(
+        '${feature.name} ${feature.description}',
+      );
       return PreparedCombatAction(
         id: _actionId(character, 'feature', feature.id),
         name: feature.name.trim().isEmpty ? 'Class Feature' : feature.name,
@@ -462,6 +554,7 @@ class CharacterCombatBuilderService {
         resourceCost: (feature.linkedResourceId ?? '').trim().isEmpty ? 0 : 1,
         tags: [
           _featureSourceLabel(feature),
+          if (grantsActionSurge) 'Extra Action',
           if (feature.unlockedAtLevel != null)
             'Level ${feature.unlockedAtLevel}',
           if ((feature.linkedResourceId ?? '').trim().isNotEmpty) 'Resource',
@@ -471,6 +564,8 @@ class CharacterCombatBuilderService {
           'featureId': feature.id,
           'featureSource': feature.source,
           'description': feature.description,
+          if (grantsActionSurge) 'combatEffect': 'actionSurge',
+          if (grantsActionSurge) 'grantsAction': true,
         },
       );
     }).toList();
@@ -537,6 +632,9 @@ class CharacterCombatBuilderService {
       final diceFormula = _firstDiceFormula(resource.notes ?? '');
       final healing =
           _looksLikeHealing('${resource.name} ${resource.notes ?? ''}');
+      final grantsActionSurge = _isActionSurgeText(
+        '${resource.name} ${resource.notes ?? ''}',
+      );
       return PreparedCombatAction(
         id: _actionId(character, 'resource', resource.id),
         name: resource.name.trim().isEmpty ? 'Resource' : resource.name,
@@ -553,12 +651,15 @@ class CharacterCombatBuilderService {
         tags: [
           '${resource.current}/${resource.max}',
           _resourceRechargeLabel(resource),
+          if (grantsActionSurge) 'Extra Action',
         ],
         metadata: {
           'source': 'resource',
           'resourceId': resource.id,
           'rechargeType': resource.rechargeType,
           'notes': resource.notes,
+          if (grantsActionSurge) 'combatEffect': 'actionSurge',
+          if (grantsActionSurge) 'grantsAction': true,
         },
       );
     }).toList();
@@ -727,6 +828,30 @@ class CharacterCombatBuilderService {
     return passiveBonus + infusedBonus;
   }
 
+  static int? _spellSaveDc(
+    Character character,
+    List<EquipmentCompendiumItem> equipmentItems,
+    List<CompendiumEntry> compendiumEntries,
+    int proficiencyBonus,
+  ) {
+    final ability = _spellcastingAbility(character);
+    if (ability == null) return null;
+    final abilityMod = _abilityModifier(
+      _effectiveAbilityScore(
+        character,
+        ability,
+        equipmentItems,
+        compendiumEntries,
+      ),
+    );
+    final passiveBonus = CharacterEquipmentEffects.getPassiveSpellSaveDcBonus(
+      char: character,
+      equipmentItems: equipmentItems,
+      compendiumEntries: compendiumEntries,
+    );
+    return 8 + proficiencyBonus + abilityMod + passiveBonus;
+  }
+
   static ResolvedInventoryItem? _resolveInventoryItemById(
     Character character,
     String? itemId,
@@ -817,6 +942,21 @@ class CharacterCombatBuilderService {
     return text.contains('saving throw') || text.contains('save');
   }
 
+  static bool _spellDealsHalfDamageOnSave(String text) {
+    final normalized = text.toLowerCase();
+    return normalized.contains('half as much') ||
+        normalized.contains('half damage') ||
+        normalized.contains('half the damage');
+  }
+
+  static bool _spellLooksLikeHealing(String text) {
+    final lower = text.toLowerCase();
+    return lower.contains('regain') ||
+        lower.contains('healing') ||
+        lower.contains('heals') ||
+        lower.contains('restore');
+  }
+
   static String? _firstSaveAbility(String text) {
     final match = RegExp(
       r'(strength|dexterity|constitution|intelligence|wisdom|charisma)\s+saving throw',
@@ -832,9 +972,30 @@ class CharacterCombatBuilderService {
     return CombatActionTiming.action;
   }
 
+  static int _extraAttackCount(Character character) {
+    var count = 1;
+    for (final feature in character.features) {
+      final text = '${feature.name} ${feature.description}'.toLowerCase();
+      if (!text.contains('extra attack')) continue;
+      if (text.contains('four times') ||
+          text.contains('four attacks') ||
+          text.contains('three additional')) {
+        count = count < 4 ? 4 : count;
+      } else if (text.contains('three times') ||
+          text.contains('three attacks') ||
+          text.contains('two additional')) {
+        count = count < 3 ? 3 : count;
+      } else {
+        count = count < 2 ? 2 : count;
+      }
+    }
+    return count;
+  }
+
   static CombatActionTiming _timingForFeature(CharacterFeature feature) {
     final text = '${feature.name} ${feature.description}'.toLowerCase();
     if (text.contains('reaction')) return CombatActionTiming.reaction;
+    if (_isActionSurgeText(text)) return CombatActionTiming.bonusAction;
     if (text.contains('bonus action') ||
         text.contains('rage') ||
         text.contains('second wind') ||
@@ -864,6 +1025,7 @@ class CharacterCombatBuilderService {
   static CombatActionTiming _timingForResource(CharacterResource resource) {
     final text = '${resource.name} ${resource.notes ?? ''}'.toLowerCase();
     if (text.contains('reaction')) return CombatActionTiming.reaction;
+    if (_isActionSurgeText(text)) return CombatActionTiming.bonusAction;
     if (text.contains('bonus')) return CombatActionTiming.bonusAction;
     return CombatActionTiming.action;
   }
@@ -882,6 +1044,24 @@ class CharacterCombatBuilderService {
         lower.contains('regain') ||
         lower.contains('recover') ||
         lower.contains('hit points');
+  }
+
+  static bool _isActionSurgeText(String text) {
+    final lower = text.toLowerCase();
+    final normalized = lower
+        .replaceAll('á', 'a')
+        .replaceAll('é', 'e')
+        .replaceAll('í', 'i')
+        .replaceAll('ó', 'o')
+        .replaceAll('ú', 'u');
+    return normalized.contains('action surge') ||
+        normalized.contains('action sourge') ||
+        (normalized.contains('action') &&
+            (normalized.contains('surge') || normalized.contains('sourge'))) ||
+        normalized.contains('additional action') ||
+        normalized.contains('one additional action') ||
+        normalized.contains('accion adicional') ||
+        normalized.contains('oleada de accion');
   }
 
   static String _combatantIdForCharacter(Character character) {

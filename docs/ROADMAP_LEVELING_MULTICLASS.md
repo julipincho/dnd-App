@@ -438,6 +438,7 @@ Fase 1 - Prototipo hardcodeado:
 - Usar arte existente de clases/razas como retrato provisional en Combat Mode, con fallback iconografico para enemigos o personajes sin asset.
 - Hacer visibles los estados activados localmente por comandos: Rage/Raging, Bardic Inspiration, Inspired, Concentrating y temp HP como chips con iconografia.
 - Aplicar temp HP en la resolucion local de dano antes de bajar HP real, manteniendo el cambio visible en feedback y log.
+- Salto visual iniciado en el feedback central: Dice Theater ahora muestra actor, objetivo, dado poliedrico, trayectoria de impacto y resultado flotante para que la tirada se sienta como escena de combate.
 - Incorporar senales pasivas raciales/de feats en combate: resistencias, inmunidades, sentidos, no sorpresa, no ventaja por atacantes ocultos, AC condicional y velocidad.
 - Comparar ataques contra AC del objetivo para feedback de hit, miss, natural 1 y critico.
 - Mostrar economia de turno local: Action, Bonus Action, Reaction y Movement.
@@ -482,6 +483,9 @@ Fase 4 - Economia de turnos y triggers:
 - Ajuste visual aplicado: el acceso al Action Catalog se mueve a la card del personaje activo y el dock inferior queda dedicado a la secuencia de acciones preparadas.
 - Action Catalog 2.0 iniciado: busqueda, filtros por categoria, conteos por timing y estados visibles de disponibilidad (`Available`, `Prepared`, `Timing spent`, `Damage pending`).
 - Primer filtro de usabilidad: features pasivas obvias ya no se convierten en botones de combate y las acciones con recurso muestran usos restantes/bloqueo por recurso agotado.
+- Action Surge queda integrado como caso especial de economia: se fuerza a Bonus Action aun si llega por feature/recurso con texto ambiguo, gasta su recurso si corresponde y vuelve a habilitar el slot de Action durante ese turno.
+- Multiattack / Extra Attack fase 1: las acciones compuestas pueden resolver una secuencia de ataques dentro de una sola Action, con tiradas por golpe, criticos, dano acumulado, log detallado y feedback final.
+- `Roll Plan` deja de resolver todo como automatismo invisible: ahora abre una cola participativa y el jugador avanza con `Roll Next` para ver cada tirada y cada consecuencia antes de seguir.
 - Bloquear o advertir acciones que ya no correspondan por timing gastado, recurso agotado o target invalido.
 - Gestionar reacciones fuera de turno: oportunidad, shield, hellish rebuke, counterspell, cutting words, sentinel, absorb elements.
 - Crear eventos que habiliten reacciones: enemy moved, attack declared, hit received, spell cast, ally damaged, creature enters range.
@@ -504,6 +508,11 @@ Fase 6 - Rediseno UI/UX premium:
 - Replantear la vista de Turn como pantalla limpia: personaje activo, target seleccionado, dado/resultado, plan preparado y botones principales.
 - Mover el catalogo completo de habilidades a un emergente/command palette, filtrable por timing, recurso, tipo, spell level, weapon, feature y reaction.
 - En el turno, mostrar solo acciones preparadas, acciones urgentes y triggers disponibles.
+- Estado visual actual: iniciado el salto premium del Turn workspace con feedback teatral actor -> target, dado poliedrico 2.5D y lectura de impacto mas cinematica, manteniendo la logica existente.
+- Direccion UX actual: evitar que el combate se sienta automatizado; las automatizaciones deben ser atajos visibles de tirada (`Roll Plan`) y no reemplazar la sensacion de lanzar dados paso a paso.
+- Feedback de target iniciado: la card del objetivo reacciona al ultimo resultado con glow y badge contextual de impacto, miss, critico, healing o save.
+- Cockpit landscape iniciado: telefonos horizontales y tablets medianas evitan el scroll largo y concentran initiative rail, personaje activo, dice theater, target y plan preparado en una sola vista compacta.
+- Fix de scope de combate: `CombatModeScreen` ahora distingue personaje/campana activa, resetea el estado local al cambiar de scope y evita arrastrar party/enemigos/HP de un combate anterior.
 - Mejorar target selection con cards claras, portrait, distancia/rango, amenaza, AC/HP segun permisos, estados y prioridad tactica.
 - Redisenar Overview para eliminar informacion repetida: una vista tactica clara con party, enemigos, iniciativa, estados clave, turn owner y ultimo evento.
 - Crear vista DM distinta de vista jugador: el DM ve todo, jugadores ven solo lo que corresponde.
@@ -515,6 +524,7 @@ Fase 7 - Dado visual pro:
 
 - Mantener `DiceRollerService` como fuente logica de formulas y resultados.
 - Agregar una capa visual de dado rodando antes de revelar resultado.
+- Fase visual inicial aplicada: el dado central deja de ser una card plana y pasa a un poliedro estilizado con facetas, glow e integracion en la escena actor/target.
 - Evaluar implementacion 3D con Three.js/Flutter texture/webview solo si no compromete performance; si no, usar animacion 2.5D nativa con sprites/canvas.
 - Mostrar dados por tipo: d4, d6, d8, d10, d12, d20, percentil.
 - Animar critico, pifia, dano alto, healing y saves importantes con feedback diferenciado.
@@ -527,6 +537,7 @@ Fase 8 - Monstruos reales y encounter builder:
 - Estado: iniciado. `MonsterRepository` carga `assets/data/5e-SRD-Monsters.json`, normaliza statblocks SRD y el Combat Mode ya reemplaza enemigos demo por Hobgoblin/Goblin reales como primer encuentro integrado.
 - Primera conversion aplicada: AC, HP, speed, iniciativa por DEX, CR, hit dice, acciones de ataque y features accionables pasan a `Combatant` + `PreparedCombatAction`.
 - El encuentro demo mantiene fallback hardcodeado si el asset no carga, pero cuando el JSON esta disponible las acciones del enemigo salen de su statblock real: Scimitar, Shortbow, Longsword, Longbow, Nimble Escape, etc.
+- Multiattack SRD iniciado: se lee el arreglo `actions` del statblock, se convierte en pasos internos y el Combat Mode puede ejecutar esos ataques como una sola accion compuesta.
 - Normalizar statblocks a `Combatant`: nombre, tipo, CR, HP, AC, speed, saves, skills, senses, resistencias, inmunidades, condiciones, acciones, legendary actions, reactions y spells.
 - Convertir acciones de monstruos a `PreparedCombatAction`: ataque, multiattack, dano, recharge, area, saves DC, condiciones aplicadas y efectos.
 - Crear selector de monstruos para el DM: buscar por nombre, CR, tipo, ambiente, fuente y tags.

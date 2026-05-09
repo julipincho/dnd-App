@@ -7,6 +7,7 @@ import '../features/dice/models/dice_roll_result.dart';
 import '../features/dice/services/dice_roller_service.dart';
 import '../models/character.dart';
 import '../models/combat_encounter.dart' as encounter_models;
+import '../providers/campaign_provider.dart';
 import '../providers/compendium_provider.dart';
 import '../providers/character_provider.dart';
 import '../providers/equipment_provider.dart';
@@ -18,10 +19,12 @@ import '../theme.dart';
 
 class CombatModeScreen extends StatefulWidget {
   final String? characterId;
+  final String? campaignId;
 
   const CombatModeScreen({
     super.key,
     this.characterId,
+    this.campaignId,
   });
 
   @override
@@ -34,19 +37,34 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
   late List<_CombatAction> _characterActions;
   encounter_models.CombatEncounter? _encounter;
   final Map<String, encounter_models.PreparedCombatAction> _engineActions = {};
+  final Map<String, List<_CombatAction>> _partyActionsByCombatantId = {};
   final Map<String, List<_CombatAction>> _enemyActionsByCombatantId = {};
   _CombatRollFeedback? _rollFeedback;
   final Set<String> _spentTimings = {};
   final Set<String> _pendingDamageActions = {};
+  final Set<String> _pendingHalfDamageActions = {};
   final Map<String, _CombatAction> _preparedActions = {};
+  final List<_CombatAction> _queuedPreparedActions = [];
+  int _queuedPreparedIndex = 0;
   int _activeIndex = 0;
   int _targetIndex = 2;
   int _round = 1;
   String _selectedCommandTiming = 'Action';
   _CombatWorkspace _workspace = _CombatWorkspace.turn;
   bool _dmView = true;
-  bool _seededCharacter = false;
   bool _seededMonsters = false;
+  String? _seededCharacterId;
+  String? _loadingCampaignId;
+  String? _loadedPartyCampaignId;
+
+  String? get _queuedPreparedActionName {
+    if (_queuedPreparedActions.isEmpty ||
+        _queuedPreparedIndex < 0 ||
+        _queuedPreparedIndex >= _queuedPreparedActions.length) {
+      return null;
+    }
+    return _queuedPreparedActions[_queuedPreparedIndex].name;
+  }
 
   static const List<_CombatAction> _playerActions = [
     _CombatAction(
@@ -142,10 +160,65 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_seededCharacter || widget.characterId == null) return;
+    _seedCombatContextIfNeeded(listenToCampaign: true);
+  }
 
+  @override
+  void didUpdateWidget(covariant CombatModeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.characterId == widget.characterId &&
+        oldWidget.campaignId == widget.campaignId) {
+      return;
+    }
+
+    setState(_resetCombatStateForNewScope);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _seedCombatContextIfNeeded(listenToCampaign: false);
+    });
+  }
+
+  void _seedCombatContextIfNeeded({required bool listenToCampaign}) {
+    final characterId = widget.characterId;
+    if (characterId != null && characterId.trim().isNotEmpty) {
+      if (_seededCharacterId == characterId) return;
+      _seedCharacterCombat(characterId);
+      return;
+    }
+
+    final campaignId = _resolvedCampaignId(listen: listenToCampaign);
+    if (campaignId == null || campaignId.isEmpty) return;
+    if (_loadedPartyCampaignId == campaignId ||
+        _loadingCampaignId == campaignId) {
+      return;
+    }
+
+    final equipmentProvider = context.read<EquipmentProvider>();
+    final compendiumProvider = context.read<CompendiumProvider>();
+    final spellProvider = context.read<SpellProvider>();
+    _loadCampaignPartyById(
+      campaignId: campaignId,
+      equipmentProvider: equipmentProvider,
+      compendiumProvider: compendiumProvider,
+      spellProvider: spellProvider,
+      force: true,
+    );
+  }
+
+  String? _resolvedCampaignId({required bool listen}) {
+    final explicit = widget.campaignId?.trim();
+    if (explicit != null && explicit.isNotEmpty) return explicit;
+
+    final activeCampaign = listen
+        ? context.watch<CampaignProvider>().activeCampaign
+        : context.read<CampaignProvider>().activeCampaign;
+    final campaignId = activeCampaign?.id.trim();
+    return campaignId == null || campaignId.isEmpty ? null : campaignId;
+  }
+
+  void _seedCharacterCombat(String characterId) {
     final character =
-        context.read<CharacterProvider>().getCharacterById(widget.characterId!);
+        context.read<CharacterProvider>().getCharacterById(characterId);
     if (character == null) return;
     final equipmentProvider = context.read<EquipmentProvider>();
     final compendiumProvider = context.read<CompendiumProvider>();
@@ -161,7 +234,11 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     final stagedCombatants = _stagedEngineCombatants(
       excludingId: previousPrimaryId,
     );
-    _setCharacterActions(combatBuild.availableActions);
+    _registerCharacterActions(
+      combatantId: combatBuild.combatant.id,
+      actions: combatBuild.availableActions,
+      primary: true,
+    );
     _combatants = [
       _combatantFromEngineCombatant(combatBuild.combatant),
       ..._combatants.skip(1),
@@ -179,7 +256,13 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       ),
       ..._activity,
     ];
-    _seededCharacter = true;
+    _seededCharacterId = characterId;
+    _loadCampaignParty(
+      anchorCharacter: character,
+      equipmentProvider: equipmentProvider,
+      compendiumProvider: compendiumProvider,
+      spellProvider: spellProvider,
+    );
 
     if (!spellProvider.isLoaded) {
       spellProvider.loadSpells().then((_) {
@@ -196,7 +279,11 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
           final stagedCombatants = _stagedEngineCombatants(
             excludingId: previousPrimaryId,
           );
-          _setCharacterActions(combatBuild.availableActions);
+          _registerCharacterActions(
+            combatantId: combatBuild.combatant.id,
+            actions: combatBuild.availableActions,
+            primary: true,
+          );
           _combatants = [
             _combatantFromEngineCombatant(combatBuild.combatant),
             ..._combatants.skip(1),
@@ -207,8 +294,46 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
           ]);
           _syncUiFromEncounter();
         });
+        _loadCampaignParty(
+          anchorCharacter: character,
+          equipmentProvider: equipmentProvider,
+          compendiumProvider: compendiumProvider,
+          spellProvider: spellProvider,
+          force: true,
+        );
       });
     }
+  }
+
+  void _resetCombatStateForNewScope() {
+    _combatants = _buildDefaultCombatants();
+    _characterActions = _playerActions;
+    _activity = [
+      _CombatLogEntry.system(
+        'Encounter prototype ready. Initiative order is loaded.',
+      ),
+    ];
+    _engineActions.clear();
+    _partyActionsByCombatantId.clear();
+    _enemyActionsByCombatantId.clear();
+    _encounter = _createEncounterFromCombatants(_combatants);
+    _syncUiFromEncounter();
+    _rollFeedback = null;
+    _spentTimings.clear();
+    _pendingDamageActions.clear();
+    _pendingHalfDamageActions.clear();
+    _preparedActions.clear();
+    _resetQueuedPreparedActions();
+    _activeIndex = 0;
+    _targetIndex = _findDefaultTargetIndex(_activeIndex);
+    _round = 1;
+    _selectedCommandTiming = 'Action';
+    _workspace = _CombatWorkspace.turn;
+    _seededMonsters = false;
+    _seededCharacterId = null;
+    _loadingCampaignId = null;
+    _loadedPartyCampaignId = null;
+    _loadRealDemoMonsters(force: true);
   }
 
   CharacterCombatBuild _buildCharacterCombat(
@@ -225,14 +350,204 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     );
   }
 
-  void _setCharacterActions(
-    List<encounter_models.PreparedCombatAction> actions,
-  ) {
+  void _registerCharacterActions({
+    required String combatantId,
+    required List<encounter_models.PreparedCombatAction> actions,
+    bool primary = false,
+  }) {
+    final resolvedActions = actions
+        .map((action) => action.copyWith(actorId: combatantId))
+        .toList(growable: false);
     _engineActions
-      ..removeWhere((_, action) => !_isMonsterActionSource(action))
-      ..addEntries(actions.map((action) => MapEntry(action.id, action)));
-    _characterActions =
-        actions.map(_combatActionFromPreparedAction).toList(growable: false);
+      ..removeWhere(
+        (id, action) =>
+            id.startsWith('${combatantId}_') || action.actorId == combatantId,
+      )
+      ..addEntries(
+        resolvedActions.map((action) => MapEntry(action.id, action)),
+      );
+
+    final uiActions = resolvedActions
+        .map(_combatActionFromPreparedAction)
+        .toList(growable: false);
+    _partyActionsByCombatantId[combatantId] = uiActions;
+    if (primary) {
+      _characterActions = uiActions;
+    }
+  }
+
+  Future<void> _loadCampaignParty({
+    required Character anchorCharacter,
+    required EquipmentProvider equipmentProvider,
+    required CompendiumProvider compendiumProvider,
+    required SpellProvider spellProvider,
+    bool force = false,
+  }) async {
+    final campaignId = anchorCharacter.campaignId?.trim();
+    if (campaignId == null || campaignId.isEmpty) return;
+    if (!force && _loadedPartyCampaignId == campaignId) return;
+    final resetEncounterScope = force || _loadedPartyCampaignId != campaignId;
+
+    final characterProvider = context.read<CharacterProvider>();
+    if (characterProvider.getCharactersByCampaignSafe(campaignId).isEmpty) {
+      await characterProvider.loadCampaignCharacters(campaignId);
+    }
+    if (!mounted) return;
+
+    final campaignCharacters =
+        characterProvider.getCharactersByCampaignSafe(campaignId);
+    if (campaignCharacters.isEmpty) return;
+
+    final orderedCharacters = _orderedPartyCharacters(
+      anchorCharacter: anchorCharacter,
+      campaignCharacters: campaignCharacters,
+    );
+    final partyBuilds = orderedCharacters
+        .map(
+          (character) => _buildCharacterCombat(
+            character,
+            equipmentProvider,
+            compendiumProvider,
+            spellProvider,
+          ),
+        )
+        .toList(growable: false);
+    final enemyCombatants = resetEncounterScope
+        ? _freshDemoEnemyCombatants()
+        : _currentEnemyCombatants();
+
+    setState(() {
+      _engineActions
+          .removeWhere((_, action) => !_isMonsterActionSource(action));
+      _partyActionsByCombatantId.clear();
+
+      for (final build in partyBuilds) {
+        _registerCharacterActions(
+          combatantId: build.combatant.id,
+          actions: build.availableActions,
+          primary: build.combatant.sourceId == anchorCharacter.id,
+        );
+      }
+
+      _encounter = _createEncounterFromEngineCombatants([
+        ...partyBuilds.map((build) => build.combatant),
+        ...enemyCombatants,
+      ]);
+      _syncUiFromEncounter();
+      _targetIndex = _findDefaultTargetIndex(_activeIndex);
+      _spentTimings.clear();
+      _pendingDamageActions.clear();
+      _pendingHalfDamageActions.clear();
+      _preparedActions.clear();
+      _resetQueuedPreparedActions();
+      _rollFeedback = _CombatRollFeedback.manual(
+        actor: 'DM',
+        action: 'Combat begins',
+        headline: 'COMBAT BEGINS',
+        subline: '${partyBuilds.length} heroes enter initiative.',
+        accentKind: _CombatAccentKind.magic,
+      );
+      _activity = [
+        _CombatLogEntry.turn(
+          'Combat begins. ${partyBuilds.length} campaign characters joined the encounter.',
+        ),
+        ..._activity,
+      ];
+      _loadedPartyCampaignId = campaignId;
+      _loadingCampaignId = null;
+    });
+
+    if (resetEncounterScope) {
+      _loadRealDemoMonsters(force: true);
+    }
+  }
+
+  Future<void> _loadCampaignPartyById({
+    required String campaignId,
+    required EquipmentProvider equipmentProvider,
+    required CompendiumProvider compendiumProvider,
+    required SpellProvider spellProvider,
+    bool force = false,
+  }) async {
+    final normalizedCampaignId = campaignId.trim();
+    if (normalizedCampaignId.isEmpty) return;
+    if (!force && _loadedPartyCampaignId == normalizedCampaignId) return;
+
+    _loadingCampaignId = normalizedCampaignId;
+    final characterProvider = context.read<CharacterProvider>();
+    if (characterProvider
+        .getCharactersByCampaignSafe(normalizedCampaignId)
+        .isEmpty) {
+      await characterProvider.loadCampaignCharacters(normalizedCampaignId);
+    }
+    if (!mounted) return;
+
+    final campaignCharacters =
+        characterProvider.getCharactersByCampaignSafe(normalizedCampaignId);
+    if (campaignCharacters.isEmpty) {
+      setState(() {
+        _loadingCampaignId = null;
+        _loadedPartyCampaignId = normalizedCampaignId;
+        _activity.insert(
+          0,
+          _CombatLogEntry.system(
+            'Combat opened for this campaign, but no party characters were found.',
+          ),
+        );
+      });
+      return;
+    }
+
+    await _loadCampaignParty(
+      anchorCharacter: campaignCharacters.first,
+      equipmentProvider: equipmentProvider,
+      compendiumProvider: compendiumProvider,
+      spellProvider: spellProvider,
+      force: force,
+    );
+  }
+
+  List<Character> _orderedPartyCharacters({
+    required Character anchorCharacter,
+    required List<Character> campaignCharacters,
+  }) {
+    final seen = <String>{};
+    final ordered = <Character>[];
+
+    void add(Character character) {
+      final id = character.id.trim();
+      if (id.isEmpty || seen.contains(id)) return;
+      seen.add(id);
+      ordered.add(character);
+    }
+
+    add(anchorCharacter);
+    for (final character in campaignCharacters) {
+      add(character);
+    }
+
+    return ordered;
+  }
+
+  List<encounter_models.Combatant> _currentEnemyCombatants() {
+    final encounterEnemies =
+        (_encounter?.combatants ?? const <encounter_models.Combatant>[])
+            .where((combatant) =>
+                combatant.team == encounter_models.CombatantTeam.enemy)
+            .toList(growable: false);
+    if (encounterEnemies.isNotEmpty) return encounterEnemies;
+
+    return _combatants
+        .where((combatant) => combatant.team == _CombatTeam.enemy)
+        .map(_engineCombatantFromUi)
+        .toList(growable: false);
+  }
+
+  List<encounter_models.Combatant> _freshDemoEnemyCombatants() {
+    return _buildDefaultCombatants()
+        .where((combatant) => combatant.team == _CombatTeam.enemy)
+        .map(_engineCombatantFromUi)
+        .toList(growable: false);
   }
 
   List<encounter_models.Combatant> _stagedEngineCombatants({
@@ -251,8 +566,8 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     return source == 'monster' || source == 'monsterFeature';
   }
 
-  Future<void> _loadRealDemoMonsters() async {
-    if (_seededMonsters) return;
+  Future<void> _loadRealDemoMonsters({bool force = false}) async {
+    if (_seededMonsters && !force) return;
 
     try {
       final monsters = await Future.wait([
@@ -468,7 +783,9 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
   }
 
   List<_CombatAction> _actionsForCombatant(_Combatant combatant) {
-    if (combatant.team == _CombatTeam.party) return _characterActions;
+    if (combatant.team == _CombatTeam.party) {
+      return _partyActionsByCombatantId[combatant.id] ?? _characterActions;
+    }
     return _enemyActionsByCombatantId[combatant.id] ?? _enemyActions;
   }
 
@@ -520,7 +837,9 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       }
       _spentTimings.clear();
       _pendingDamageActions.clear();
+      _pendingHalfDamageActions.clear();
       _preparedActions.clear();
+      _resetQueuedPreparedActions();
       _activity.insert(
         0,
         _CombatLogEntry.system('Initiative rolled. Round 1 begins.'),
@@ -551,7 +870,9 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
 
       _spentTimings.clear();
       _pendingDamageActions.clear();
+      _pendingHalfDamageActions.clear();
       _preparedActions.clear();
+      _resetQueuedPreparedActions();
       _selectedCommandTiming = 'Action';
       _rollFeedback = null;
       _activity.insert(
@@ -589,6 +910,9 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
 
     final formula = switch (rollType) {
       _CombatActionRoll.attack => action.attackFormula,
+      _CombatActionRoll.savingThrow => action.requiresSavingThrow
+          ? _savingThrowFormulaForTarget(_selectedTarget, action.saveAbility!)
+          : null,
       _CombatActionRoll.damage => action.damageFormula,
       _CombatActionRoll.critical => action.critFormula,
     };
@@ -597,6 +921,8 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
 
     final label = switch (rollType) {
       _CombatActionRoll.attack => '${action.name} Attack',
+      _CombatActionRoll.savingThrow =>
+        '${_selectedTarget.name} ${action.saveAbility} Save',
       _CombatActionRoll.damage => '${action.name} Damage',
       _CombatActionRoll.critical => '${action.name} Critical',
     };
@@ -605,13 +931,22 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         DiceRollerService.rollFormula(formula: formula, label: label);
 
     setState(() {
+      if (!canResolvePendingDamage) {
+        _resetQueuedPreparedActions();
+      }
       String? detail;
       String headline;
       String? subline;
       _CombatAccentKind feedbackKind = action.accentKind;
-      if (rollType == _CombatActionRoll.attack || !canResolvePendingDamage) {
+      if (rollType == _CombatActionRoll.attack ||
+          rollType == _CombatActionRoll.savingThrow ||
+          !canResolvePendingDamage) {
         _spentTimings.add(action.timing);
         _spendEngineActionResource(action);
+        final economyMessage = _applyActionEconomyEffect(action);
+        if (economyMessage != null) {
+          _activity.insert(0, _CombatLogEntry.system(economyMessage));
+        }
         final condition = _applyActionState(action);
         if (condition != null) {
           _applyEngineCondition(
@@ -631,8 +966,10 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         final outcome = _attackOutcome(result, target);
         if (outcome == 'hit' || outcome == 'critical hit') {
           _pendingDamageActions.add(actionKey);
+          _pendingHalfDamageActions.remove(actionKey);
         } else {
           _pendingDamageActions.remove(actionKey);
+          _pendingHalfDamageActions.remove(actionKey);
         }
         headline = outcome.toUpperCase();
         subline = '${_activeCombatant.name} vs ${target.name} AC ${target.ac}';
@@ -644,11 +981,36 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         };
         detail =
             '${result.formula} - ${result.rollsText}. ${target.name} AC ${target.ac}: $outcome.';
+      } else if (rollType == _CombatActionRoll.savingThrow) {
+        final target = _selectedTarget;
+        final saveDc = action.saveDc ?? 10;
+        final success = result.total >= saveDc;
+        if (!success && action.damageFormula != null) {
+          _pendingDamageActions.add(actionKey);
+          _pendingHalfDamageActions.remove(actionKey);
+        } else if (success &&
+            action.damageFormula != null &&
+            action.halfDamageOnSave) {
+          _pendingDamageActions.add(actionKey);
+          _pendingHalfDamageActions.add(actionKey);
+        } else {
+          _pendingDamageActions.remove(actionKey);
+          _pendingHalfDamageActions.remove(actionKey);
+        }
+        headline = success ? 'SAVE SUCCESS' : 'SAVE FAILED';
+        subline =
+            '${target.name} ${action.saveAbility} ${result.total} vs DC $saveDc';
+        feedbackKind =
+            success ? _CombatAccentKind.read : _CombatAccentKind.magic;
+        detail =
+            '${result.formula} - ${result.rollsText}. ${target.name} ${success ? 'succeeds' : 'fails'} ${action.saveAbility} save vs DC $saveDc.';
       } else {
         final targetIndex =
             action.targetsSelf ? _activeIndex : _safeTargetIndex;
         final target = _combatants[targetIndex];
-        final amount = result.total;
+        final isHalfDamage =
+            !action.isHealing && _pendingHalfDamageActions.contains(actionKey);
+        final amount = isHalfDamage ? (result.total / 2).floor() : result.total;
         final hpResult = _resolveHpChange(
           target,
           amount,
@@ -671,8 +1033,16 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         _syncUiFromEncounter();
 
         final verb = action.isHealing ? 'recovers' : 'takes';
-        final suffix = action.isHealing ? 'HP' : 'damage';
-        headline = action.isHealing ? 'HEAL $amount' : '$amount DAMAGE';
+        final suffix = action.isHealing
+            ? 'HP'
+            : isHalfDamage
+                ? 'half damage'
+                : 'damage';
+        headline = action.isHealing
+            ? 'HEAL $amount'
+            : isHalfDamage
+                ? '$amount HALF DAMAGE'
+                : '$amount DAMAGE';
         subline = _hpChangeLine(target, hpResult);
         feedbackKind = action.isHealing
             ? _CombatAccentKind.support
@@ -688,6 +1058,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
           _targetIndex = _findDefaultTargetIndex(_activeIndex);
         }
         _pendingDamageActions.remove(actionKey);
+        _pendingHalfDamageActions.remove(actionKey);
       }
 
       _activity.insert(
@@ -731,10 +1102,15 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     }
 
     setState(() {
+      _resetQueuedPreparedActions();
       _spentTimings.add(action.timing);
       _pendingDamageActions.remove(_actionExecutionKey(action));
+      _pendingHalfDamageActions.remove(_actionExecutionKey(action));
       final condition = _applyActionState(action);
       _spendEngineActionResource(action);
+      final economyMessage = _applyActionEconomyEffect(action);
+      final resolvedFeedback =
+          action.hasMultiAttack ? _resolvePreparedAction(action) : null;
       if (condition != null) {
         _applyEngineCondition(
           actor: _activeCombatant,
@@ -748,20 +1124,30 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         0,
         _CombatLogEntry.system('${_activeCombatant.name} used ${action.name}.'),
       );
-      _rollFeedback = _CombatRollFeedback.manual(
-        actor: _activeCombatant.name,
-        action: action.name,
-        headline: condition == null ? 'READY' : condition.toUpperCase(),
-        subline: condition == null
-            ? action.tags.take(3).join(' - ')
-            : '${_activeCombatant.name} is now $condition',
-        accentKind: action.accentKind,
-      );
+      if (economyMessage != null) {
+        _activity.insert(0, _CombatLogEntry.system(economyMessage));
+      }
+      _rollFeedback = resolvedFeedback ??
+          _CombatRollFeedback.manual(
+            actor: _activeCombatant.name,
+            action: action.name,
+            headline: action.grantsAction
+                ? 'ACTION SURGE'
+                : condition == null
+                    ? 'READY'
+                    : condition.toUpperCase(),
+            subline: economyMessage ??
+                (condition == null
+                    ? action.tags.take(3).join(' - ')
+                    : '${_activeCombatant.name} is now $condition'),
+            accentKind: action.accentKind,
+          );
     });
   }
 
   void _prepareAction(_CombatAction action) {
     setState(() {
+      _resetQueuedPreparedActions();
       if (_spentTimings.contains(action.timing)) {
         final hasPendingDamage =
             _pendingDamageActions.contains(_actionExecutionKey(action));
@@ -808,6 +1194,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
           encounter,
           combatantId: _activeCombatant.id,
           action: engineAction.copyWith(
+            timing: _timingFromLabel(action.timing),
             actorId: _activeCombatant.id,
             targetId:
                 action.targetsSelf ? _activeCombatant.id : _selectedTarget.id,
@@ -837,57 +1224,100 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         _syncUiFromEncounter();
       }
       _preparedActions.clear();
+      _resetQueuedPreparedActions();
       _activity.insert(0, _CombatLogEntry.system('Turn plan cleared.'));
     });
+  }
+
+  void _resetQueuedPreparedActions() {
+    _queuedPreparedActions.clear();
+    _queuedPreparedIndex = 0;
   }
 
   void _launchPreparedTurn() {
     if (_preparedActions.isEmpty) return;
 
     const order = ['Action', 'Bonus Action', 'Reaction', 'Movement'];
-    final prepared = [
-      for (final timing in order)
-        if (_preparedActions[timing] != null && !_spentTimings.contains(timing))
-          _preparedActions[timing]!,
-    ];
-    if (prepared.isEmpty) return;
 
     setState(() {
-      _CombatRollFeedback? lastFeedback;
+      if (_queuedPreparedActions.isEmpty ||
+          _queuedPreparedIndex >= _queuedPreparedActions.length) {
+        final prepared = [
+          for (final timing in order)
+            if (_preparedActions[timing] != null &&
+                !_spentTimings.contains(timing))
+              _preparedActions[timing]!,
+        ];
+        if (prepared.isEmpty) return;
+        _queuedPreparedActions
+          ..clear()
+          ..addAll(prepared);
+        _queuedPreparedIndex = 0;
+        _activity.insert(
+          0,
+          _CombatLogEntry.turn(
+            '${_activeCombatant.name} starts rolling the turn plan.',
+          ),
+        );
+        _activity.insert(
+          0,
+          _CombatLogEntry.system(
+            '${prepared.length} prepared roll${prepared.length == 1 ? '' : 's'} queued. Tap Roll Next to continue.',
+          ),
+        );
+      }
+
+      final action = _queuedPreparedActions[_queuedPreparedIndex];
       _activity.insert(
         0,
         _CombatLogEntry.turn(
-            '${_activeCombatant.name} launches the turn plan.'),
+          'Rolling ${_queuedPreparedIndex + 1}/${_queuedPreparedActions.length}: ${action.name}.',
+        ),
       );
 
-      for (final action in prepared) {
-        _spentTimings.add(action.timing);
-        _pendingDamageActions.remove(_actionExecutionKey(action));
-        final condition = _applyActionState(action);
-        if (condition != null) {
-          _applyEngineCondition(
-            actor: _combatants[_activeIndex],
-            target: _combatants[_activeIndex],
-            name: condition,
-            sourceActionName: action.name,
-          );
-        }
-        lastFeedback = _resolvePreparedAction(action);
-        _spendEngineActionResource(action);
-        final encounter = _encounter;
-        if (encounter != null) {
-          _encounter = CombatEncounterEngine.clearPreparedAction(
-            encounter,
-            combatantId: _activeCombatant.id,
-            timing: _timingFromLabel(action.timing),
-          );
-        }
+      _spentTimings.add(action.timing);
+      _pendingDamageActions.remove(_actionExecutionKey(action));
+      _pendingHalfDamageActions.remove(_actionExecutionKey(action));
+      final condition = _applyActionState(action);
+      if (condition != null) {
+        _applyEngineCondition(
+          actor: _combatants[_activeIndex],
+          target: _combatants[_activeIndex],
+          name: condition,
+          sourceActionName: action.name,
+        );
+      }
+      final feedback = _resolvePreparedAction(action);
+      _spendEngineActionResource(action);
+      final economyMessage = _applyActionEconomyEffect(action);
+      if (economyMessage != null) {
+        _activity.insert(0, _CombatLogEntry.system(economyMessage));
+      }
+      final encounter = _encounter;
+      if (encounter != null) {
+        _encounter = CombatEncounterEngine.clearPreparedAction(
+          encounter,
+          combatantId: _activeCombatant.id,
+          timing: _timingFromLabel(action.timing),
+        );
       }
 
-      _preparedActions.clear();
+      _queuedPreparedIndex += 1;
+
       _syncUiFromEncounter();
-      if (lastFeedback != null) {
-        _rollFeedback = lastFeedback;
+      _rollFeedback = feedback;
+      if (_queuedPreparedIndex >= _queuedPreparedActions.length) {
+        _resetQueuedPreparedActions();
+        _activity.insert(
+          0,
+          _CombatLogEntry.system('Turn plan fully rolled.'),
+        );
+      } else {
+        final nextAction = _queuedPreparedActions[_queuedPreparedIndex];
+        _activity.insert(
+          0,
+          _CombatLogEntry.system('Next prepared roll: ${nextAction.name}.'),
+        );
       }
     });
   }
@@ -895,8 +1325,10 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
   void _runDemoRound() {
     setState(() {
       _preparedActions.clear();
+      _resetQueuedPreparedActions();
       _spentTimings.clear();
       _pendingDamageActions.clear();
+      _pendingHalfDamageActions.clear();
       _activity.insert(
         0,
         _CombatLogEntry.system('Demo round starts. Every combatant acts once.'),
@@ -940,6 +1372,9 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
 
   _CombatAction? _demoActionFor(List<_CombatAction> actions) {
     for (final action in actions) {
+      if (action.hasMultiAttack && !action.targetsSelf) return action;
+    }
+    for (final action in actions) {
       if (action.attackFormula != null &&
           action.damageFormula != null &&
           !action.targetsSelf) {
@@ -963,11 +1398,99 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     final resolvedActorIndex =
         (actorIndex ?? _activeIndex).clamp(0, _combatants.length - 1).toInt();
     final actor = _combatants[resolvedActorIndex];
-    final resolvedTargetIndex =
-        forcedTargetIndex ?? _findDefaultTargetIndex(resolvedActorIndex);
+    final resolvedTargetIndex = forcedTargetIndex ??
+        (actorIndex == null
+            ? _safeTargetIndex
+            : _findDefaultTargetIndex(resolvedActorIndex));
     final targetIndex =
         action.targetsSelf ? resolvedActorIndex : resolvedTargetIndex;
     var target = _combatants[targetIndex];
+
+    if (action.hasMultiAttack) {
+      return _resolveMultiAttackAction(
+        action,
+        actor: actor,
+        actorIndex: resolvedActorIndex,
+        targetIndex: targetIndex,
+      );
+    }
+
+    if (action.requiresSavingThrow) {
+      final saveResult = DiceRollerService.rollFormula(
+        formula: _savingThrowFormulaForTarget(target, action.saveAbility!),
+        label: '${target.name} ${action.saveAbility} Save',
+      );
+      final saveDc = action.saveDc ?? 10;
+      final success = saveResult.total >= saveDc;
+      final saveDetail =
+          '${saveResult.formula} - ${saveResult.rollsText}. ${target.name} ${success ? 'succeeds' : 'fails'} ${action.saveAbility} save vs DC $saveDc.';
+      _activity.insert(
+        0,
+        _CombatLogEntry.roll(
+          actor: target.name,
+          action: '${action.name} save',
+          result: saveResult,
+          detail: saveDetail,
+        ),
+      );
+
+      if (action.damageFormula != null &&
+          (!success || action.halfDamageOnSave)) {
+        final damageResult = DiceRollerService.rollFormula(
+          formula: action.damageFormula!,
+          label: '${action.name} Damage',
+        );
+        final amount = success && action.halfDamageOnSave
+            ? (damageResult.total / 2).floor()
+            : damageResult.total;
+        final hpResult = _resolveHpChange(target, amount, healing: false);
+        final nextCombatants = [..._combatants];
+        nextCombatants[targetIndex] = target.copyWith(
+          hp: hpResult.hp,
+          tempHp: hpResult.tempHp,
+        );
+        _combatants = nextCombatants;
+        _applyEngineHpChange(
+          actor: actor,
+          target: target,
+          amount: amount,
+          healing: false,
+          action: action,
+          formula: damageResult.formula,
+        );
+        _syncUiFromEncounter();
+        final damageDetail =
+            '${damageResult.formula} - ${damageResult.rollsText}. ${target.name} takes $amount ${success ? 'half ' : ''}damage (${_hpChangeLine(target, hpResult)}).';
+        _activity.insert(
+          0,
+          _CombatLogEntry.roll(
+            actor: actor.name,
+            action: '${action.name} damage',
+            result: damageResult,
+            detail: damageDetail,
+          ),
+        );
+        return _CombatRollFeedback(
+          actor: actor.name,
+          action: action.name,
+          result: damageResult,
+          headline: success ? '$amount HALF DAMAGE' : '$amount DAMAGE',
+          subline: _hpChangeLine(target, hpResult),
+          accentKind:
+              success ? _CombatAccentKind.read : _CombatAccentKind.magic,
+        );
+      }
+
+      return _CombatRollFeedback(
+        actor: target.name,
+        action: action.name,
+        result: saveResult,
+        headline: success ? 'SAVE SUCCESS' : 'SAVE FAILED',
+        subline:
+            '${target.name} ${action.saveAbility} ${saveResult.total} vs DC $saveDc',
+        accentKind: success ? _CombatAccentKind.read : _CombatAccentKind.magic,
+      );
+    }
 
     if (action.attackFormula != null) {
       final attackResult = DiceRollerService.rollFormula(
@@ -1132,11 +1655,174 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     return _CombatRollFeedback.manual(
       actor: actor.name,
       action: action.name,
-      headline: condition == null ? 'USED' : condition.toUpperCase(),
-      subline: condition == null
-          ? action.tags.take(3).join(' - ')
-          : '${actor.name} is now $condition',
+      headline: action.grantsAction
+          ? 'ACTION SURGE'
+          : condition == null
+              ? 'USED'
+              : condition.toUpperCase(),
+      subline: action.grantsAction
+          ? '${actor.name} can take another Action this turn.'
+          : condition == null
+              ? action.tags.take(3).join(' - ')
+              : '${actor.name} is now $condition',
       accentKind: action.accentKind,
+    );
+  }
+
+  _CombatRollFeedback _resolveMultiAttackAction(
+    _CombatAction action, {
+    required _Combatant actor,
+    required int actorIndex,
+    required int targetIndex,
+  }) {
+    var currentTargetIndex = targetIndex;
+    var totalDamage = 0;
+    var hitCount = 0;
+    var critCount = 0;
+    var attackCount = 0;
+    DiceRollResult? lastResult;
+    String? lastHpLine;
+
+    for (var index = 0; index < action.multiAttackSteps.length; index++) {
+      if (currentTargetIndex < 0 || currentTargetIndex >= _combatants.length) {
+        break;
+      }
+      final target = _combatants[currentTargetIndex];
+      if (target.hp <= 0) break;
+
+      final step = action.multiAttackSteps[index];
+      final stepLabel = '${action.name} ${index + 1}: ${step.name}';
+      final attackFormula = step.attackFormula;
+      final damageFormula = step.damageFormula;
+      if (attackFormula == null && damageFormula == null) continue;
+
+      if (attackFormula == null) {
+        final damageResult = DiceRollerService.rollFormula(
+          formula: damageFormula!,
+          label: '$stepLabel Damage',
+        );
+        lastResult = damageResult;
+        final amount = damageResult.total;
+        final hpResult = _resolveHpChange(target, amount, healing: false);
+        _combatants = [
+          for (var i = 0; i < _combatants.length; i++)
+            i == currentTargetIndex
+                ? target.copyWith(hp: hpResult.hp, tempHp: hpResult.tempHp)
+                : _combatants[i],
+        ];
+        totalDamage += amount;
+        hitCount += 1;
+        lastHpLine = _hpChangeLine(target, hpResult);
+        _applyEngineHpChange(
+          actor: actor,
+          target: target,
+          amount: amount,
+          healing: false,
+          action: action,
+          formula: damageResult.formula,
+        );
+        _activity.insert(
+          0,
+          _CombatLogEntry.roll(
+            actor: actor.name,
+            action: stepLabel,
+            result: damageResult,
+            detail:
+                '${damageResult.formula} - ${damageResult.rollsText}. ${target.name} takes $amount damage ($lastHpLine).',
+          ),
+        );
+      } else {
+        attackCount += 1;
+        final attackResult = DiceRollerService.rollFormula(
+          formula: attackFormula,
+          label: '$stepLabel Attack',
+        );
+        lastResult = attackResult;
+        final outcome = _attackOutcome(attackResult, target);
+        final didHit = outcome == 'hit' || outcome == 'critical hit';
+        if (outcome == 'critical hit') critCount += 1;
+        _activity.insert(
+          0,
+          _CombatLogEntry.roll(
+            actor: actor.name,
+            action: '$stepLabel attack',
+            result: attackResult,
+            detail:
+                '${attackResult.formula} - ${attackResult.rollsText}. ${target.name} AC ${target.ac}: $outcome.',
+          ),
+        );
+
+        final resolvedDamageFormula = outcome == 'critical hit'
+            ? step.critFormula ?? damageFormula
+            : damageFormula;
+        if (didHit && resolvedDamageFormula != null) {
+          final damageResult = DiceRollerService.rollFormula(
+            formula: resolvedDamageFormula,
+            label: '$stepLabel Damage',
+          );
+          lastResult = damageResult;
+          final amount = damageResult.total;
+          final hpResult = _resolveHpChange(target, amount, healing: false);
+          _combatants = [
+            for (var i = 0; i < _combatants.length; i++)
+              i == currentTargetIndex
+                  ? target.copyWith(hp: hpResult.hp, tempHp: hpResult.tempHp)
+                  : _combatants[i],
+          ];
+          totalDamage += amount;
+          hitCount += 1;
+          lastHpLine = _hpChangeLine(target, hpResult);
+          _applyEngineHpChange(
+            actor: actor,
+            target: target,
+            amount: amount,
+            healing: false,
+            action: action,
+            formula: damageResult.formula,
+          );
+          _activity.insert(
+            0,
+            _CombatLogEntry.roll(
+              actor: actor.name,
+              action: '$stepLabel damage',
+              result: damageResult,
+              detail:
+                  '${damageResult.formula} - ${damageResult.rollsText}. ${target.name} takes $amount damage ($lastHpLine).',
+            ),
+          );
+        }
+      }
+
+      final updatedTarget = _combatants[currentTargetIndex];
+      if (target.hp > 0 && updatedTarget.hp == 0) {
+        _activity.insert(
+          0,
+          _CombatLogEntry.system('${target.name} is down.'),
+        );
+        _targetIndex = _findDefaultTargetIndex(actorIndex);
+        currentTargetIndex = _targetIndex;
+        break;
+      }
+    }
+
+    _syncUiFromEncounter();
+
+    final attacksLabel = attackCount == 0
+        ? '${action.multiAttackSteps.length} steps'
+        : '$hitCount / $attackCount hits';
+    final headline = totalDamage > 0
+        ? '${critCount > 0 ? 'CRIT ' : ''}MULTIATTACK $totalDamage'
+        : 'MULTIATTACK MISS';
+
+    return _CombatRollFeedback(
+      actor: actor.name,
+      action: action.name,
+      result: lastResult,
+      headline: headline,
+      subline: lastHpLine ?? '${_combatants[targetIndex].name}: $attacksLabel',
+      accentKind: totalDamage > 0
+          ? (critCount > 0 ? _CombatAccentKind.support : action.accentKind)
+          : _CombatAccentKind.read,
     );
   }
 
@@ -1233,6 +1919,16 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       resourceKey: resourceKey,
       amount: resourceCost,
     );
+  }
+
+  String? _applyActionEconomyEffect(_CombatAction action) {
+    if (!action.grantsAction) return null;
+
+    final hadSpentAction = _spentTimings.remove('Action');
+    _selectedCommandTiming = 'Action';
+    return hadSpentAction
+        ? '${action.name} grants another Action this turn.'
+        : '${action.name} is active. Your Action is still available.';
   }
 
   String? _actionResourceBlockMessage(_CombatAction action) {
@@ -1388,7 +2084,10 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       _activeIndex = index;
       _targetIndex = _findDefaultTargetIndex(index);
       _spentTimings.clear();
+      _pendingDamageActions.clear();
+      _pendingHalfDamageActions.clear();
       _preparedActions.clear();
+      _resetQueuedPreparedActions();
       _selectedCommandTiming = 'Action';
       _rollFeedback = null;
       _workspace = _CombatWorkspace.turn;
@@ -1461,8 +2160,10 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
           SafeArea(
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final useGameLayout = constraints.maxWidth >= 1050 &&
-                    constraints.maxHeight >= 700;
+                final useGameLayout =
+                    constraints.maxWidth >= 900 && constraints.maxHeight >= 640;
+                final useCompactLandscapeLayout =
+                    constraints.maxWidth >= 700 && constraints.maxHeight >= 340;
 
                 if (useGameLayout) {
                   return Center(
@@ -1480,6 +2181,9 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
                         spentTimings: _spentTimings,
                         pendingDamageActions: _pendingDamageActions,
                         preparedActions: _preparedActions,
+                        queuedPreparedIndex: _queuedPreparedIndex,
+                        queuedPreparedTotal: _queuedPreparedActions.length,
+                        queuedPreparedActionName: _queuedPreparedActionName,
                         selectedCommandTiming: _selectedCommandTiming,
                         workspace: _workspace,
                         showEnemyHp: _dmView,
@@ -1503,6 +2207,43 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
                         onClearPreparedActions: _clearPreparedActions,
                       ),
                     ),
+                  );
+                }
+
+                if (useCompactLandscapeLayout) {
+                  return _CombatCompactLandscapeView(
+                    round: _round,
+                    combatants: _combatants,
+                    activeIndex: _activeIndex,
+                    targetIndex: _safeTargetIndex,
+                    activeCombatant: _activeCombatant,
+                    selectedTarget: _selectedTarget,
+                    actions: _activeActions,
+                    rollFeedback: _rollFeedback,
+                    spentTimings: _spentTimings,
+                    pendingDamageActions: _pendingDamageActions,
+                    preparedActions: _preparedActions,
+                    queuedPreparedIndex: _queuedPreparedIndex,
+                    queuedPreparedTotal: _queuedPreparedActions.length,
+                    queuedPreparedActionName: _queuedPreparedActionName,
+                    selectedCommandTiming: _selectedCommandTiming,
+                    showEnemyHp: _dmView,
+                    resourcePool: _activeResourcePool,
+                    onBack: () => Navigator.of(context).maybePop(),
+                    onRequestInitiative: _requestInitiative,
+                    onRollInitiative: _rollInitiativeForAll,
+                    onNextTurn: _nextTurn,
+                    onToggleDmView: _toggleDmView,
+                    onRunDemo: _runDemoRound,
+                    onSelectTarget: _selectTarget,
+                    onSelectFocusedCombatant: _selectFocusedCombatant,
+                    onRemoveActiveEffect: _removeActiveEffect,
+                    onSelectCommandTiming: _selectCommandTiming,
+                    onRollAction: _rollAction,
+                    onUseAction: _useAction,
+                    onPrepareAction: _prepareAction,
+                    onLaunchPreparedTurn: _launchPreparedTurn,
+                    onClearPreparedActions: _clearPreparedActions,
                   );
                 }
 
@@ -1711,6 +2452,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     encounter_models.PreparedCombatAction action,
   ) {
     final source = action.metadata['source']?.toString() ?? '';
+    final grantsAction = _preparedActionGrantsAction(action);
     final criticalDamageFormula =
         action.metadata['criticalDamageFormula']?.toString();
     final damageFormula = action.damageFormula ?? action.healingFormula;
@@ -1719,8 +2461,10 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       id: action.id,
       name: action.name,
       type: _actionTypeLabel(action),
-      timing: _timingLabel(action.timing),
+      timing: grantsAction ? 'Bonus Action' : _timingLabel(action.timing),
       attackFormula: action.attackFormula,
+      saveAbility: action.saveAbility,
+      saveDc: action.saveDc,
       damageFormula: damageFormula,
       critFormula: criticalDamageFormula == null ||
               criticalDamageFormula.trim().isEmpty ||
@@ -1737,22 +2481,67 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       isHealing:
           action.rollKind == encounter_models.CombatActionRollKind.healing ||
               action.healingFormula != null,
+      halfDamageOnSave: action.metadata['halfDamageOnSave'] == true,
+      grantsAction: grantsAction,
+      multiAttackSteps: _multiAttackStepsFromMetadata(action.metadata),
     );
+  }
+
+  bool _preparedActionGrantsAction(
+    encounter_models.PreparedCombatAction action,
+  ) {
+    final effect = action.metadata['combatEffect']?.toString().toLowerCase();
+    if (action.metadata['grantsAction'] == true || effect == 'actionsurge') {
+      return true;
+    }
+    return _looksLikeActionSurgeText(
+      '${action.name} ${action.tags.join(' ')} ${action.metadata['description'] ?? ''}',
+    );
+  }
+
+  bool _looksLikeActionSurgeText(String text) {
+    final normalized = text
+        .toLowerCase()
+        .replaceAll('á', 'a')
+        .replaceAll('é', 'e')
+        .replaceAll('í', 'i')
+        .replaceAll('ó', 'o')
+        .replaceAll('ú', 'u');
+    return normalized.contains('action surge') ||
+        normalized.contains('action sourge') ||
+        (normalized.contains('action') &&
+            (normalized.contains('surge') || normalized.contains('sourge'))) ||
+        normalized.contains('one additional action') ||
+        normalized.contains('additional action') ||
+        normalized.contains('accion adicional') ||
+        normalized.contains('oleada de accion');
   }
 
   String _actionTypeLabel(encounter_models.PreparedCombatAction action) {
     final source = action.metadata['source']?.toString();
-    if (source == 'weapon') {
+    if (action.metadata['multiattack'] == true) {
+      if (source == 'weaponMultiattack') return 'Extra Attack';
+      if (source == 'monster') return 'Monster Multiattack';
+      return 'Multiattack';
+    }
+    if (source == 'weapon' || source == 'weaponMultiattack') {
       final weaponType = action.metadata['weaponType']?.toString();
       return weaponType == 'ranged' ? 'Ranged Weapon' : 'Weapon Attack';
     }
     if (source == 'spell') {
+      final flow = action.metadata['spellFlow']?.toString();
+      if (flow == 'save') return 'Save Spell';
+      if (flow == 'attack') return 'Spell Attack';
+      if (flow == 'healing') return 'Healing Spell';
       final level = action.metadata['level'];
       if (level is int && level == 0) return 'Cantrip';
       if (level is int) return 'Level $level Spell';
       return 'Spell';
     }
     if (source == 'feature') {
+      if (action.metadata['combatEffect'] == 'actionSurge') {
+        return 'Fighter Feature';
+      }
       return action.metadata['featureSource']?.toString() ?? 'Feature';
     }
     if (source == 'resource') return 'Resource';
@@ -1779,10 +2568,51 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     };
   }
 
+  List<_MultiAttackStep> _multiAttackStepsFromMetadata(
+    Map<String, dynamic> metadata,
+  ) {
+    final rawSteps = metadata['multiAttackSteps'];
+    if (rawSteps is! List) return const [];
+    final steps = <_MultiAttackStep>[];
+    for (final rawStep in rawSteps) {
+      if (rawStep is! Map) continue;
+      final name = rawStep['name']?.toString().trim() ?? '';
+      final attackFormula = rawStep['attackFormula']?.toString();
+      final damageFormula = rawStep['damageFormula']?.toString();
+      final criticalDamageFormula =
+          rawStep['criticalDamageFormula']?.toString();
+      final rawTags = rawStep['tags'];
+      steps.add(
+        _MultiAttackStep(
+          name: name.isEmpty ? 'Attack' : name,
+          attackFormula: _cleanNullableFormula(attackFormula),
+          damageFormula: _cleanNullableFormula(damageFormula),
+          critFormula: _cleanNullableFormula(criticalDamageFormula),
+          tags: rawTags is List
+              ? rawTags.map((item) => item.toString()).toList(growable: false)
+              : const [],
+        ),
+      );
+    }
+    return steps;
+  }
+
+  String? _cleanNullableFormula(String? value) {
+    final trimmed = value?.trim();
+    if (trimmed == null || trimmed.isEmpty || trimmed == 'null') return null;
+    return trimmed;
+  }
+
   IconData _actionIcon(
     encounter_models.PreparedCombatAction action,
     String source,
   ) {
+    if (action.metadata['combatEffect'] == 'actionSurge') {
+      return Icons.flash_on_outlined;
+    }
+    if (action.metadata['multiattack'] == true) {
+      return Icons.auto_awesome_motion_outlined;
+    }
     if (action.rollKind == encounter_models.CombatActionRollKind.healing ||
         action.healingFormula != null) {
       return Icons.favorite_border;
@@ -1793,6 +2623,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
           : Icons.gavel_outlined;
     }
     if (source == 'spell' || source == 'spellcasting') {
+      if (action.saveAbility != null) return Icons.shield_outlined;
       if (action.tags.any((tag) => tag.toLowerCase().contains('evocation'))) {
         return Icons.local_fire_department_outlined;
       }
@@ -1813,6 +2644,14 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     encounter_models.PreparedCombatAction action,
     String source,
   ) {
+    if (action.metadata['combatEffect'] == 'actionSurge') {
+      return _CombatAccentKind.info;
+    }
+    if (action.metadata['multiattack'] == true) {
+      return source == 'monster'
+          ? _CombatAccentKind.action
+          : _CombatAccentKind.info;
+    }
     if (action.rollKind == encounter_models.CombatActionRollKind.healing ||
         action.healingFormula != null) {
       return _CombatAccentKind.support;
@@ -1872,9 +2711,40 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     return result.total >= target.ac ? 'hit' : 'miss';
   }
 
+  String _savingThrowFormulaForTarget(_Combatant target, String ability) {
+    return _formatRollFormula(
+      'd20',
+      _savingThrowBonusForTarget(target, ability),
+    );
+  }
+
+  int _savingThrowBonusForTarget(_Combatant target, String ability) {
+    final normalizedAbility = ability.trim().toUpperCase();
+    final metadata = _encounter?.combatantById(target.id)?.metadata;
+    final explicitSave = _intFromDynamicMap(
+      metadata?['savingThrowBonuses'],
+      normalizedAbility,
+    );
+    if (explicitSave != null) return explicitSave;
+
+    final score = _intFromDynamicMap(
+      metadata?['abilityScores'],
+      normalizedAbility,
+    );
+    if (score != null) return ((score - 10) / 2).floor();
+    return 0;
+  }
+
   String _actionExecutionKey(_CombatAction action) {
     return _actionCardKey(action);
   }
+}
+
+int? _intFromDynamicMap(Object? raw, String key) {
+  if (raw is! Map) return null;
+  final value = raw[key] ?? raw[key.toUpperCase()] ?? raw[key.toLowerCase()];
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '');
 }
 
 String _actionCardKey(_CombatAction action) {
@@ -1920,6 +2790,9 @@ class _CombatLayeredGameView extends StatelessWidget {
   final Set<String> spentTimings;
   final Set<String> pendingDamageActions;
   final Map<String, _CombatAction> preparedActions;
+  final int queuedPreparedIndex;
+  final int queuedPreparedTotal;
+  final String? queuedPreparedActionName;
   final String selectedCommandTiming;
   final _CombatWorkspace workspace;
   final bool showEnemyHp;
@@ -1956,6 +2829,9 @@ class _CombatLayeredGameView extends StatelessWidget {
     required this.spentTimings,
     required this.pendingDamageActions,
     required this.preparedActions,
+    required this.queuedPreparedIndex,
+    required this.queuedPreparedTotal,
+    required this.queuedPreparedActionName,
     required this.selectedCommandTiming,
     required this.workspace,
     required this.showEnemyHp,
@@ -1985,17 +2861,17 @@ class _CombatLayeredGameView extends StatelessWidget {
       padding: const EdgeInsets.all(18),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final sideWidth = constraints.maxWidth >= 1240 ? 268.0 : 238.0;
+          final sideWidth = constraints.maxWidth >= 1240 ? 292.0 : 254.0;
           const gap = 12.0;
-          const topHeight = 72.0;
-          const modeHeight = 46.0;
+          const topHeight = 86.0;
+          const modeHeight = 42.0;
           final stageTop = topHeight + gap + modeHeight + gap;
           final preferredBottomHeight =
-              constraints.maxHeight >= 720 ? 270.0 : 250.0;
-          final maxBottomHeight = constraints.maxHeight - stageTop - gap - 248;
+              constraints.maxHeight >= 720 ? 252.0 : 232.0;
+          final maxBottomHeight = constraints.maxHeight - stageTop - gap - 244;
           final bottomHeight = math.min(
             preferredBottomHeight,
-            math.max(224.0, maxBottomHeight),
+            math.max(210.0, maxBottomHeight),
           );
           final isTurnView = workspace == _CombatWorkspace.turn;
           final isLogView = workspace == _CombatWorkspace.log;
@@ -2094,10 +2970,14 @@ class _CombatLayeredGameView extends StatelessWidget {
                   height: bottomHeight,
                   child: _CommandLayerDock(
                     activeCombatant: activeCombatant,
-                    selectedTarget: selectedTarget,
                     actions: actions,
                     spentTimings: spentTimings,
+                    pendingDamageActions: pendingDamageActions,
+                    resourcePool: resourcePool,
                     preparedActions: preparedActions,
+                    queuedPreparedIndex: queuedPreparedIndex,
+                    queuedPreparedTotal: queuedPreparedTotal,
+                    queuedPreparedActionName: queuedPreparedActionName,
                     selectedTiming: selectedCommandTiming,
                     onSelectTiming: onSelectCommandTiming,
                     onRollAction: onRollAction,
@@ -2110,6 +2990,1115 @@ class _CombatLayeredGameView extends StatelessWidget {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+class _CombatCompactLandscapeView extends StatelessWidget {
+  final int round;
+  final List<_Combatant> combatants;
+  final int activeIndex;
+  final int targetIndex;
+  final _Combatant activeCombatant;
+  final _Combatant selectedTarget;
+  final List<_CombatAction> actions;
+  final _CombatRollFeedback? rollFeedback;
+  final Set<String> spentTimings;
+  final Set<String> pendingDamageActions;
+  final Map<String, _CombatAction> preparedActions;
+  final int queuedPreparedIndex;
+  final int queuedPreparedTotal;
+  final String? queuedPreparedActionName;
+  final String selectedCommandTiming;
+  final bool showEnemyHp;
+  final Map<String, int> resourcePool;
+  final VoidCallback onBack;
+  final VoidCallback onRequestInitiative;
+  final VoidCallback onRollInitiative;
+  final VoidCallback onNextTurn;
+  final VoidCallback onToggleDmView;
+  final VoidCallback onRunDemo;
+  final ValueChanged<int> onSelectTarget;
+  final ValueChanged<int> onSelectFocusedCombatant;
+  final void Function(String combatantId, String effectName)
+      onRemoveActiveEffect;
+  final ValueChanged<String> onSelectCommandTiming;
+  final void Function(_CombatAction action, _CombatActionRoll rollType)
+      onRollAction;
+  final ValueChanged<_CombatAction> onUseAction;
+  final ValueChanged<_CombatAction> onPrepareAction;
+  final VoidCallback onLaunchPreparedTurn;
+  final VoidCallback onClearPreparedActions;
+
+  const _CombatCompactLandscapeView({
+    required this.round,
+    required this.combatants,
+    required this.activeIndex,
+    required this.targetIndex,
+    required this.activeCombatant,
+    required this.selectedTarget,
+    required this.actions,
+    required this.rollFeedback,
+    required this.spentTimings,
+    required this.pendingDamageActions,
+    required this.preparedActions,
+    required this.queuedPreparedIndex,
+    required this.queuedPreparedTotal,
+    required this.queuedPreparedActionName,
+    required this.selectedCommandTiming,
+    required this.showEnemyHp,
+    required this.resourcePool,
+    required this.onBack,
+    required this.onRequestInitiative,
+    required this.onRollInitiative,
+    required this.onNextTurn,
+    required this.onToggleDmView,
+    required this.onRunDemo,
+    required this.onSelectTarget,
+    required this.onSelectFocusedCombatant,
+    required this.onRemoveActiveEffect,
+    required this.onSelectCommandTiming,
+    required this.onRollAction,
+    required this.onUseAction,
+    required this.onPrepareAction,
+    required this.onLaunchPreparedTurn,
+    required this.onClearPreparedActions,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(8),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          const gap = 8.0;
+          final sideWidth =
+              math.min(232.0, math.max(196.0, constraints.maxWidth * 0.27));
+          final targetWidth =
+              math.min(238.0, math.max(188.0, constraints.maxWidth * 0.25));
+          final planHeight =
+              math.min(128.0, math.max(112.0, constraints.maxHeight * 0.32));
+
+          void openCatalog(String timing) {
+            onSelectCommandTiming(timing);
+            _showActionCatalogSheet(
+              context: context,
+              actions: actions,
+              spentTimings: spentTimings,
+              pendingDamageActions: pendingDamageActions,
+              resourcePool: resourcePool,
+              preparedActions: preparedActions,
+              selectedTiming: timing,
+              onSelectTiming: onSelectCommandTiming,
+              onRollAction: onRollAction,
+              onUseAction: onUseAction,
+              onPrepareAction: onPrepareAction,
+            );
+          }
+
+          return Column(
+            children: [
+              SizedBox(
+                height: 54,
+                child: _CompactLandscapeTopBar(
+                  round: round,
+                  combatants: combatants,
+                  activeIndex: activeIndex,
+                  showEnemyHp: showEnemyHp,
+                  onBack: onBack,
+                  onRequestInitiative: onRequestInitiative,
+                  onRollInitiative: onRollInitiative,
+                  onNextTurn: onNextTurn,
+                  onToggleDmView: onToggleDmView,
+                  onRunDemo: onRunDemo,
+                  onSelectCombatant: onSelectFocusedCombatant,
+                ),
+              ),
+              const SizedBox(height: gap),
+              Expanded(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(
+                      width: sideWidth,
+                      child: _CompactActiveCombatantCard(
+                        combatant: activeCombatant,
+                        actions: actions,
+                        selectedTiming: selectedCommandTiming,
+                        spentTimings: spentTimings,
+                        showEnemyHp: showEnemyHp,
+                        onOpenCatalog: openCatalog,
+                        onRemoveActiveEffect: onRemoveActiveEffect,
+                      ),
+                    ),
+                    const SizedBox(width: gap),
+                    Expanded(
+                      child: Column(
+                        children: [
+                          Expanded(
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Expanded(
+                                  child: _CombatDiceTheater(
+                                    feedback: rollFeedback,
+                                    activeCombatant: activeCombatant,
+                                    selectedTarget: selectedTarget,
+                                  ),
+                                ),
+                                const SizedBox(width: gap),
+                                SizedBox(
+                                  width: targetWidth,
+                                  child: _CompactTargetCard(
+                                    combatants: combatants,
+                                    activeIndex: activeIndex,
+                                    targetIndex: targetIndex,
+                                    combatant: selectedTarget,
+                                    rollFeedback: rollFeedback,
+                                    showEnemyHp: showEnemyHp,
+                                    onSelectTarget: onSelectTarget,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: gap),
+                          SizedBox(
+                            height: planHeight,
+                            child: _CompactPreparedTurnStrip(
+                              activeCombatant: activeCombatant,
+                              actions: actions,
+                              preparedActions: preparedActions,
+                              spentTimings: spentTimings,
+                              queuedPreparedIndex: queuedPreparedIndex,
+                              queuedPreparedTotal: queuedPreparedTotal,
+                              queuedPreparedActionName:
+                                  queuedPreparedActionName,
+                              selectedTiming: selectedCommandTiming,
+                              onOpenCatalog: openCatalog,
+                              onLaunch: onLaunchPreparedTurn,
+                              onClear: onClearPreparedActions,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _CompactLandscapeTopBar extends StatelessWidget {
+  final int round;
+  final List<_Combatant> combatants;
+  final int activeIndex;
+  final bool showEnemyHp;
+  final VoidCallback onBack;
+  final VoidCallback onRequestInitiative;
+  final VoidCallback onRollInitiative;
+  final VoidCallback onNextTurn;
+  final VoidCallback onToggleDmView;
+  final VoidCallback onRunDemo;
+  final ValueChanged<int> onSelectCombatant;
+
+  const _CompactLandscapeTopBar({
+    required this.round,
+    required this.combatants,
+    required this.activeIndex,
+    required this.showEnemyHp,
+    required this.onBack,
+    required this.onRequestInitiative,
+    required this.onRollInitiative,
+    required this.onNextTurn,
+    required this.onToggleDmView,
+    required this.onRunDemo,
+    required this.onSelectCombatant,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            tokens.surfaceRaised.withValues(alpha: 0.94),
+            tokens.panel.withValues(alpha: 0.88),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(color: tokens.accentInfo.withValues(alpha: 0.24)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.22),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          _CompactIconButton(
+            icon: Icons.arrow_back,
+            label: 'Back',
+            onTap: onBack,
+          ),
+          const SizedBox(width: 7),
+          Container(
+            width: 58,
+            alignment: Alignment.center,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  'ROUND',
+                  style: TextStyle(
+                    color: tokens.textSecondary,
+                    fontSize: 8,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                Text(
+                  '$round',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    height: 0.95,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 7),
+          Expanded(
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: combatants.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 6),
+              itemBuilder: (context, index) {
+                return _CompactInitiativeChip(
+                  combatant: combatants[index],
+                  selected: index == activeIndex,
+                  showEnemyHp: showEnemyHp,
+                  onTap: () => onSelectCombatant(index),
+                );
+              },
+            ),
+          ),
+          const SizedBox(width: 7),
+          _CompactIconButton(
+            icon: showEnemyHp
+                ? Icons.visibility_outlined
+                : Icons.visibility_off_outlined,
+            label: showEnemyHp ? 'DM' : 'Player',
+            onTap: onToggleDmView,
+          ),
+          _CompactIconButton(
+            icon: Icons.campaign_outlined,
+            label: 'Init',
+            onTap: onRequestInitiative,
+          ),
+          _CompactIconButton(
+            icon: Icons.casino_outlined,
+            label: 'Roll',
+            onTap: onRollInitiative,
+          ),
+          _CompactIconButton(
+            icon: Icons.play_circle_outline,
+            label: 'Demo',
+            onTap: onRunDemo,
+          ),
+          const SizedBox(width: 3),
+          _CompactIconButton(
+            icon: Icons.skip_next_rounded,
+            label: 'Next',
+            color: tokens.accentAction,
+            onTap: onNextTurn,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CompactInitiativeChip extends StatelessWidget {
+  final _Combatant combatant;
+  final bool selected;
+  final bool showEnemyHp;
+  final VoidCallback onTap;
+
+  const _CompactInitiativeChip({
+    required this.combatant,
+    required this.selected,
+    required this.showEnemyHp,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final color =
+        selected ? tokens.accentInfo : _teamColor(combatant.team, tokens);
+    final hpLabel = _compactHpLabel(combatant, showEnemyHp);
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(tokens.radiusSm),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        width: selected ? 104 : 86,
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: selected ? 0.22 : 0.10),
+          borderRadius: BorderRadius.circular(tokens.radiusSm),
+          border: Border.all(
+              color: color.withValues(alpha: selected ? 0.72 : 0.24)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 28,
+              height: 28,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: color.withValues(alpha: 0.20),
+                border: Border.all(color: color.withValues(alpha: 0.48)),
+              ),
+              child: Text(
+                '${combatant.initiative}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    combatant.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  Text(
+                    hpLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: tokens.textSecondary,
+                      fontSize: 8,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CompactIconButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color? color;
+  final VoidCallback onTap;
+
+  const _CompactIconButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final accent = color ?? tokens.accentRead;
+
+    return Tooltip(
+      message: label,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        child: Container(
+          width: 39,
+          height: 38,
+          margin: const EdgeInsets.only(left: 4),
+          decoration: BoxDecoration(
+            color: accent.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(tokens.radiusSm),
+            border: Border.all(color: accent.withValues(alpha: 0.26)),
+          ),
+          child: Icon(icon, color: Colors.white, size: 18),
+        ),
+      ),
+    );
+  }
+}
+
+class _CompactActiveCombatantCard extends StatelessWidget {
+  final _Combatant combatant;
+  final List<_CombatAction> actions;
+  final String selectedTiming;
+  final Set<String> spentTimings;
+  final bool showEnemyHp;
+  final ValueChanged<String> onOpenCatalog;
+  final void Function(String combatantId, String effectName)
+      onRemoveActiveEffect;
+
+  const _CompactActiveCombatantCard({
+    required this.combatant,
+    required this.actions,
+    required this.selectedTiming,
+    required this.spentTimings,
+    required this.showEnemyHp,
+    required this.onOpenCatalog,
+    required this.onRemoveActiveEffect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final accent = _teamColor(combatant.team, tokens);
+    const timings = ['Action', 'Bonus Action', 'Reaction', 'Movement'];
+
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            accent.withValues(alpha: 0.28),
+            tokens.surfaceRaised.withValues(alpha: 0.92),
+            tokens.surface.withValues(alpha: 0.95),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(color: accent.withValues(alpha: 0.42)),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isTight = constraints.maxHeight < 300;
+          final portraitHeight = isTight
+              ? 54.0
+              : math.min(86.0, math.max(58.0, constraints.maxHeight * 0.27));
+          final buttonWidth = (constraints.maxWidth - 8) / 2;
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                height: portraitHeight,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(tokens.radiusSm),
+                  child: _CombatantArtwork(
+                    combatant: combatant,
+                    color: accent,
+                    iconSize: 52,
+                  ),
+                ),
+              ),
+              SizedBox(height: isTight ? 5 : 7),
+              Text(
+                combatant.name.toUpperCase(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w900,
+                  height: 1,
+                ),
+              ),
+              if (!isTight) ...[
+                const SizedBox(height: 2),
+                Text(
+                  combatant.role,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: tokens.textSecondary,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+              SizedBox(height: isTight ? 5 : 7),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(tokens.radiusPill),
+                child: LinearProgressIndicator(
+                  value: combatant.hpRatio,
+                  minHeight: 8,
+                  backgroundColor: Colors.white.withValues(alpha: 0.08),
+                  valueColor: AlwaysStoppedAnimation<Color>(accent),
+                ),
+              ),
+              SizedBox(height: isTight ? 5 : 7),
+              Row(
+                children: [
+                  Expanded(
+                    child: _GameMetric(
+                      label: 'HP',
+                      value: _compactHpLabel(combatant, showEnemyHp),
+                    ),
+                  ),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: _GameMetric(label: 'AC', value: '${combatant.ac}'),
+                  ),
+                ],
+              ),
+              if (!isTight && combatant.conditions.isNotEmpty) ...[
+                const SizedBox(height: 7),
+                SizedBox(
+                  height: 28,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: math.min(combatant.conditions.length, 4),
+                    separatorBuilder: (_, __) => const SizedBox(width: 5),
+                    itemBuilder: (context, index) {
+                      final effect = combatant.conditions[index];
+                      return InkWell(
+                        onLongPress: () =>
+                            onRemoveActiveEffect(combatant.id, effect),
+                        borderRadius: BorderRadius.circular(tokens.radiusPill),
+                        child: _StatusChip(label: effect, color: accent),
+                      );
+                    },
+                  ),
+                ),
+              ],
+              const Spacer(),
+              Wrap(
+                spacing: 8,
+                runSpacing: 7,
+                children: [
+                  for (final timing in timings)
+                    SizedBox(
+                      width: buttonWidth,
+                      child: _CompactTimingCommandButton(
+                        timing: timing,
+                        count: _compactActionCountForTiming(actions, timing),
+                        selected: timing == selectedTiming,
+                        spent: spentTimings.contains(timing),
+                        onTap: () => onOpenCatalog(timing),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _CompactTimingCommandButton extends StatelessWidget {
+  final String timing;
+  final int count;
+  final bool selected;
+  final bool spent;
+  final VoidCallback onTap;
+
+  const _CompactTimingCommandButton({
+    required this.timing,
+    required this.count,
+    required this.selected,
+    required this.spent,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final color = spent
+        ? tokens.accentAction
+        : selected
+            ? tokens.accentMagic
+            : tokens.accentRead;
+
+    return InkWell(
+      onTap: spent ? null : onTap,
+      borderRadius: BorderRadius.circular(tokens.radiusSm),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        height: 35,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: spent ? 0.10 : 0.15),
+          borderRadius: BorderRadius.circular(tokens.radiusSm),
+          border: Border.all(
+              color: color.withValues(alpha: selected ? 0.58 : 0.24)),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              spent ? Icons.check_circle_outline : _timingIcon(timing),
+              color: Colors.white,
+              size: 14,
+            ),
+            const SizedBox(width: 5),
+            Expanded(
+              child: Text(
+                _compactTimingLabel(timing),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+            Text(
+              '$count',
+              style: TextStyle(
+                color: spent ? tokens.textMuted : tokens.textSecondary,
+                fontSize: 10,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CompactTargetCard extends StatelessWidget {
+  final List<_Combatant> combatants;
+  final int activeIndex;
+  final int targetIndex;
+  final _Combatant combatant;
+  final _CombatRollFeedback? rollFeedback;
+  final bool showEnemyHp;
+  final ValueChanged<int> onSelectTarget;
+
+  const _CompactTargetCard({
+    required this.combatants,
+    required this.activeIndex,
+    required this.targetIndex,
+    required this.combatant,
+    required this.rollFeedback,
+    required this.showEnemyHp,
+    required this.onSelectTarget,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final accent = _teamColor(combatant.team, tokens);
+    final impactFeedback = rollFeedback != null &&
+            _feedbackMentionsCombatant(rollFeedback!, combatant)
+        ? rollFeedback
+        : null;
+    final impactAccent = impactFeedback == null
+        ? accent
+        : _accentForKind(impactFeedback.accentKind, tokens);
+    final showHp = _canShowHp(combatant, showEnemyHp);
+    final isTightViewport = MediaQuery.sizeOf(context).height < 390;
+    final validTargets = <int>[
+      for (var index = 0; index < combatants.length; index++)
+        if (index != activeIndex &&
+            combatants[index].team != combatants[activeIndex].team &&
+            combatants[index].hp > 0)
+          index,
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(9),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            impactAccent.withValues(
+                alpha: impactFeedback == null ? 0.20 : 0.34),
+            tokens.surfaceRaised.withValues(alpha: 0.94),
+            tokens.surface.withValues(alpha: 0.96),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(
+          color: impactAccent.withValues(
+              alpha: impactFeedback == null ? 0.40 : 0.74),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'TARGET',
+                  style: TextStyle(
+                    color: tokens.textSecondary,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              if (validTargets.length > 1)
+                Text(
+                  '${validTargets.indexOf(targetIndex) + 1}/${validTargets.length}',
+                  style: TextStyle(
+                    color: tokens.textMuted,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+            ],
+          ),
+          if (validTargets.isNotEmpty && !isTightViewport) ...[
+            const SizedBox(height: 6),
+            _TargetChoiceRail(
+              combatants: combatants,
+              targetIndexes: validTargets,
+              selectedIndex: targetIndex,
+              onSelectTarget: onSelectTarget,
+            ),
+          ],
+          const SizedBox(height: 7),
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(tokens.radiusSm),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  _CombatantArtwork(
+                    combatant: combatant,
+                    color: accent,
+                    iconSize: 54,
+                  ),
+                  if (impactFeedback != null)
+                    Positioned(
+                      right: 7,
+                      top: 7,
+                      child: _TargetImpactBadge(
+                        feedback: impactFeedback,
+                        color: impactAccent,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 7),
+          Text(
+            combatant.name.toUpperCase(),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 14,
+              fontWeight: FontWeight.w900,
+              height: 1,
+            ),
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(tokens.radiusPill),
+            child: LinearProgressIndicator(
+              value: showHp ? combatant.hpRatio : 1,
+              minHeight: 7,
+              backgroundColor: Colors.white.withValues(alpha: 0.08),
+              valueColor: AlwaysStoppedAnimation<Color>(
+                showHp ? accent : tokens.textMuted,
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: _GameMetric(
+                  label: 'HP',
+                  value: _compactHpLabel(combatant, showEnemyHp),
+                ),
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: _GameMetric(label: 'AC', value: '${combatant.ac}'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CompactPreparedTurnStrip extends StatelessWidget {
+  final _Combatant activeCombatant;
+  final List<_CombatAction> actions;
+  final Map<String, _CombatAction> preparedActions;
+  final Set<String> spentTimings;
+  final int queuedPreparedIndex;
+  final int queuedPreparedTotal;
+  final String? queuedPreparedActionName;
+  final String selectedTiming;
+  final ValueChanged<String> onOpenCatalog;
+  final VoidCallback onLaunch;
+  final VoidCallback onClear;
+
+  const _CompactPreparedTurnStrip({
+    required this.activeCombatant,
+    required this.actions,
+    required this.preparedActions,
+    required this.spentTimings,
+    required this.queuedPreparedIndex,
+    required this.queuedPreparedTotal,
+    required this.queuedPreparedActionName,
+    required this.selectedTiming,
+    required this.onOpenCatalog,
+    required this.onLaunch,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    const timings = ['Action', 'Bonus Action', 'Reaction', 'Movement'];
+    final preparedCount = preparedActions.length;
+    final executableCount = preparedActions.entries
+        .where((entry) => !spentTimings.contains(entry.key))
+        .length;
+    final queueActive =
+        queuedPreparedTotal > 0 && queuedPreparedIndex < queuedPreparedTotal;
+
+    return Container(
+      padding: const EdgeInsets.all(9),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            tokens.accentMagic.withValues(alpha: 0.10),
+            Colors.black.withValues(alpha: 0.18),
+            tokens.accentAction.withValues(alpha: 0.08),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(color: tokens.accentMagic.withValues(alpha: 0.26)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.playlist_add_check_circle_outlined,
+                color: tokens.accentAction,
+                size: 16,
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: Text(
+                  '${activeCombatant.name} turn plan',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              _PreparedTurnProgressPill(
+                preparedCount: preparedCount,
+                totalCount: timings.length,
+              ),
+              if (queueActive) ...[
+                const SizedBox(width: 6),
+                _QueuedRollPill(
+                  index: queuedPreparedIndex + 1,
+                  total: queuedPreparedTotal,
+                  actionName: queuedPreparedActionName ?? 'Next roll',
+                ),
+              ],
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                onPressed: preparedActions.isEmpty ? null : onClear,
+                icon: const Icon(Icons.close, size: 16),
+                color: Colors.white,
+                disabledColor: tokens.textMuted,
+                tooltip: 'Clear plan',
+              ),
+              SizedBox(
+                height: 34,
+                child: FilledButton.icon(
+                  onPressed:
+                      executableCount == 0 && !queueActive ? null : onLaunch,
+                  icon: Icon(
+                    queueActive
+                        ? Icons.casino_outlined
+                        : Icons.playlist_play_outlined,
+                    size: 15,
+                  ),
+                  label: Text(queueActive ? 'Next' : 'Roll'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: tokens.accentAction,
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor:
+                        Colors.white.withValues(alpha: 0.08),
+                    disabledForegroundColor: tokens.textMuted,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    textStyle: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 11,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(tokens.radiusSm),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 7),
+          Expanded(
+            child: Row(
+              children: [
+                for (var index = 0; index < timings.length; index++) ...[
+                  Expanded(
+                    child: _CompactPreparedSlot(
+                      timing: timings[index],
+                      action: preparedActions[timings[index]],
+                      selected: selectedTiming == timings[index],
+                      spent: spentTimings.contains(timings[index]),
+                      onTap: () => onOpenCatalog(timings[index]),
+                    ),
+                  ),
+                  if (index != timings.length - 1) ...[
+                    const SizedBox(width: 6),
+                    _TurnFlowArrow(
+                      active: preparedActions[timings[index]] != null ||
+                          spentTimings.contains(timings[index]),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CompactPreparedSlot extends StatelessWidget {
+  final String timing;
+  final _CombatAction? action;
+  final bool selected;
+  final bool spent;
+  final VoidCallback onTap;
+
+  const _CompactPreparedSlot({
+    required this.timing,
+    required this.action,
+    required this.selected,
+    required this.spent,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final color = spent
+        ? tokens.accentAction
+        : action == null
+            ? (selected ? tokens.accentMagic : tokens.textMuted)
+            : _accentForKind(action!.accentKind, tokens);
+    final icon = spent
+        ? Icons.check_circle_outline
+        : action == null
+            ? Icons.add_circle_outline
+            : action!.icon;
+
+    return InkWell(
+      onTap: spent ? null : onTap,
+      borderRadius: BorderRadius.circular(tokens.radiusSm),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: action == null ? 0.08 : 0.18),
+          borderRadius: BorderRadius.circular(tokens.radiusSm),
+          border: Border.all(
+              color: color.withValues(alpha: selected ? 0.56 : 0.24)),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: Colors.white, size: 16),
+            const SizedBox(width: 7),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    timing,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: tokens.textSecondary,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  Text(
+                    action?.name ?? (spent ? 'Resolved' : 'Open'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              spent ? 'Done' : _preparedActionFormula(action),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: action == null ? tokens.textMuted : Colors.white,
+                fontSize: 9,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2299,12 +4288,14 @@ class _GameTopHud extends StatelessWidget {
     final tokens = context.stitch;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      clipBehavior: Clip.hardEdge,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
+            const Color(0xFF202A33).withValues(alpha: 0.96),
             tokens.surfaceRaised.withValues(alpha: 0.96),
             tokens.panel.withValues(alpha: 0.90),
           ],
@@ -2319,109 +4310,85 @@ class _GameTopHud extends StatelessWidget {
           ),
         ],
       ),
-      child: Row(
+      child: Stack(
         children: [
-          IconButton(
-            onPressed: onBack,
-            icon: const Icon(Icons.arrow_back),
-            color: Colors.white,
-            tooltip: 'Back',
-          ),
-          const SizedBox(width: 4),
-          Text(
-            'TURN\nORDER',
-            style: TextStyle(
-              color: tokens.textSecondary,
-              fontSize: 13,
-              fontWeight: FontWeight.w900,
-              height: 1.05,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  for (var index = 0; index < combatants.length; index++) ...[
-                    if (index > 0) const SizedBox(width: 10),
-                    _TurnOrderAvatar(
-                      combatant: combatants[index],
-                      isActive: index == activeIndex,
-                      onTap: () => onSelectCombatant(index),
-                    ),
-                  ],
-                ],
+          Positioned(
+            top: -42,
+            left: 0,
+            right: 0,
+            child: IgnorePointer(
+              child: Icon(
+                Icons.explore_outlined,
+                color: Colors.white.withValues(alpha: 0.055),
+                size: 112,
               ),
             ),
           ),
-          const SizedBox(width: 12),
-          _RoundBadge(round: round),
-          const SizedBox(width: 12),
-          OutlinedButton.icon(
-            onPressed: onToggleDmView,
-            icon: Icon(
-              showEnemyHp
-                  ? Icons.visibility_outlined
-                  : Icons.visibility_off_outlined,
-              size: 16,
-            ),
-            label: Text(showEnemyHp ? 'DM View' : 'Player View'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.white,
-              side: BorderSide(
-                color: (showEnemyHp ? tokens.accentWarning : tokens.accentRead)
-                    .withValues(alpha: 0.30),
+          Row(
+            children: [
+              _HudMenuButton(onBack: onBack),
+              const SizedBox(width: 10),
+              _HudSectionLabel(
+                title: 'TURN',
+                subtitle: 'ORDER',
+                icon: Icons.auto_awesome_motion_outlined,
               ),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-            ),
-          ),
-          const SizedBox(width: 8),
-          OutlinedButton.icon(
-            onPressed: onRequestInitiative,
-            icon: const Icon(Icons.campaign_outlined, size: 16),
-            label: const Text('Ask Init'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.white,
-              side:
-                  BorderSide(color: tokens.accentRead.withValues(alpha: 0.28)),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-            ),
-          ),
-          const SizedBox(width: 8),
-          OutlinedButton.icon(
-            onPressed: onRollInitiative,
-            icon: const Icon(Icons.casino_outlined, size: 16),
-            label: const Text('Roll'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.white,
-              side:
-                  BorderSide(color: tokens.accentMagic.withValues(alpha: 0.28)),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-            ),
-          ),
-          const SizedBox(width: 8),
-          OutlinedButton.icon(
-            onPressed: onRunDemo,
-            icon: const Icon(Icons.play_circle_outline, size: 16),
-            label: const Text('Run Demo'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.white,
-              side: BorderSide(
-                  color: tokens.accentAction.withValues(alpha: 0.30)),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-            ),
-          ),
-          const SizedBox(width: 8),
-          FilledButton.icon(
-            onPressed: onNextTurn,
-            icon: const Icon(Icons.skip_next, size: 16),
-            label: const Text('Next'),
-            style: FilledButton.styleFrom(
-              backgroundColor: tokens.accentAction,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-            ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (var index = 0;
+                          index < combatants.length;
+                          index++) ...[
+                        if (index > 0) const SizedBox(width: 9),
+                        _TurnOrderAvatar(
+                          combatant: combatants[index],
+                          isActive: index == activeIndex,
+                          showEnemyHp: showEnemyHp,
+                          onTap: () => onSelectCombatant(index),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              _RoundBadge(round: round),
+              const SizedBox(width: 10),
+              _HudActionButton(
+                onPressed: onToggleDmView,
+                icon: showEnemyHp
+                    ? Icons.visibility_outlined
+                    : Icons.visibility_off_outlined,
+                label: showEnemyHp ? 'DM' : 'Player',
+                color: showEnemyHp ? tokens.accentWarning : tokens.accentRead,
+              ),
+              const SizedBox(width: 7),
+              _HudActionButton(
+                onPressed: onRequestInitiative,
+                icon: Icons.campaign_outlined,
+                label: 'Ask Init',
+                color: tokens.accentRead,
+              ),
+              const SizedBox(width: 7),
+              _HudActionButton(
+                onPressed: onRollInitiative,
+                icon: Icons.casino_outlined,
+                label: 'Roll',
+                color: tokens.accentMagic,
+              ),
+              const SizedBox(width: 7),
+              _HudActionButton(
+                onPressed: onRunDemo,
+                icon: Icons.play_circle_outline,
+                label: 'Demo',
+                color: tokens.accentAction,
+              ),
+              const SizedBox(width: 7),
+              _HudNextButton(onPressed: onNextTurn),
+            ],
           ),
         ],
       ),
@@ -2432,11 +4399,13 @@ class _GameTopHud extends StatelessWidget {
 class _TurnOrderAvatar extends StatelessWidget {
   final _Combatant combatant;
   final bool isActive;
+  final bool showEnemyHp;
   final VoidCallback onTap;
 
   const _TurnOrderAvatar({
     required this.combatant,
     required this.isActive,
+    required this.showEnemyHp,
     required this.onTap,
   });
 
@@ -2448,62 +4417,285 @@ class _TurnOrderAvatar extends StatelessWidget {
 
     return InkWell(
       onTap: onTap,
-      customBorder: const CircleBorder(),
-      child: SizedBox(
-        width: 54,
-        child: Center(
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            width: isActive ? 44 : 38,
-            height: isActive ? 44 : 38,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: accent.withValues(alpha: isActive ? 0.24 : 0.12),
-              border: Border.all(
-                color: accent.withValues(alpha: isActive ? 0.90 : 0.36),
-                width: isActive ? 2 : 1.2,
+      borderRadius: BorderRadius.circular(tokens.radiusSm),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        width: isActive ? 142 : 126,
+        height: 62,
+        padding: const EdgeInsets.all(7),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              accent.withValues(alpha: isActive ? 0.28 : 0.14),
+              tokens.surfaceRaised.withValues(alpha: isActive ? 0.92 : 0.78),
+              Colors.black.withValues(alpha: 0.22),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(tokens.radiusSm),
+          border: Border.all(
+            color: accent.withValues(alpha: isActive ? 0.76 : 0.26),
+            width: isActive ? 1.5 : 1,
+          ),
+          boxShadow: [
+            if (isActive)
+              BoxShadow(
+                color: accent.withValues(alpha: 0.26),
+                blurRadius: 18,
               ),
-              boxShadow: [
-                if (isActive)
-                  BoxShadow(
-                    color: accent.withValues(alpha: 0.34),
-                    blurRadius: 18,
-                  ),
-              ],
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              clipBehavior: Clip.hardEdge,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: accent.withValues(alpha: 0.16),
+                border: Border.all(color: accent.withValues(alpha: 0.54)),
+              ),
+              child: _CombatantArtwork(
+                combatant: combatant,
+                color: accent,
+                iconSize: 19,
+              ),
             ),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Icon(
-                  combatant.team == _CombatTeam.party
-                      ? Icons.shield_outlined
-                      : Icons.crisis_alert_outlined,
-                  color: Colors.white,
-                  size: 18,
-                ),
-                Positioned(
-                  right: 1,
-                  bottom: 0,
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.62),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      '${combatant.initiative}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 9,
-                        fontWeight: FontWeight.w900,
+            const SizedBox(width: 7),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.28),
+                          borderRadius:
+                              BorderRadius.circular(tokens.radiusPill),
+                        ),
+                        child: Text(
+                          '${combatant.initiative}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 5),
+                      Expanded(
+                        child: Text(
+                          combatant.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 5),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(tokens.radiusPill),
+                    child: LinearProgressIndicator(
+                      value: _canShowHp(combatant, showEnemyHp)
+                          ? combatant.hpRatio
+                          : 1,
+                      minHeight: 5,
+                      backgroundColor: Colors.white.withValues(alpha: 0.10),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        _canShowHp(combatant, showEnemyHp)
+                            ? combatant.hpRatio <= 0.30
+                                ? tokens.accentAction
+                                : tokens.accentSuccess
+                            : tokens.textMuted,
                       ),
                     ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 3),
+                  Text(
+                    _compactHpLabel(combatant, showEnemyHp),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: tokens.textSecondary,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (isActive) ...[
+              const SizedBox(width: 4),
+              Icon(
+                Icons.play_arrow_rounded,
+                color: accent,
+                size: 17,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HudMenuButton extends StatelessWidget {
+  final VoidCallback onBack;
+
+  const _HudMenuButton({
+    required this.onBack,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
+    return InkWell(
+      onTap: onBack,
+      borderRadius: BorderRadius.circular(tokens.radiusSm),
+      child: Container(
+        height: 46,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.16),
+          borderRadius: BorderRadius.circular(tokens.radiusSm),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.menu_rounded, color: Colors.white, size: 22),
+            const SizedBox(width: 8),
+            Text(
+              'MENU',
+              style: TextStyle(
+                color: tokens.textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HudSectionLabel extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+
+  const _HudSectionLabel({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
+    return SizedBox(
+      width: 76,
+      child: Row(
+        children: [
+          Icon(icon, color: tokens.accentInfo, size: 16),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              '$title\n$subtitle',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: tokens.textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+                height: 1.0,
+              ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HudActionButton extends StatelessWidget {
+  final VoidCallback onPressed;
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  const _HudActionButton({
+    required this.onPressed,
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
+    return OutlinedButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 15),
+      label: Text(label),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: Colors.white,
+        side: BorderSide(color: color.withValues(alpha: 0.30)),
+        backgroundColor: color.withValues(alpha: 0.05),
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 10),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(tokens.radiusSm),
+        ),
+        textStyle: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+class _HudNextButton extends StatelessWidget {
+  final VoidCallback onPressed;
+
+  const _HudNextButton({
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
+    return FilledButton.icon(
+      onPressed: onPressed,
+      icon: const Icon(Icons.skip_next, size: 16),
+      label: const Text('Next'),
+      style: FilledButton.styleFrom(
+        backgroundColor: tokens.accentAction,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(tokens.radiusSm),
+        ),
+        textStyle: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
         ),
       ),
     );
@@ -3409,6 +5601,7 @@ class _FocusedTurnStage extends StatelessWidget {
             activeIndex: activeIndex,
             targetIndex: targetIndex,
             combatant: selectedTarget,
+            rollFeedback: rollFeedback,
             showEnemyHp: showEnemyHp,
             onSelectTarget: onSelectTarget,
           ),
@@ -3802,109 +5995,261 @@ class _CombatDiceTheater extends StatelessWidget {
     final accent = feedback == null
         ? tokens.accentMagic
         : _accentForKind(feedback!.accentKind, tokens);
+    final actorColor = _teamColor(activeCombatant.team, tokens);
+    final targetColor = _teamColor(selectedTarget.team, tokens);
     final result = feedback?.result;
+    final hasFeedback = feedback != null;
 
     return Container(
+      clipBehavior: Clip.hardEdge,
       padding: const EdgeInsets.all(13),
       decoration: BoxDecoration(
         gradient: RadialGradient(
           center: Alignment.center,
-          radius: 0.95,
+          radius: 1.05,
           colors: [
-            accent.withValues(alpha: 0.24),
-            tokens.surface.withValues(alpha: 0.48),
-            Colors.black.withValues(alpha: 0.20),
+            accent.withValues(alpha: hasFeedback ? 0.28 : 0.18),
+            tokens.surface.withValues(alpha: 0.52),
+            Colors.black.withValues(alpha: 0.26),
           ],
         ),
         borderRadius: BorderRadius.circular(tokens.radiusSm),
-        border: Border.all(color: accent.withValues(alpha: 0.24)),
+        border: Border.all(
+          color: accent.withValues(alpha: hasFeedback ? 0.42 : 0.24),
+        ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: Stack(
         children: [
-          Row(
-            children: [
-              Icon(Icons.casino_outlined, color: accent, size: 17),
-              const SizedBox(width: 7),
-              Text(
-                'ROLL FEEDBACK',
-                style: TextStyle(
-                  color: tokens.textSecondary,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w900,
+          Positioned(
+            right: -34,
+            top: -44,
+            child: Icon(
+              Icons.hexagon_outlined,
+              color: accent.withValues(alpha: 0.08),
+              size: 190,
+            ),
+          ),
+          Positioned(
+            left: -80,
+            bottom: -72,
+            child: Container(
+              width: 250,
+              height: 180,
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  colors: [
+                    actorColor.withValues(alpha: 0.18),
+                    Colors.transparent,
+                  ],
                 ),
               ),
-              const SizedBox(width: 10),
+            ),
+          ),
+          Positioned(
+            right: -64,
+            bottom: -56,
+            child: Container(
+              width: 280,
+              height: 180,
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  colors: [
+                    targetColor.withValues(alpha: 0.18),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.casino_outlined, color: accent, size: 17),
+                  const SizedBox(width: 7),
+                  Text(
+                    'ROLL FEEDBACK',
+                    style: TextStyle(
+                      color: tokens.textSecondary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      feedback?.action ?? 'Awaiting command',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.right,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.68),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
               Expanded(
-                child: Text(
-                  '${activeCombatant.name} -> ${selectedTarget.name}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.right,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.62),
-                    fontSize: 10,
-                    fontWeight: FontWeight.w900,
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 220),
+                  child: _DiceTheaterScene(
+                    key: ValueKey(
+                      '${feedback?.headline ?? 'empty'}-${result?.total ?? 'idle'}',
+                    ),
+                    feedback: feedback,
+                    activeCombatant: activeCombatant,
+                    selectedTarget: selectedTarget,
+                    accent: accent,
+                    actorColor: actorColor,
+                    targetColor: targetColor,
                   ),
                 ),
               ),
             ],
           ),
-          Expanded(
-            child: Center(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 180),
+        ],
+      ),
+    );
+  }
+}
+
+class _DiceTheaterScene extends StatelessWidget {
+  final _CombatRollFeedback? feedback;
+  final _Combatant activeCombatant;
+  final _Combatant selectedTarget;
+  final Color accent;
+  final Color actorColor;
+  final Color targetColor;
+
+  const _DiceTheaterScene({
+    super.key,
+    required this.feedback,
+    required this.activeCombatant,
+    required this.selectedTarget,
+    required this.accent,
+    required this.actorColor,
+    required this.targetColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final result = feedback?.result;
+    final hasFeedback = feedback != null;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact =
+            constraints.maxWidth < 520 || constraints.maxHeight < 210;
+
+        return Stack(
+          alignment: Alignment.center,
+          children: [
+            Positioned.fill(
+              child: CustomPaint(
+                painter: _DiceTheaterImpactPainter(
+                  accent: accent,
+                  actorColor: actorColor,
+                  targetColor: targetColor,
+                  active: hasFeedback,
+                ),
+              ),
+            ),
+            Positioned(
+              left: 0,
+              top: compact ? 18 : 32,
+              bottom: compact ? 18 : 28,
+              width: compact ? 94 : 122,
+              child: _DuelStagePortrait(
+                combatant: activeCombatant,
+                label: 'ACTOR',
+                color: actorColor,
+                alignRight: false,
+              ),
+            ),
+            Positioned(
+              right: 0,
+              top: compact ? 18 : 32,
+              bottom: compact ? 18 : 28,
+              width: compact ? 94 : 122,
+              child: _DuelStagePortrait(
+                combatant: selectedTarget,
+                label: 'TARGET',
+                color: targetColor,
+                alignRight: true,
+              ),
+            ),
+            Center(
+              child: TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0.92, end: 1),
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutBack,
+                builder: (context, scale, child) {
+                  return Transform.scale(scale: scale, child: child);
+                },
                 child: Column(
-                  key: ValueKey(feedback?.headline ?? 'empty-dice'),
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     _LargeDiceBadge(
                       total: result?.total,
                       formula: result?.formula,
                       color: accent,
+                      compact: compact,
                     ),
-                    const SizedBox(height: 9),
+                    const SizedBox(height: 8),
                     if (feedback == null)
-                      Text(
-                        'Choose target and roll.',
-                        key: const ValueKey('empty-dice-copy'),
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: tokens.textSecondary,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                        ),
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Choose target and roll.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: tokens.textSecondary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          _DiceExpressionChip(
+                            label:
+                                '${activeCombatant.name} -> ${selectedTarget.name}',
+                            color: accent,
+                          ),
+                        ],
                       )
                     else ...[
-                      Text(
-                        feedback!.headline,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w900,
-                          height: 1,
-                        ),
+                      _ImpactHeadlinePill(
+                        label: feedback!.headline,
+                        color: accent,
+                        compact: compact,
                       ),
                       if (feedback!.subline != null &&
                           feedback!.subline!.trim().isNotEmpty) ...[
-                        const SizedBox(height: 5),
-                        Text(
-                          feedback!.subline!,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: tokens.textSecondary,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
+                        const SizedBox(height: 6),
+                        ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth: compact ? 230 : 380,
+                          ),
+                          child: Text(
+                            feedback!.subline!,
+                            maxLines: compact ? 1 : 2,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: tokens.textSecondary,
+                              fontSize: compact ? 10 : 11,
+                              fontWeight: FontWeight.w800,
+                              height: 1.1,
+                            ),
                           ),
                         ),
                       ],
                       if (result != null) ...[
-                        const SizedBox(height: 7),
+                        const SizedBox(height: 8),
                         Wrap(
                           alignment: WrapAlignment.center,
                           spacing: 6,
@@ -3926,8 +6271,136 @@ class _CombatDiceTheater extends StatelessWidget {
                 ),
               ),
             ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _DuelStagePortrait extends StatelessWidget {
+  final _Combatant combatant;
+  final String label;
+  final Color color;
+  final bool alignRight;
+
+  const _DuelStagePortrait({
+    required this.combatant,
+    required this.label,
+    required this.color,
+    required this.alignRight,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
+    return Align(
+      alignment: alignRight ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        clipBehavior: Clip.hardEdge,
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(tokens.radiusSm),
+          border: Border.all(color: color.withValues(alpha: 0.28)),
+          boxShadow: [
+            BoxShadow(
+              color: color.withValues(alpha: 0.18),
+              blurRadius: 22,
+              offset: const Offset(0, 12),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Expanded(
+              child: _CombatantArtwork(
+                combatant: combatant,
+                color: color,
+                iconSize: 36,
+              ),
+            ),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
+              color: Colors.black.withValues(alpha: 0.38),
+              child: Column(
+                children: [
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 8,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    combatant.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ImpactHeadlinePill extends StatelessWidget {
+  final String label;
+  final Color color;
+  final bool compact;
+
+  const _ImpactHeadlinePill({
+    required this.label,
+    required this.color,
+    required this.compact,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 12 : 16,
+        vertical: compact ? 7 : 8,
+      ),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(tokens.radiusPill),
+        border: Border.all(color: color.withValues(alpha: 0.42)),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.24),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
           ),
         ],
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: compact ? 15 : 18,
+          fontWeight: FontWeight.w900,
+          height: 1,
+        ),
       ),
     );
   }
@@ -3937,11 +6410,13 @@ class _LargeDiceBadge extends StatelessWidget {
   final int? total;
   final String? formula;
   final Color color;
+  final bool compact;
 
   const _LargeDiceBadge({
     required this.total,
     required this.formula,
     required this.color,
+    this.compact = false,
   });
 
   @override
@@ -3953,58 +6428,67 @@ class _LargeDiceBadge extends StatelessWidget {
       children: [
         Transform.rotate(
           angle: -math.pi / 10,
-          child: Container(
-            width: 64,
-            height: 64,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  color.withValues(alpha: 0.76),
-                  tokens.surfaceRaised.withValues(alpha: 0.96),
-                  Colors.black.withValues(alpha: 0.74),
+          child: ClipPath(
+            clipper: _DiceGemClipper(),
+            child: Container(
+              width: compact ? 56 : 70,
+              height: compact ? 56 : 70,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    color.withValues(alpha: 0.82),
+                    tokens.surfaceRaised.withValues(alpha: 0.97),
+                    Colors.black.withValues(alpha: 0.78),
+                  ],
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.34),
+                    blurRadius: 32,
+                    offset: const Offset(0, 16),
+                  ),
                 ],
               ),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: color.withValues(alpha: 0.72)),
-              boxShadow: [
-                BoxShadow(
-                  color: color.withValues(alpha: 0.30),
-                  blurRadius: 30,
-                  offset: const Offset(0, 16),
-                ),
-              ],
-            ),
-            child: Transform.rotate(
-              angle: math.pi / 10,
-              child: total == null
-                  ? Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.casino_outlined,
-                            color: Colors.white, size: 24),
-                        const SizedBox(height: 3),
-                        Text(
-                          'D20',
-                          style: TextStyle(
-                            color: tokens.textSecondary,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w900,
+              child: CustomPaint(
+                painter: _DiceGemPainter(color: color),
+                child: Transform.rotate(
+                  angle: math.pi / 10,
+                  child: Center(
+                    child: total == null
+                        ? Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.casino_outlined,
+                                color: Colors.white,
+                                size: compact ? 22 : 25,
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                'D20',
+                                style: TextStyle(
+                                  color: tokens.textSecondary,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ],
+                          )
+                        : Text(
+                            '$total',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: compact ? 24 : 29,
+                              fontWeight: FontWeight.w900,
+                              height: 1,
+                            ),
                           ),
-                        ),
-                      ],
-                    )
-                  : Text(
-                      '$total',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 27,
-                        fontWeight: FontWeight.w900,
-                        height: 1,
-                      ),
-                    ),
+                  ),
+                ),
+              ),
             ),
           ),
         ),
@@ -4024,11 +6508,153 @@ class _LargeDiceBadge extends StatelessWidget {
   }
 }
 
+class _DiceGemClipper extends CustomClipper<Path> {
+  @override
+  Path getClip(Size size) {
+    return Path()
+      ..moveTo(size.width * 0.50, 0)
+      ..lineTo(size.width * 0.88, size.height * 0.16)
+      ..lineTo(size.width, size.height * 0.52)
+      ..lineTo(size.width * 0.72, size.height * 0.92)
+      ..lineTo(size.width * 0.28, size.height * 0.92)
+      ..lineTo(0, size.height * 0.52)
+      ..lineTo(size.width * 0.12, size.height * 0.16)
+      ..close();
+  }
+
+  @override
+  bool shouldReclip(covariant _DiceGemClipper oldClipper) => false;
+}
+
+class _DiceGemPainter extends CustomPainter {
+  final Color color;
+
+  const _DiceGemPainter({
+    required this.color,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final border = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4
+      ..color = color.withValues(alpha: 0.72);
+    final facet = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.9
+      ..color = Colors.white.withValues(alpha: 0.14);
+    final path = _DiceGemClipper().getClip(size);
+    canvas.drawPath(path, border);
+    final center = Offset(size.width * 0.50, size.height * 0.54);
+    for (final point in [
+      Offset(size.width * 0.50, 0),
+      Offset(size.width * 0.88, size.height * 0.16),
+      Offset(size.width, size.height * 0.52),
+      Offset(size.width * 0.72, size.height * 0.92),
+      Offset(size.width * 0.28, size.height * 0.92),
+      Offset(0, size.height * 0.52),
+      Offset(size.width * 0.12, size.height * 0.16),
+    ]) {
+      canvas.drawLine(center, point, facet);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DiceGemPainter oldDelegate) {
+    return oldDelegate.color != color;
+  }
+}
+
+class _DiceTheaterImpactPainter extends CustomPainter {
+  final Color accent;
+  final Color actorColor;
+  final Color targetColor;
+  final bool active;
+
+  const _DiceTheaterImpactPainter({
+    required this.accent,
+    required this.actorColor,
+    required this.targetColor,
+    required this.active,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final centerY = size.height * 0.50;
+    final actor = Offset(size.width * 0.17, centerY);
+    final target = Offset(size.width * 0.83, centerY);
+    final center = Offset(size.width * 0.50, centerY);
+
+    final lane = Paint()
+      ..shader = LinearGradient(
+        colors: [
+          actorColor.withValues(alpha: active ? 0.04 : 0.02),
+          accent.withValues(alpha: active ? 0.20 : 0.08),
+          targetColor.withValues(alpha: active ? 0.04 : 0.02),
+        ],
+      ).createShader(Offset.zero & size)
+      ..strokeWidth = active ? 10 : 6
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(actor, target, lane);
+
+    final thinLane = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2
+      ..color = accent.withValues(alpha: active ? 0.48 : 0.18);
+    final path = Path()
+      ..moveTo(actor.dx, actor.dy)
+      ..quadraticBezierTo(
+        size.width * 0.42,
+        size.height * 0.26,
+        center.dx,
+        center.dy,
+      )
+      ..quadraticBezierTo(
+        size.width * 0.58,
+        size.height * 0.74,
+        target.dx,
+        target.dy,
+      );
+    canvas.drawPath(path, thinLane);
+
+    for (final radius in [44.0, 72.0, 104.0]) {
+      canvas.drawCircle(
+        center,
+        radius,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1
+          ..color = accent.withValues(alpha: active ? 0.10 : 0.05),
+      );
+    }
+
+    final burst = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          accent.withValues(alpha: active ? 0.30 : 0.10),
+          Colors.transparent,
+        ],
+      ).createShader(
+        Rect.fromCircle(center: center, radius: size.shortestSide * 0.38),
+      );
+    canvas.drawCircle(center, size.shortestSide * 0.38, burst);
+  }
+
+  @override
+  bool shouldRepaint(covariant _DiceTheaterImpactPainter oldDelegate) {
+    return oldDelegate.accent != accent ||
+        oldDelegate.actorColor != actorColor ||
+        oldDelegate.targetColor != targetColor ||
+        oldDelegate.active != active;
+  }
+}
+
 class _SelectedTargetPortraitCard extends StatelessWidget {
   final List<_Combatant> combatants;
   final int activeIndex;
   final int targetIndex;
   final _Combatant combatant;
+  final _CombatRollFeedback? rollFeedback;
   final bool showEnemyHp;
   final ValueChanged<int> onSelectTarget;
 
@@ -4037,6 +6663,7 @@ class _SelectedTargetPortraitCard extends StatelessWidget {
     required this.activeIndex,
     required this.targetIndex,
     required this.combatant,
+    required this.rollFeedback,
     required this.showEnemyHp,
     required this.onSelectTarget,
   });
@@ -4045,6 +6672,13 @@ class _SelectedTargetPortraitCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.stitch;
     final accent = _teamColor(combatant.team, tokens);
+    final impactFeedback = rollFeedback != null &&
+            _feedbackMentionsCombatant(rollFeedback!, combatant)
+        ? rollFeedback
+        : null;
+    final impactAccent = impactFeedback == null
+        ? accent
+        : _accentForKind(impactFeedback.accentKind, tokens);
     final showHp = _canShowHp(combatant, showEnemyHp);
     final validTargets = <int>[
       for (var index = 0; index < combatants.length; index++)
@@ -4067,7 +6701,18 @@ class _SelectedTargetPortraitCard extends StatelessWidget {
           ],
         ),
         borderRadius: BorderRadius.circular(tokens.radiusSm),
-        border: Border.all(color: accent.withValues(alpha: 0.44)),
+        border: Border.all(
+          color: impactAccent.withValues(
+              alpha: impactFeedback == null ? 0.44 : 0.78),
+        ),
+        boxShadow: [
+          if (impactFeedback != null)
+            BoxShadow(
+              color: impactAccent.withValues(alpha: 0.24),
+              blurRadius: 28,
+              spreadRadius: 1,
+            ),
+        ],
       ),
       child: Stack(
         children: [
@@ -4113,10 +6758,24 @@ class _SelectedTargetPortraitCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(tokens.radiusSm),
                       border: Border.all(color: accent.withValues(alpha: 0.20)),
                     ),
-                    child: _CombatantArtwork(
-                      combatant: combatant,
-                      color: accent,
-                      iconSize: 78,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        _CombatantArtwork(
+                          combatant: combatant,
+                          color: accent,
+                          iconSize: 78,
+                        ),
+                        if (impactFeedback != null)
+                          Positioned(
+                            top: 8,
+                            right: 8,
+                            child: _TargetImpactBadge(
+                              feedback: impactFeedback,
+                              color: impactAccent,
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                 ),
@@ -4196,6 +6855,116 @@ class _SelectedTargetPortraitCard extends StatelessWidget {
       ),
     );
   }
+}
+
+bool _feedbackMentionsCombatant(
+  _CombatRollFeedback feedback,
+  _Combatant combatant,
+) {
+  final name = combatant.name.trim().toLowerCase();
+  if (name.isEmpty) return false;
+  final haystack = [
+    feedback.actor,
+    feedback.action,
+    feedback.headline,
+    feedback.subline ?? '',
+  ].join(' ').toLowerCase();
+  return haystack.contains(name);
+}
+
+class _TargetImpactBadge extends StatelessWidget {
+  final _CombatRollFeedback feedback;
+  final Color color;
+
+  const _TargetImpactBadge({
+    required this.feedback,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final label = _targetImpactLabel(feedback);
+
+    return TweenAnimationBuilder<double>(
+      key: ValueKey(
+        '${feedback.actor}-${feedback.action}-${feedback.headline}-${feedback.result?.total}',
+      ),
+      tween: Tween(begin: 0.86, end: 1),
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutBack,
+      builder: (context, scale, child) {
+        return Transform.scale(
+          scale: scale,
+          child: child,
+        );
+      },
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 132),
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              color.withValues(alpha: 0.90),
+              color.withValues(alpha: 0.54),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(tokens.radiusPill),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
+          boxShadow: [
+            BoxShadow(
+              color: color.withValues(alpha: 0.42),
+              blurRadius: 20,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              _targetImpactIcon(feedback),
+              color: Colors.white,
+              size: 13,
+            ),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _targetImpactLabel(_CombatRollFeedback feedback) {
+  final text = feedback.headline.trim();
+  if (text.isEmpty) return 'ROLL';
+  if (text.length <= 16) return text;
+  return '${text.substring(0, 15)}...';
+}
+
+IconData _targetImpactIcon(_CombatRollFeedback feedback) {
+  final text = '${feedback.headline} ${feedback.action}'.toLowerCase();
+  if (text.contains('crit')) return Icons.emergency_outlined;
+  if (text.contains('miss') || text.contains('save success')) {
+    return Icons.shield_outlined;
+  }
+  if (text.contains('heal')) return Icons.favorite_border;
+  if (text.contains('damage') || text.contains('hit')) {
+    return Icons.bolt_outlined;
+  }
+  return Icons.casino_outlined;
 }
 
 class _TargetChoiceRail extends StatelessWidget {
@@ -4296,37 +7065,64 @@ class _GameBattleStagePainter extends CustomPainter {
       ).createShader(rect);
     canvas.drawRect(rect, base);
 
+    _drawDungeonFloor(canvas, size);
+    _drawDungeonWalls(canvas, size);
+
     final gridPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1
-      ..color = Colors.white.withValues(alpha: 0.045);
-    const cell = 112.0;
-    for (var x = -cell; x < size.width + cell; x += cell) {
+      ..color = tokens.accentInfo.withValues(alpha: 0.11);
+    const cell = 74.0;
+    for (var x = -cell * 3; x < size.width + cell * 3; x += cell) {
       final path = Path()
-        ..moveTo(x, 0)
-        ..lineTo(x + size.height * 0.34, size.height);
+        ..moveTo(x, size.height * 0.12)
+        ..lineTo(x + size.height * 0.52, size.height * 0.92);
+      canvas.drawPath(path, gridPaint);
+    }
+    for (var x = -cell; x < size.width + cell * 4; x += cell) {
+      final path = Path()
+        ..moveTo(x, size.height * 0.92)
+        ..lineTo(x - size.height * 0.52, size.height * 0.12);
       canvas.drawPath(path, gridPaint);
     }
 
     final pathPaint = Paint()
-      ..color = tokens.accentSuccess.withValues(alpha: 0.11);
+      ..color = tokens.accentSuccess.withValues(alpha: 0.13);
     final path = Path()
-      ..moveTo(size.width * 0.08, size.height * 0.76)
-      ..lineTo(size.width * 0.38, size.height * 0.44)
-      ..lineTo(size.width * 0.74, size.height * 0.70)
-      ..lineTo(size.width * 0.48, size.height * 0.94)
+      ..moveTo(size.width * 0.12, size.height * 0.72)
+      ..lineTo(size.width * 0.42, size.height * 0.45)
+      ..lineTo(size.width * 0.77, size.height * 0.66)
+      ..lineTo(size.width * 0.51, size.height * 0.90)
       ..close();
     canvas.drawPath(path, pathPaint);
+    canvas.drawPath(
+      path,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2
+        ..color = tokens.accentSuccess.withValues(alpha: 0.18),
+    );
 
     final dangerPaint = Paint()
-      ..color = tokens.accentAction.withValues(alpha: 0.12);
+      ..color = tokens.accentAction.withValues(alpha: 0.13);
     canvas.drawOval(
       Rect.fromCenter(
-        center: Offset(size.width * 0.78, size.height * 0.44),
-        width: size.width * 0.30,
-        height: size.height * 0.36,
+        center: Offset(size.width * 0.80, size.height * 0.42),
+        width: size.width * 0.28,
+        height: size.height * 0.30,
       ),
       dangerPaint,
+    );
+
+    _drawTorchGlow(
+      canvas,
+      size,
+      Offset(size.width * 0.20, size.height * 0.30),
+    );
+    _drawTorchGlow(
+      canvas,
+      size,
+      Offset(size.width * 0.86, size.height * 0.26),
     );
 
     final glowPaint = Paint()
@@ -4357,6 +7153,101 @@ class _GameBattleStagePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _GameBattleStagePainter oldDelegate) {
     return oldDelegate.tokens != tokens;
+  }
+
+  void _drawDungeonFloor(Canvas canvas, Size size) {
+    final floor = Path()
+      ..moveTo(size.width * 0.13, size.height * 0.74)
+      ..lineTo(size.width * 0.36, size.height * 0.30)
+      ..lineTo(size.width * 0.82, size.height * 0.28)
+      ..lineTo(size.width * 0.93, size.height * 0.62)
+      ..lineTo(size.width * 0.57, size.height * 0.91)
+      ..close();
+    canvas.drawPath(
+      floor,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFF4B463C).withValues(alpha: 0.33),
+            const Color(0xFF2F372F).withValues(alpha: 0.18),
+            const Color(0xFF151A1F).withValues(alpha: 0.02),
+          ],
+        ).createShader(Offset.zero & size),
+    );
+    canvas.drawPath(
+      floor,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.4
+        ..color = Colors.white.withValues(alpha: 0.05),
+    );
+
+    final tilePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.8
+      ..color = Colors.white.withValues(alpha: 0.045);
+    for (var i = 0; i < 10; i++) {
+      final t = i / 9;
+      canvas.drawLine(
+        Offset(size.width * (0.17 + t * 0.42), size.height * 0.71),
+        Offset(size.width * (0.40 + t * 0.40), size.height * 0.31),
+        tilePaint,
+      );
+      canvas.drawLine(
+        Offset(size.width * (0.29 + t * 0.54), size.height * 0.35),
+        Offset(size.width * (0.52 + t * 0.36), size.height * 0.88),
+        tilePaint,
+      );
+    }
+  }
+
+  void _drawDungeonWalls(Canvas canvas, Size size) {
+    final wallPaint = Paint()
+      ..shader = LinearGradient(
+        colors: [
+          const Color(0xFF394148).withValues(alpha: 0.28),
+          Colors.black.withValues(alpha: 0.02),
+        ],
+      ).createShader(Offset.zero & size);
+    final leftWall = Path()
+      ..moveTo(size.width * 0.08, size.height * 0.20)
+      ..lineTo(size.width * 0.34, size.height * 0.08)
+      ..lineTo(size.width * 0.36, size.height * 0.30)
+      ..lineTo(size.width * 0.13, size.height * 0.74)
+      ..lineTo(size.width * 0.03, size.height * 0.60)
+      ..close();
+    final backWall = Path()
+      ..moveTo(size.width * 0.34, size.height * 0.08)
+      ..lineTo(size.width * 0.88, size.height * 0.10)
+      ..lineTo(size.width * 0.82, size.height * 0.28)
+      ..lineTo(size.width * 0.36, size.height * 0.30)
+      ..close();
+    canvas.drawPath(leftWall, wallPaint);
+    canvas.drawPath(backWall, wallPaint);
+  }
+
+  void _drawTorchGlow(Canvas canvas, Size size, Offset center) {
+    canvas.drawCircle(
+      center,
+      size.shortestSide * 0.18,
+      Paint()
+        ..shader = RadialGradient(
+          colors: [
+            tokens.accentWarning.withValues(alpha: 0.16),
+            tokens.accentAction.withValues(alpha: 0.04),
+            Colors.transparent,
+          ],
+        ).createShader(
+          Rect.fromCircle(center: center, radius: size.shortestSide * 0.18),
+        ),
+    );
+    canvas.drawCircle(
+      center,
+      3.0,
+      Paint()..color = tokens.accentWarning.withValues(alpha: 0.70),
+    );
   }
 }
 
@@ -4537,10 +7428,14 @@ class _DiceExpressionChip extends StatelessWidget {
 
 class _CommandLayerDock extends StatelessWidget {
   final _Combatant activeCombatant;
-  final _Combatant selectedTarget;
   final List<_CombatAction> actions;
   final Set<String> spentTimings;
+  final Set<String> pendingDamageActions;
+  final Map<String, int> resourcePool;
   final Map<String, _CombatAction> preparedActions;
+  final int queuedPreparedIndex;
+  final int queuedPreparedTotal;
+  final String? queuedPreparedActionName;
   final String selectedTiming;
   final ValueChanged<String> onSelectTiming;
   final void Function(_CombatAction action, _CombatActionRoll rollType)
@@ -4552,10 +7447,14 @@ class _CommandLayerDock extends StatelessWidget {
 
   const _CommandLayerDock({
     required this.activeCombatant,
-    required this.selectedTarget,
     required this.actions,
     required this.spentTimings,
+    required this.pendingDamageActions,
+    required this.resourcePool,
     required this.preparedActions,
+    required this.queuedPreparedIndex,
+    required this.queuedPreparedTotal,
+    required this.queuedPreparedActionName,
     required this.selectedTiming,
     required this.onSelectTiming,
     required this.onRollAction,
@@ -4597,9 +7496,19 @@ class _CommandLayerDock extends StatelessWidget {
       ),
       child: _PreparedTurnPanel(
         activeCombatant: activeCombatant,
-        selectedTarget: selectedTarget,
+        actions: actions,
         preparedActions: preparedActions,
         spentTimings: spentTimings,
+        pendingDamageActions: pendingDamageActions,
+        resourcePool: resourcePool,
+        queuedPreparedIndex: queuedPreparedIndex,
+        queuedPreparedTotal: queuedPreparedTotal,
+        queuedPreparedActionName: queuedPreparedActionName,
+        selectedTiming: selectedTiming,
+        onSelectTiming: onSelectTiming,
+        onRollAction: onRollAction,
+        onUseAction: onUseAction,
+        onPrepareAction: onPrepareAction,
         onLaunch: onLaunchPreparedTurn,
         onClear: onClearPreparedActions,
       ),
@@ -5201,7 +8110,20 @@ class _CompactActionCommand extends StatelessWidget {
                     onTap: () => onRollAction(action, _CombatActionRoll.attack),
                   ),
                 ),
-              if (action.attackFormula != null && action.damageFormula != null)
+              if (action.requiresSavingThrow)
+                Expanded(
+                  child: _TinyRollButton(
+                    label: '${action.saveAbility} DC ${action.saveDc}',
+                    icon: Icons.shield_outlined,
+                    color: effectiveAccent,
+                    enabled: !isBlocked && !canResolveDamage,
+                    onTap: () =>
+                        onRollAction(action, _CombatActionRoll.savingThrow),
+                  ),
+                ),
+              if ((action.attackFormula != null ||
+                      action.requiresSavingThrow) &&
+                  action.damageFormula != null)
                 const SizedBox(width: 5),
               if (action.damageFormula != null)
                 Expanded(
@@ -5229,6 +8151,7 @@ class _CompactActionCommand extends StatelessWidget {
                 ),
               ],
               if (action.attackFormula == null &&
+                  !action.requiresSavingThrow &&
                   action.damageFormula == null &&
                   action.critFormula == null)
                 Expanded(
@@ -5470,17 +8393,38 @@ class _ActionDetailsButton extends StatelessWidget {
 
 class _PreparedTurnPanel extends StatelessWidget {
   final _Combatant activeCombatant;
-  final _Combatant selectedTarget;
+  final List<_CombatAction> actions;
   final Map<String, _CombatAction> preparedActions;
   final Set<String> spentTimings;
+  final Set<String> pendingDamageActions;
+  final Map<String, int> resourcePool;
+  final int queuedPreparedIndex;
+  final int queuedPreparedTotal;
+  final String? queuedPreparedActionName;
+  final String selectedTiming;
+  final ValueChanged<String> onSelectTiming;
+  final void Function(_CombatAction action, _CombatActionRoll rollType)
+      onRollAction;
+  final ValueChanged<_CombatAction> onUseAction;
+  final ValueChanged<_CombatAction> onPrepareAction;
   final VoidCallback onLaunch;
   final VoidCallback onClear;
 
   const _PreparedTurnPanel({
     required this.activeCombatant,
-    required this.selectedTarget,
+    required this.actions,
     required this.preparedActions,
     required this.spentTimings,
+    required this.pendingDamageActions,
+    required this.resourcePool,
+    required this.queuedPreparedIndex,
+    required this.queuedPreparedTotal,
+    required this.queuedPreparedActionName,
+    required this.selectedTiming,
+    required this.onSelectTiming,
+    required this.onRollAction,
+    required this.onUseAction,
+    required this.onPrepareAction,
     required this.onLaunch,
     required this.onClear,
   });
@@ -5493,38 +8437,83 @@ class _PreparedTurnPanel extends StatelessWidget {
     final executableCount = preparedActions.entries
         .where((entry) => !spentTimings.contains(entry.key))
         .length;
+    final queueActive =
+        queuedPreparedTotal > 0 && queuedPreparedIndex < queuedPreparedTotal;
+    final rollButtonLabel = queueActive ? 'Roll Next' : 'Roll Plan';
+    final rollButtonIcon =
+        queueActive ? Icons.casino_outlined : Icons.playlist_play_outlined;
+
+    void openCatalog(String timing) {
+      onSelectTiming(timing);
+      _showActionCatalogSheet(
+        context: context,
+        actions: actions,
+        spentTimings: spentTimings,
+        pendingDamageActions: pendingDamageActions,
+        resourcePool: resourcePool,
+        preparedActions: preparedActions,
+        selectedTiming: timing,
+        onSelectTiming: onSelectTiming,
+        onRollAction: onRollAction,
+        onUseAction: onUseAction,
+        onPrepareAction: onPrepareAction,
+      );
+    }
 
     return Container(
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.16),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            tokens.accentMagic.withValues(alpha: 0.10),
+            Colors.black.withValues(alpha: 0.18),
+            tokens.accentAction.withValues(alpha: 0.08),
+          ],
+        ),
         borderRadius: BorderRadius.circular(tokens.radiusSm),
-        border: Border.all(color: tokens.accentAction.withValues(alpha: 0.22)),
+        border: Border.all(color: tokens.accentAction.withValues(alpha: 0.26)),
       ),
       child: Column(
         children: [
           Row(
             children: [
-              Icon(Icons.playlist_add_check_circle_outlined,
-                  color: tokens.accentAction, size: 17),
-              const SizedBox(width: 7),
-              Expanded(
-                child: Text(
-                  'PREPARED TURN',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: tokens.textSecondary,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w900,
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: tokens.accentAction.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(tokens.radiusSm),
+                  border: Border.all(
+                    color: tokens.accentAction.withValues(alpha: 0.28),
                   ),
+                ),
+                child: const Icon(
+                  Icons.playlist_add_check_circle_outlined,
+                  color: Colors.white,
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: _PreparedTurnHeader(
+                  activeCombatant: activeCombatant,
                 ),
               ),
               _PreparedTurnProgressPill(
                 preparedCount: preparedCount,
                 totalCount: timings.length,
               ),
-              const SizedBox(width: 8),
+              if (queueActive) ...[
+                const SizedBox(width: 7),
+                _QueuedRollPill(
+                  index: queuedPreparedIndex + 1,
+                  total: queuedPreparedTotal,
+                  actionName: queuedPreparedActionName ?? 'Next roll',
+                ),
+              ],
+              const SizedBox(width: 7),
               IconButton(
                 onPressed: preparedActions.isEmpty ? null : onClear,
                 icon: const Icon(Icons.close, size: 17),
@@ -5532,49 +8521,52 @@ class _PreparedTurnPanel extends StatelessWidget {
                 disabledColor: tokens.textMuted,
                 tooltip: 'Clear prepared turn',
               ),
-              const SizedBox(width: 5),
+              const SizedBox(width: 4),
               FilledButton.icon(
-                onPressed: executableCount == 0 ? null : onLaunch,
-                icon: const Icon(Icons.casino_outlined, size: 15),
-                label: const Text('Execute'),
+                onPressed:
+                    executableCount == 0 && !queueActive ? null : onLaunch,
+                icon: Icon(rollButtonIcon, size: 17),
+                label: Text(rollButtonLabel),
                 style: FilledButton.styleFrom(
                   backgroundColor: tokens.accentAction,
                   foregroundColor: Colors.white,
                   disabledBackgroundColor: Colors.white.withValues(alpha: 0.08),
                   disabledForegroundColor: tokens.textMuted,
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  textStyle: const TextStyle(fontWeight: FontWeight.w900),
+                      const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
+                  textStyle: const TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 13,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(tokens.radiusSm),
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 9),
+          const SizedBox(height: 11),
           Expanded(
             child: Row(
               children: [
-                SizedBox(
-                  width: 184,
-                  child: _PreparedTurnContext(
-                    activeCombatant: activeCombatant,
-                    selectedTarget: selectedTarget,
-                  ),
-                ),
-                const SizedBox(width: 9),
                 for (var index = 0; index < timings.length; index++) ...[
                   Expanded(
                     child: _PreparedTurnSlot(
+                      index: index + 1,
                       timing: timings[index],
                       action: preparedActions[timings[index]],
                       spent: spentTimings.contains(timings[index]),
+                      selected: timings[index] == selectedTiming,
+                      onOpen: () => openCatalog(timings[index]),
                     ),
                   ),
                   if (index != timings.length - 1) ...[
-                    const SizedBox(width: 7),
+                    const SizedBox(width: 8),
                     _TurnFlowArrow(
-                      active: preparedActions[timings[index]] != null,
+                      active: preparedActions[timings[index]] != null ||
+                          spentTimings.contains(timings[index]),
                     ),
-                    const SizedBox(width: 7),
+                    const SizedBox(width: 8),
                   ],
                 ],
               ],
@@ -5582,6 +8574,87 @@ class _PreparedTurnPanel extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _PreparedTurnHeader extends StatelessWidget {
+  final _Combatant activeCombatant;
+
+  const _PreparedTurnHeader({
+    required this.activeCombatant,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
+    return Row(
+      children: [
+        Text(
+          'PREPARED TURN',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: tokens.textSecondary,
+            fontSize: 11,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Container(
+            height: 30,
+            padding: const EdgeInsets.symmetric(horizontal: 9),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(tokens.radiusPill),
+              border: Border.all(
+                color: tokens.accentMagic.withValues(alpha: 0.18),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.person_pin_circle_outlined,
+                    color: tokens.accentInfo, size: 14),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    activeCombatant.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: tokens.accentInfo.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(tokens.radiusPill),
+                    border: Border.all(
+                      color: tokens.accentInfo.withValues(alpha: 0.20),
+                    ),
+                  ),
+                  child: const Text(
+                    'ACTIVE',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -5620,6 +8693,67 @@ class _PreparedTurnProgressPill extends StatelessWidget {
   }
 }
 
+class _QueuedRollPill extends StatelessWidget {
+  final int index;
+  final int total;
+  final String actionName;
+
+  const _QueuedRollPill({
+    required this.index,
+    required this.total,
+    required this.actionName,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 190),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: tokens.accentMagic.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(tokens.radiusPill),
+        border: Border.all(color: tokens.accentMagic.withValues(alpha: 0.30)),
+        boxShadow: [
+          BoxShadow(
+            color: tokens.accentMagic.withValues(alpha: 0.18),
+            blurRadius: 16,
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.casino_outlined, color: Colors.white, size: 13),
+          const SizedBox(width: 6),
+          Text(
+            '$index/$total',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              actionName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: tokens.textSecondary,
+                fontSize: 10,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _TurnFlowArrow extends StatelessWidget {
   final bool active;
 
@@ -5639,129 +8773,21 @@ class _TurnFlowArrow extends StatelessWidget {
   }
 }
 
-class _PreparedTurnContext extends StatelessWidget {
-  final _Combatant activeCombatant;
-  final _Combatant selectedTarget;
-
-  const _PreparedTurnContext({
-    required this.activeCombatant,
-    required this.selectedTarget,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return Container(
-      padding: const EdgeInsets.all(9),
-      decoration: BoxDecoration(
-        color: tokens.accentMagic.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(tokens.radiusSm),
-        border: Border.all(color: tokens.accentMagic.withValues(alpha: 0.22)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _PlanRouteLine(
-            label: 'Actor',
-            value: activeCombatant.name,
-            icon: Icons.person_pin_circle_outlined,
-            color: tokens.accentInfo,
-          ),
-          const Spacer(),
-          Align(
-            alignment: Alignment.center,
-            child: Icon(
-              Icons.keyboard_double_arrow_down_rounded,
-              color: tokens.textMuted,
-              size: 15,
-            ),
-          ),
-          const Spacer(),
-          _PlanRouteLine(
-            label: 'Target',
-            value: selectedTarget.name,
-            icon: Icons.track_changes_outlined,
-            color: tokens.accentAction,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PlanRouteLine extends StatelessWidget {
-  final String label;
-  final String value;
-  final IconData icon;
-  final Color color;
-
-  const _PlanRouteLine({
-    required this.label,
-    required this.value,
-    required this.icon,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return Row(
-      children: [
-        Container(
-          width: 24,
-          height: 24,
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.14),
-            borderRadius: BorderRadius.circular(tokens.radiusSm),
-            border: Border.all(color: color.withValues(alpha: 0.22)),
-          ),
-          child: Icon(icon, color: Colors.white, size: 13),
-        ),
-        const SizedBox(width: 7),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                label.toUpperCase(),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: tokens.textSecondary,
-                  fontSize: 8,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              Text(
-                value,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _PreparedTurnSlot extends StatelessWidget {
+  final int index;
   final String timing;
   final _CombatAction? action;
   final bool spent;
+  final bool selected;
+  final VoidCallback onOpen;
 
   const _PreparedTurnSlot({
+    required this.index,
     required this.timing,
     required this.action,
     required this.spent,
+    required this.selected,
+    required this.onOpen,
   });
 
   @override
@@ -5770,90 +8796,177 @@ class _PreparedTurnSlot extends StatelessWidget {
     final color = spent
         ? tokens.accentAction
         : action == null
-            ? tokens.textMuted
+            ? (selected ? tokens.accentMagic : tokens.textMuted)
             : _accentForKind(action!.accentKind, tokens);
-    final title = action?.name ?? (spent ? 'Spent' : 'Open slot');
+    final title = action?.name ?? (spent ? 'Spent' : 'Open command');
     final formula =
-        action == null && spent ? 'Done' : _preparedActionFormula(action);
+        action == null && !spent ? 'Choose' : _preparedActionFormula(action);
+    final icon = spent
+        ? Icons.check_circle_outline
+        : action == null
+            ? Icons.add_circle_outline
+            : action!.icon;
+    final status = spent
+        ? 'Resolved'
+        : action == null
+            ? 'Awaiting choice'
+            : 'Ready to execute';
 
-    return Container(
-      padding: const EdgeInsets.all(9),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: action == null ? 0.07 : 0.16),
-        borderRadius: BorderRadius.circular(tokens.radiusSm),
-        border: Border.all(color: color.withValues(alpha: 0.18)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Icon(
-                spent
-                    ? Icons.check_circle_outline
-                    : action == null
-                        ? Icons.circle_outlined
-                        : action!.icon,
-                color: Colors.white,
-                size: 15,
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  timing,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: tokens.textSecondary,
-                    fontSize: 9,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
+    return InkWell(
+      onTap: spent ? null : onOpen,
+      borderRadius: BorderRadius.circular(tokens.radiusSm),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        clipBehavior: Clip.hardEdge,
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              color.withValues(alpha: action == null ? 0.08 : 0.22),
+              Colors.black.withValues(alpha: 0.16),
             ],
           ),
-          const SizedBox(height: 8),
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w900,
-                  height: 1.05,
-                ),
+          borderRadius: BorderRadius.circular(tokens.radiusSm),
+          border: Border.all(
+            color: color.withValues(
+              alpha: selected ? 0.56 : (action == null ? 0.18 : 0.38),
+            ),
+            width: selected ? 1.4 : 1,
+          ),
+        ),
+        child: Stack(
+          children: [
+            Positioned(
+              right: -18,
+              top: -18,
+              child: Icon(
+                icon,
+                color: Colors.white.withValues(alpha: 0.045),
+                size: 86,
               ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.bottomLeft,
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 96),
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.16),
-                borderRadius: BorderRadius.circular(tokens.radiusPill),
-                border: Border.all(color: color.withValues(alpha: 0.18)),
-              ),
-              child: Text(
-                formula,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: action == null ? tokens.textMuted : Colors.white,
-                  fontSize: 9,
-                  fontWeight: FontWeight.w900,
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 30,
+                      height: 30,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.16),
+                        borderRadius: BorderRadius.circular(tokens.radiusSm),
+                        border:
+                            Border.all(color: color.withValues(alpha: 0.28)),
+                      ),
+                      child: Icon(icon, color: Colors.white, size: 16),
+                    ),
+                    const SizedBox(width: 7),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'STEP $index',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: tokens.textMuted,
+                              fontSize: 8,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          Text(
+                            timing,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: tokens.textSecondary,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-              ),
+                const SizedBox(height: 9),
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900,
+                        height: 1.06,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        status,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: tokens.textSecondary,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 7),
+                    Container(
+                      constraints: const BoxConstraints(maxWidth: 112),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 7, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(tokens.radiusPill),
+                        border:
+                            Border.all(color: color.withValues(alpha: 0.20)),
+                      ),
+                      child: Text(
+                        formula,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color:
+                              action == null ? tokens.textMuted : Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (action != null && action!.tags.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 5,
+                    runSpacing: 5,
+                    children: [
+                      for (final tag in action!.tags.take(2))
+                        _DiceExpressionChip(label: tag, color: color),
+                    ],
+                  ),
+                ],
+              ],
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -7778,7 +10891,18 @@ class _CombatActionCard extends StatelessWidget {
                             onRollAction(action, _CombatActionRoll.attack),
                       ),
                     ),
-                  if (action.attackFormula != null &&
+                  if (action.requiresSavingThrow)
+                    Expanded(
+                      child: _ActionRollButton(
+                        label: '${action.saveAbility} DC ${action.saveDc}',
+                        icon: Icons.shield_outlined,
+                        color: accent,
+                        onPressed: () =>
+                            onRollAction(action, _CombatActionRoll.savingThrow),
+                      ),
+                    ),
+                  if ((action.attackFormula != null ||
+                          action.requiresSavingThrow) &&
                       action.damageFormula != null)
                     const SizedBox(width: 8),
                   if (action.damageFormula != null)
@@ -8143,7 +11267,7 @@ class _StatusChip extends StatelessWidget {
 
 enum _CombatTeam { party, enemy }
 
-enum _CombatActionRoll { attack, damage, critical }
+enum _CombatActionRoll { attack, savingThrow, damage, critical }
 
 enum _CombatWorkspace { turn, log, overview }
 
@@ -8222,6 +11346,8 @@ class _CombatAction {
   final String type;
   final String timing;
   final String? attackFormula;
+  final String? saveAbility;
+  final int? saveDc;
   final String? damageFormula;
   final String? critFormula;
   final List<String> tags;
@@ -8231,6 +11357,9 @@ class _CombatAction {
   final int resourceCost;
   final bool targetsSelf;
   final bool isHealing;
+  final bool halfDamageOnSave;
+  final bool grantsAction;
+  final List<_MultiAttackStep> multiAttackSteps;
 
   const _CombatAction({
     this.id = '',
@@ -8238,6 +11367,8 @@ class _CombatAction {
     required this.type,
     required this.timing,
     required this.attackFormula,
+    this.saveAbility,
+    this.saveDc,
     required this.damageFormula,
     required this.critFormula,
     required this.tags,
@@ -8247,6 +11378,28 @@ class _CombatAction {
     this.resourceCost = 0,
     this.targetsSelf = false,
     this.isHealing = false,
+    this.halfDamageOnSave = false,
+    this.grantsAction = false,
+    this.multiAttackSteps = const [],
+  });
+
+  bool get requiresSavingThrow => saveAbility != null && saveDc != null;
+  bool get hasMultiAttack => multiAttackSteps.isNotEmpty;
+}
+
+class _MultiAttackStep {
+  final String name;
+  final String? attackFormula;
+  final String? damageFormula;
+  final String? critFormula;
+  final List<String> tags;
+
+  const _MultiAttackStep({
+    required this.name,
+    required this.attackFormula,
+    required this.damageFormula,
+    required this.critFormula,
+    required this.tags,
   });
 }
 
@@ -8506,10 +11659,36 @@ String _compactHpLabel(_Combatant combatant, bool showEnemyHp) {
 
 String _preparedActionFormula(_CombatAction? action) {
   if (action == null) return 'Open';
+  if (action.grantsAction) return '+1 Action';
+  if (action.hasMultiAttack) return '${action.multiAttackSteps.length} attacks';
   return action.attackFormula ??
       action.damageFormula ??
       action.critFormula ??
       'Use';
+}
+
+int _compactActionCountForTiming(
+  List<_CombatAction> actions,
+  String timing,
+) {
+  return actions.where((action) => action.timing == timing).length;
+}
+
+String _compactTimingLabel(String timing) {
+  return switch (timing) {
+    'Bonus Action' => 'Bonus',
+    _ => timing,
+  };
+}
+
+IconData _timingIcon(String timing) {
+  return switch (timing) {
+    'Action' => Icons.bolt_outlined,
+    'Bonus Action' => Icons.control_point_duplicate_outlined,
+    'Reaction' => Icons.reply_outlined,
+    'Movement' => Icons.directions_run_outlined,
+    _ => Icons.radio_button_unchecked,
+  };
 }
 
 void _showActionDetails(BuildContext context, _CombatAction action) {
@@ -8546,6 +11725,12 @@ void _showActionDetails(BuildContext context, _CombatAction action) {
           children: [
             _ActionDetailLine(label: 'Type', value: action.type),
             _ActionDetailLine(label: 'Timing', value: action.timing),
+            if (action.hasMultiAttack)
+              _ActionDetailLine(
+                label: 'Sequence',
+                value:
+                    '${action.multiAttackSteps.length} attacks in one action',
+              ),
             if (action.attackFormula != null)
               _ActionDetailLine(label: 'Attack', value: action.attackFormula!),
             if (action.damageFormula != null)
@@ -8554,6 +11739,22 @@ void _showActionDetails(BuildContext context, _CombatAction action) {
                   value: action.damageFormula!),
             if (action.critFormula != null)
               _ActionDetailLine(label: 'Critical', value: action.critFormula!),
+            if (action.hasMultiAttack) ...[
+              const SizedBox(height: 4),
+              for (var index = 0;
+                  index < action.multiAttackSteps.length;
+                  index++)
+                _ActionDetailLine(
+                  label: 'Hit ${index + 1}',
+                  value: [
+                    action.multiAttackSteps[index].name,
+                    if (action.multiAttackSteps[index].attackFormula != null)
+                      action.multiAttackSteps[index].attackFormula!,
+                    if (action.multiAttackSteps[index].damageFormula != null)
+                      action.multiAttackSteps[index].damageFormula!,
+                  ].join(' - '),
+                ),
+            ],
             if (action.tags.isNotEmpty) ...[
               const SizedBox(height: 10),
               Wrap(

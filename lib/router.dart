@@ -216,13 +216,18 @@ final GoRouter appRouter = GoRouter(
 
     GoRoute(
       path: '/combat-mode',
-      builder: (_, __) => const CombatModeScreen(),
+      builder: (_, state) => CombatModeScreen(
+        campaignId: state.uri.queryParameters['campaignId'],
+      ),
     ),
     GoRoute(
       path: '/combat-mode/:id',
       builder: (_, state) {
         final id = state.pathParameters['id']!;
-        return CombatModeScreen(characterId: id);
+        return CombatModeScreen(
+          characterId: id,
+          campaignId: state.uri.queryParameters['campaignId'],
+        );
       },
     ),
 

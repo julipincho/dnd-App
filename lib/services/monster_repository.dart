@@ -24,9 +24,15 @@ class SrdMonster {
   final int hitPoints;
   final String? hitDice;
   final int speed;
+  final int strength;
   final int dexterity;
+  final int constitution;
+  final int intelligence;
+  final int wisdom;
+  final int charisma;
   final String? challengeRating;
   final int proficiencyBonus;
+  final Map<String, int> savingThrowBonuses;
   final List<SrdMonsterAction> actions;
   final List<SrdMonsterSpecialAbility> specialAbilities;
 
@@ -40,9 +46,15 @@ class SrdMonster {
     required this.hitPoints,
     required this.hitDice,
     required this.speed,
+    required this.strength,
     required this.dexterity,
+    required this.constitution,
+    required this.intelligence,
+    required this.wisdom,
+    required this.charisma,
     required this.challengeRating,
     required this.proficiencyBonus,
+    required this.savingThrowBonuses,
     required this.actions,
     required this.specialAbilities,
   });
@@ -58,9 +70,15 @@ class SrdMonster {
       hitPoints: (json['hit_points'] as num?)?.toInt() ?? 1,
       hitDice: json['hit_dice']?.toString(),
       speed: _parseSpeed(json['speed']),
+      strength: (json['strength'] as num?)?.toInt() ?? 10,
       dexterity: (json['dexterity'] as num?)?.toInt() ?? 10,
+      constitution: (json['constitution'] as num?)?.toInt() ?? 10,
+      intelligence: (json['intelligence'] as num?)?.toInt() ?? 10,
+      wisdom: (json['wisdom'] as num?)?.toInt() ?? 10,
+      charisma: (json['charisma'] as num?)?.toInt() ?? 10,
       challengeRating: _formatChallengeRating(json['challenge_rating']),
       proficiencyBonus: (json['proficiency_bonus'] as num?)?.toInt() ?? 2,
+      savingThrowBonuses: _parseSavingThrowBonuses(json['proficiencies']),
       actions: _listOfMaps(json['actions'])
           .map(SrdMonsterAction.fromJson)
           .toList(growable: false),
@@ -79,6 +97,7 @@ class SrdMonsterAction {
   final String? damageType;
   final bool isRanged;
   final bool isMelee;
+  final List<SrdMonsterMultiattackEntry> multiattackActions;
 
   const SrdMonsterAction({
     required this.name,
@@ -88,6 +107,7 @@ class SrdMonsterAction {
     required this.damageType,
     required this.isRanged,
     required this.isMelee,
+    required this.multiattackActions,
   });
 
   factory SrdMonsterAction.fromJson(Map<String, dynamic> json) {
@@ -103,6 +123,30 @@ class SrdMonsterAction {
       damageType: damage.type,
       isRanged: lowerDescription.contains('ranged weapon attack'),
       isMelee: lowerDescription.contains('melee weapon attack'),
+      multiattackActions: _listOfMaps(json['actions'])
+          .map(SrdMonsterMultiattackEntry.fromJson)
+          .where((entry) => entry.actionName.trim().isNotEmpty)
+          .toList(growable: false),
+    );
+  }
+}
+
+class SrdMonsterMultiattackEntry {
+  final String actionName;
+  final int count;
+  final String? type;
+
+  const SrdMonsterMultiattackEntry({
+    required this.actionName,
+    required this.count,
+    required this.type,
+  });
+
+  factory SrdMonsterMultiattackEntry.fromJson(Map<String, dynamic> json) {
+    return SrdMonsterMultiattackEntry(
+      actionName: json['action_name']?.toString() ?? '',
+      count: (json['count'] as num?)?.toInt() ?? 1,
+      type: json['type']?.toString(),
     );
   }
 }
@@ -203,6 +247,15 @@ class MonsterRepository {
           'source': 'srdMonster',
           'monsterIndex': monster.index,
           'monsterName': monster.name,
+          'abilityScores': {
+            'STR': monster.strength,
+            'DEX': monster.dexterity,
+            'CON': monster.constitution,
+            'INT': monster.intelligence,
+            'WIS': monster.wisdom,
+            'CHA': monster.charisma,
+          },
+          'savingThrowBonuses': monster.savingThrowBonuses,
           if (monster.challengeRating != null) 'challengeRating': cr,
           if (monster.hitDice != null) 'hitDice': monster.hitDice,
           'proficiencyBonus': monster.proficiencyBonus,
@@ -218,7 +271,7 @@ class MonsterRepository {
   }) {
     final actions = <PreparedCombatAction>[
       for (final action in monster.actions)
-        _buildMonsterAction(monster, action),
+        _buildMonsterAction(monster, action, monster.actions),
       for (final ability in monster.specialAbilities)
         if (_isUsableSpecialAbility(ability))
           _buildSpecialAbility(monster, ability),
@@ -237,7 +290,32 @@ class MonsterRepository {
   static PreparedCombatAction _buildMonsterAction(
     SrdMonster monster,
     SrdMonsterAction action,
+    List<SrdMonsterAction> allActions,
   ) {
+    final multiattackSteps = _multiattackStepsFor(action, allActions);
+    if (multiattackSteps.isNotEmpty) {
+      return PreparedCombatAction(
+        id: 'monster:${monster.index}:action:${_normalizeKey(action.name)}',
+        name: action.name,
+        timing: CombatActionTiming.action,
+        rollKind: CombatActionRollKind.attack,
+        tags: [
+          'Monster',
+          'Multiattack',
+          '${multiattackSteps.length} attacks',
+          if (monster.challengeRating != null) 'CR ${monster.challengeRating}',
+        ],
+        metadata: {
+          'source': 'monster',
+          'monsterIndex': monster.index,
+          'monsterName': monster.name,
+          'description': action.description,
+          'multiattack': true,
+          'multiAttackSteps': multiattackSteps,
+        },
+      );
+    }
+
     final attackBonus = action.attackBonus;
     final attackFormula = attackBonus == null
         ? null
@@ -273,6 +351,48 @@ class MonsterRepository {
           'criticalDamageFormula': _doubleDice(action.damageFormula!),
       },
     );
+  }
+
+  static List<Map<String, dynamic>> _multiattackStepsFor(
+    SrdMonsterAction action,
+    List<SrdMonsterAction> allActions,
+  ) {
+    if (action.multiattackActions.isEmpty) return const [];
+
+    final byName = {
+      for (final candidate in allActions)
+        _normalizeKey(candidate.name): candidate,
+    };
+    final steps = <Map<String, dynamic>>[];
+    for (final entry in action.multiattackActions) {
+      final candidate = byName[_normalizeKey(entry.actionName)];
+      if (candidate == null) continue;
+      final attackBonus = candidate.attackBonus;
+      final attackFormula = attackBonus == null
+          ? null
+          : attackBonus >= 0
+              ? 'd20+$attackBonus'
+              : 'd20$attackBonus';
+      if (attackFormula == null && candidate.damageFormula == null) {
+        continue;
+      }
+      for (var index = 0; index < entry.count; index++) {
+        steps.add({
+          'name': candidate.name,
+          'attackFormula': attackFormula,
+          'damageFormula': candidate.damageFormula,
+          if (candidate.damageFormula != null)
+            'criticalDamageFormula': _doubleDice(candidate.damageFormula!),
+          'tags': [
+            if (candidate.isMelee) 'Melee',
+            if (candidate.isRanged) 'Ranged',
+            if (candidate.damageType != null) candidate.damageType!,
+            if (entry.type != null) entry.type!,
+          ],
+        });
+      }
+    }
+    return steps;
   }
 
   static PreparedCombatAction _buildSpecialAbility(
@@ -397,6 +517,34 @@ int _abilityModifier(int score) {
 List<Map<String, dynamic>> _listOfMaps(Object? raw) {
   if (raw is! List) return const [];
   return raw.whereType<Map<String, dynamic>>().toList(growable: false);
+}
+
+Map<String, int> _parseSavingThrowBonuses(Object? raw) {
+  final bonuses = <String, int>{};
+  for (final item in _listOfMaps(raw)) {
+    final proficiency = item['proficiency'];
+    if (proficiency is! Map) continue;
+    final name = proficiency['name']?.toString().toLowerCase() ?? '';
+    final match = RegExp(
+      r'saving throw:\s*(str|dex|con|int|wis|cha|strength|dexterity|constitution|intelligence|wisdom|charisma)',
+    ).firstMatch(name);
+    if (match == null) continue;
+    final ability = _normalizeAbilityLabel(match.group(1)!);
+    final value = (item['value'] as num?)?.toInt();
+    if (value != null) bonuses[ability] = value;
+  }
+  return bonuses;
+}
+
+String _normalizeAbilityLabel(String value) {
+  final text = value.trim().toLowerCase();
+  if (text.startsWith('str')) return 'STR';
+  if (text.startsWith('dex')) return 'DEX';
+  if (text.startsWith('con')) return 'CON';
+  if (text.startsWith('int')) return 'INT';
+  if (text.startsWith('wis')) return 'WIS';
+  if (text.startsWith('cha')) return 'CHA';
+  return value.trim().toUpperCase();
 }
 
 String _normalizeKey(String value) {
