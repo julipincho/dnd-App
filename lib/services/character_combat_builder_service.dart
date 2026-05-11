@@ -22,6 +22,48 @@ class CharacterCombatBuild {
   });
 }
 
+class _IntrinsicAttackSpec {
+  final String idSuffix;
+  final String name;
+  final String abilityLabel;
+  final int abilityModifier;
+  final String? damageDice;
+  final int? flatDamage;
+  final String damageType;
+  final String source;
+  final List<String> tags;
+  final Map<String, dynamic> metadata;
+
+  const _IntrinsicAttackSpec({
+    required this.idSuffix,
+    required this.name,
+    required this.abilityLabel,
+    required this.abilityModifier,
+    required this.damageType,
+    required this.source,
+    this.damageDice,
+    this.flatDamage,
+    this.tags = const [],
+    this.metadata = const {},
+  });
+}
+
+class _NaturalWeaponPattern {
+  final String id;
+  final String name;
+  final List<String> keywords;
+  final String defaultDice;
+  final String damageType;
+
+  const _NaturalWeaponPattern({
+    required this.id,
+    required this.name,
+    required this.keywords,
+    required this.defaultDice,
+    required this.damageType,
+  });
+}
+
 class CharacterCombatBuilderService {
   const CharacterCombatBuilderService._();
 
@@ -79,6 +121,8 @@ class CharacterCombatBuilderService {
         effects: _passiveEffects(character),
         metadata: {
           'characterId': character.id,
+          if ((character.portraitPath ?? '').trim().isNotEmpty)
+            'portraitPath': character.portraitPath!.trim(),
           'race': character.race,
           'classProgression': character.classProgressionLabel,
           'abilityScores': {
@@ -227,6 +271,16 @@ class CharacterCombatBuilderService {
       }
     }
 
+    actions.addAll(
+      _intrinsicAttackActions(
+        character,
+        equipmentItems,
+        compendiumEntries,
+        proficiencyBonus,
+        attackActionCount,
+      ),
+    );
+
     final spellActions = _spellActions(
       character,
       spells,
@@ -291,6 +345,303 @@ class CharacterCombatBuilderService {
         effective.allowedSlots.contains(EquipSlot.weaponMainHand) ||
         effective.allowedSlots.contains(EquipSlot.weaponOffHand) ||
         (effective.damageDice ?? '').trim().isNotEmpty;
+  }
+
+  static List<PreparedCombatAction> _intrinsicAttackActions(
+    Character character,
+    List<EquipmentCompendiumItem> equipmentItems,
+    List<CompendiumEntry> compendiumEntries,
+    int proficiencyBonus,
+    int attackActionCount,
+  ) {
+    final strMod = _abilityModifier(
+      _effectiveAbilityScore(
+        character,
+        'STR',
+        equipmentItems,
+        compendiumEntries,
+      ),
+    );
+    final dexMod = _abilityModifier(
+      _effectiveAbilityScore(
+        character,
+        'DEX',
+        equipmentItems,
+        compendiumEntries,
+      ),
+    );
+    final monkLevel = _classLevel(character, const ['monk', 'monje']);
+    final bestMartialMod = dexMod > strMod ? dexMod : strMod;
+    final bestMartialAbility = dexMod > strMod ? 'DEX' : 'STR';
+    final baseUnarmedDamage = 1 + strMod;
+    final specs = <_IntrinsicAttackSpec>[
+      _IntrinsicAttackSpec(
+        idSuffix: 'unarmed_strike',
+        name: 'Unarmed Strike',
+        abilityLabel: monkLevel > 0 ? bestMartialAbility : 'STR',
+        abilityModifier: monkLevel > 0 ? bestMartialMod : strMod,
+        damageDice: monkLevel > 0 ? _martialArtsDie(monkLevel) : null,
+        flatDamage: monkLevel > 0
+            ? null
+            : baseUnarmedDamage < 1
+                ? 1
+                : baseUnarmedDamage,
+        damageType: 'Bludgeoning',
+        source: 'unarmed',
+        tags: [
+          'Unarmed',
+          if (monkLevel > 0) 'Martial Arts',
+        ],
+        metadata: {
+          if (monkLevel > 0) 'monkLevel': monkLevel,
+        },
+      ),
+      ..._naturalWeaponSpecs(
+        character,
+        equipmentItems,
+        compendiumEntries,
+      ),
+    ];
+
+    final actions = <PreparedCombatAction>[];
+    for (final spec in specs) {
+      final action = _intrinsicAttackAction(
+        character,
+        spec,
+        proficiencyBonus,
+      );
+      actions.add(action);
+
+      if (attackActionCount > 1) {
+        actions.add(
+          _intrinsicMultiattackAction(
+            character,
+            spec,
+            proficiencyBonus,
+            attackActionCount,
+            action,
+          ),
+        );
+      }
+    }
+
+    return actions;
+  }
+
+  static PreparedCombatAction _intrinsicAttackAction(
+    Character character,
+    _IntrinsicAttackSpec spec,
+    int proficiencyBonus,
+  ) {
+    final attackBonus = spec.abilityModifier + proficiencyBonus;
+    final damageFormula = _intrinsicDamageFormula(spec);
+    final criticalDamageFormula = _intrinsicCriticalDamageFormula(spec);
+
+    return PreparedCombatAction(
+      id: _actionId(character, spec.source, spec.idSuffix),
+      name: spec.name,
+      timing: CombatActionTiming.action,
+      rollKind: CombatActionRollKind.attack,
+      attackFormula: _formatRollFormula('d20', attackBonus),
+      damageFormula: damageFormula,
+      tags: [
+        spec.abilityLabel,
+        ...spec.tags,
+        'Melee',
+        spec.damageType,
+      ],
+      metadata: {
+        'source': spec.source,
+        'weaponType': 'melee',
+        'damageType': spec.damageType,
+        'intrinsicAttack': true,
+        ...spec.metadata,
+        if (criticalDamageFormula != null)
+          'criticalDamageFormula': criticalDamageFormula,
+      },
+    );
+  }
+
+  static PreparedCombatAction _intrinsicMultiattackAction(
+    Character character,
+    _IntrinsicAttackSpec spec,
+    int proficiencyBonus,
+    int attackActionCount,
+    PreparedCombatAction baseAction,
+  ) {
+    final attackBonus = spec.abilityModifier + proficiencyBonus;
+    final damageFormula = _intrinsicDamageFormula(spec);
+    final criticalDamageFormula = _intrinsicCriticalDamageFormula(spec);
+
+    return PreparedCombatAction(
+      id: _actionId(
+        character,
+        '${spec.source}_multi',
+        '${spec.idSuffix}_x$attackActionCount',
+      ),
+      name: '${spec.name} x$attackActionCount',
+      timing: CombatActionTiming.action,
+      rollKind: CombatActionRollKind.attack,
+      tags: [
+        spec.abilityLabel,
+        'Extra Attack',
+        '$attackActionCount attacks',
+        ...spec.tags,
+        'Melee',
+        spec.damageType,
+      ],
+      metadata: {
+        'source': '${spec.source}Multiattack',
+        'baseActionId': baseAction.id,
+        'attackCount': attackActionCount,
+        'multiattack': true,
+        'intrinsicAttack': true,
+        ...spec.metadata,
+        'multiAttackSteps': [
+          for (var index = 0; index < attackActionCount; index++)
+            {
+              'name': spec.name,
+              'attackFormula': _formatRollFormula('d20', attackBonus),
+              'damageFormula': damageFormula,
+              if (criticalDamageFormula != null)
+                'criticalDamageFormula': criticalDamageFormula,
+              'tags': [
+                spec.abilityLabel,
+                ...spec.tags,
+                'Melee',
+                spec.damageType,
+              ],
+            },
+        ],
+      },
+    );
+  }
+
+  static List<_IntrinsicAttackSpec> _naturalWeaponSpecs(
+    Character character,
+    List<EquipmentCompendiumItem> equipmentItems,
+    List<CompendiumEntry> compendiumEntries,
+  ) {
+    final strMod = _abilityModifier(
+      _effectiveAbilityScore(
+        character,
+        'STR',
+        equipmentItems,
+        compendiumEntries,
+      ),
+    );
+    final specs = <_IntrinsicAttackSpec>[];
+    final seen = <String>{};
+    for (final feature in character.features) {
+      final searchText = _normalizedSearchText(
+        '${feature.name} ${feature.description}',
+      );
+      for (final pattern in _naturalWeaponPatterns) {
+        if (!pattern.keywords.any(searchText.contains)) continue;
+
+        final dice = _naturalWeaponDice(searchText, pattern);
+        final key = '${pattern.id}|$dice|${pattern.damageType}';
+        if (!seen.add(key)) continue;
+
+        specs.add(
+          _IntrinsicAttackSpec(
+            idSuffix: '${feature.id}_${pattern.id}',
+            name: pattern.name,
+            abilityLabel: 'STR',
+            abilityModifier: strMod,
+            damageDice: dice,
+            damageType: pattern.damageType,
+            source: 'naturalWeapon',
+            tags: [
+              'Natural Weapon',
+              _featureSourceLabel(feature),
+            ],
+            metadata: {
+              'featureId': feature.id,
+              'featureSource': feature.source,
+            },
+          ),
+        );
+      }
+    }
+    return specs;
+  }
+
+  static const List<_NaturalWeaponPattern> _naturalWeaponPatterns = [
+    _NaturalWeaponPattern(
+      id: 'claws',
+      name: 'Claws',
+      keywords: ['claw', 'claws', 'garra', 'garras'],
+      defaultDice: '1d4',
+      damageType: 'Slashing',
+    ),
+    _NaturalWeaponPattern(
+      id: 'bite',
+      name: 'Bite',
+      keywords: ['bite', 'fang', 'fangs', 'mordida', 'colmillo', 'colmillos'],
+      defaultDice: '1d6',
+      damageType: 'Piercing',
+    ),
+    _NaturalWeaponPattern(
+      id: 'horns',
+      name: 'Horns',
+      keywords: ['horn', 'horns', 'cuerno', 'cuernos'],
+      defaultDice: '1d6',
+      damageType: 'Piercing',
+    ),
+    _NaturalWeaponPattern(
+      id: 'talons',
+      name: 'Talons',
+      keywords: ['talon', 'talons'],
+      defaultDice: '1d4',
+      damageType: 'Slashing',
+    ),
+    _NaturalWeaponPattern(
+      id: 'hooves',
+      name: 'Hooves',
+      keywords: ['hoof', 'hooves', 'pezuna', 'pezunas'],
+      defaultDice: '1d4',
+      damageType: 'Bludgeoning',
+    ),
+    _NaturalWeaponPattern(
+      id: 'tail',
+      name: 'Tail',
+      keywords: ['tail', 'cola'],
+      defaultDice: '1d8',
+      damageType: 'Piercing',
+    ),
+  ];
+
+  static String _naturalWeaponDice(
+    String searchText,
+    _NaturalWeaponPattern pattern,
+  ) {
+    for (final keyword in pattern.keywords) {
+      final index = searchText.indexOf(keyword);
+      if (index < 0) continue;
+      final start = index - 120 < 0 ? 0 : index - 120;
+      final end =
+          index + 220 > searchText.length ? searchText.length : index + 220;
+      final nearby = searchText.substring(start, end);
+      final formula = _firstDiceFormula(nearby);
+      if (formula != null) return _diceOnlyFormula(formula);
+    }
+    return pattern.defaultDice;
+  }
+
+  static String _intrinsicDamageFormula(_IntrinsicAttackSpec spec) {
+    if (spec.damageDice != null) {
+      return _formatRollFormula(spec.damageDice!, spec.abilityModifier);
+    }
+    return '${spec.flatDamage ?? 1}';
+  }
+
+  static String? _intrinsicCriticalDamageFormula(_IntrinsicAttackSpec spec) {
+    if (spec.damageDice == null) return _intrinsicDamageFormula(spec);
+    return _formatRollFormula(
+      _doubleDiceFormula(spec.damageDice!),
+      spec.abilityModifier,
+    );
   }
 
   static int _weaponAttackBonus(
@@ -883,6 +1234,25 @@ class CharacterCombatBuilderService {
 
   static int _abilityModifier(int score) => ((score - 10) / 2).floor();
 
+  static int _classLevel(Character character, List<String> classNames) {
+    final normalizedNames = classNames.map(_normalizedSearchText).toSet();
+    var result = 0;
+    for (final entry in character.classLevels.entries) {
+      if (!normalizedNames.contains(_normalizedSearchText(entry.key))) {
+        continue;
+      }
+      if (entry.value > result) result = entry.value;
+    }
+    return result;
+  }
+
+  static String _martialArtsDie(int monkLevel) {
+    if (monkLevel >= 17) return '1d10';
+    if (monkLevel >= 11) return '1d8';
+    if (monkLevel >= 5) return '1d6';
+    return '1d4';
+  }
+
   static int _proficiencyBonus(int level) {
     final safeLevel = level < 1 ? 1 : level;
     return 2 + ((safeLevel - 1) ~/ 4);
@@ -901,6 +1271,16 @@ class CharacterCombatBuilderService {
     ).firstMatch(normalized);
     if (match == null) return null;
     return match.group(1)?.replaceAll(' ', '').toLowerCase();
+  }
+
+  static String _diceOnlyFormula(String formula) {
+    final match = RegExp(
+      r'^(\d*)d(\d+)',
+      caseSensitive: false,
+    ).firstMatch(formula.trim());
+    if (match == null) return formula.trim().toLowerCase();
+    final count = (match.group(1) ?? '').isEmpty ? '1' : match.group(1)!;
+    return '${count}d${match.group(2)}'.toLowerCase();
   }
 
   static String? _doubleDamageFormula(String formula) {
@@ -1062,6 +1442,24 @@ class CharacterCombatBuilderService {
         normalized.contains('one additional action') ||
         normalized.contains('accion adicional') ||
         normalized.contains('oleada de accion');
+  }
+
+  static String _normalizedSearchText(String value) {
+    return value
+        .trim()
+        .toLowerCase()
+        .replaceAll('\u00e1', 'a')
+        .replaceAll('\u00e9', 'e')
+        .replaceAll('\u00ed', 'i')
+        .replaceAll('\u00f3', 'o')
+        .replaceAll('\u00fa', 'u')
+        .replaceAll('\u00f1', 'n')
+        .replaceAll('\u00c3\u00a1', 'a')
+        .replaceAll('\u00c3\u00a9', 'e')
+        .replaceAll('\u00c3\u00ad', 'i')
+        .replaceAll('\u00c3\u00b3', 'o')
+        .replaceAll('\u00c3\u00ba', 'u')
+        .replaceAll('\u00c3\u00b1', 'n');
   }
 
   static String _combatantIdForCharacter(Character character) {

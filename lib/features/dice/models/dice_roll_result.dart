@@ -79,6 +79,7 @@ class DiceRollResult {
   }
 
   String get diceText {
+    if (terms.isEmpty) return 'Fixed';
     return '${diceCount}d$sides';
   }
 
@@ -103,6 +104,10 @@ class DiceRollResult {
   String get rollsText {
     if (firstD20 != null && secondD20 != null) {
       return '$firstD20, $secondD20 -> selected $selectedD20';
+    }
+
+    if (terms.isEmpty) {
+      return 'fixed: $total';
     }
 
     return terms

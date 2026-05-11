@@ -466,6 +466,7 @@ Fase 3 - Acciones reales del personaje:
 - `CombatModeScreen` ya consume `CharacterCombatBuilderService` para crear el combatiente activo y sus acciones disponibles, reemplazando la logica local duplicada.
 - Construir un `CombatActionBuilder` que genere acciones desde toda la informacion real del personaje.
 - Incluir armas equipadas, armas del inventario, ataques desarmados, thrown/ranged/melee, magic weapons, infusiones y bonos pasivos.
+- Ataques intrinsecos fase 1: el builder ya agrega `Unarmed Strike` aunque no haya armas equipadas, escala con Martial Arts para monjes y detecta primeras armas naturales desde rasgos raciales/subclase como claws, bite, horns, talons, hooves y tail.
 - Incluir spells preparados/conocidos relevantes para combate: spell attacks, saving throws, damage/healing formulas, area, range, concentration, duration y spell slots.
 - Incluir class features, subclass features, racial traits, feats, fighting styles, maneuvers, metamagic, invocations, infusions y recursos personalizados.
 - Convertir recursos actuales en acciones gastables: rage, bardic inspiration, ki, sorcery points, channel divinity, lay on hands, superiority dice, wild shape, action surge, second wind, pact slots, etc.
@@ -513,6 +514,7 @@ Fase 6 - Rediseno UI/UX premium:
 - Feedback de target iniciado: la card del objetivo reacciona al ultimo resultado con glow y badge contextual de impacto, miss, critico, healing o save.
 - Cockpit landscape iniciado: telefonos horizontales y tablets medianas evitan el scroll largo y concentran initiative rail, personaje activo, dice theater, target y plan preparado en una sola vista compacta.
 - Fix de scope de combate: `CombatModeScreen` ahora distingue personaje/campana activa, resetea el estado local al cambiar de scope y evita arrastrar party/enemigos/HP de un combate anterior.
+- Responsive UX 2.0: el Combat Mode deja de caer al layout legacy con scroll largo; pantallas medianas/chicas usan una variante compacta del cockpit y portrait muestra una experiencia util con recomendacion de rotar.
 - Mejorar target selection con cards claras, portrait, distancia/rango, amenaza, AC/HP segun permisos, estados y prioridad tactica.
 - Redisenar Overview para eliminar informacion repetida: una vista tactica clara con party, enemigos, iniciativa, estados clave, turn owner y ultimo evento.
 - Crear vista DM distinta de vista jugador: el DM ve todo, jugadores ven solo lo que corresponde.

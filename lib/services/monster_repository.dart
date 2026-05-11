@@ -60,24 +60,27 @@ class SrdMonster {
   });
 
   factory SrdMonster.fromJson(Map<String, dynamic> json) {
+    final name = json['name']?.toString() ?? 'Monster';
+    final rawIndex = json['index']?.toString().trim();
     return SrdMonster(
-      index: json['index']?.toString() ?? '',
-      name: json['name']?.toString() ?? 'Monster',
+      index:
+          rawIndex == null || rawIndex.isEmpty ? _normalizeKey(name) : rawIndex,
+      name: name,
       size: json['size']?.toString() ?? 'Medium',
       type: json['type']?.toString() ?? 'creature',
       subtype: json['subtype']?.toString(),
       armorClass: _parseArmorClass(json['armor_class']),
-      hitPoints: (json['hit_points'] as num?)?.toInt() ?? 1,
+      hitPoints: _intFromJson(json['hit_points'], fallback: 1),
       hitDice: json['hit_dice']?.toString(),
       speed: _parseSpeed(json['speed']),
-      strength: (json['strength'] as num?)?.toInt() ?? 10,
-      dexterity: (json['dexterity'] as num?)?.toInt() ?? 10,
-      constitution: (json['constitution'] as num?)?.toInt() ?? 10,
-      intelligence: (json['intelligence'] as num?)?.toInt() ?? 10,
-      wisdom: (json['wisdom'] as num?)?.toInt() ?? 10,
-      charisma: (json['charisma'] as num?)?.toInt() ?? 10,
+      strength: _intFromJson(json['strength'], fallback: 10),
+      dexterity: _intFromJson(json['dexterity'], fallback: 10),
+      constitution: _intFromJson(json['constitution'], fallback: 10),
+      intelligence: _intFromJson(json['intelligence'], fallback: 10),
+      wisdom: _intFromJson(json['wisdom'], fallback: 10),
+      charisma: _intFromJson(json['charisma'], fallback: 10),
       challengeRating: _formatChallengeRating(json['challenge_rating']),
-      proficiencyBonus: (json['proficiency_bonus'] as num?)?.toInt() ?? 2,
+      proficiencyBonus: _intFromJson(json['proficiency_bonus'], fallback: 2),
       savingThrowBonuses: _parseSavingThrowBonuses(json['proficiencies']),
       actions: _listOfMaps(json['actions'])
           .map(SrdMonsterAction.fromJson)
@@ -118,7 +121,7 @@ class SrdMonsterAction {
     return SrdMonsterAction(
       name: json['name']?.toString() ?? 'Action',
       description: description,
-      attackBonus: (json['attack_bonus'] as num?)?.toInt(),
+      attackBonus: _optionalIntFromJson(json['attack_bonus']),
       damageFormula: damage.formula,
       damageType: damage.type,
       isRanged: lowerDescription.contains('ranged weapon attack'),
@@ -145,7 +148,7 @@ class SrdMonsterMultiattackEntry {
   factory SrdMonsterMultiattackEntry.fromJson(Map<String, dynamic> json) {
     return SrdMonsterMultiattackEntry(
       actionName: json['action_name']?.toString() ?? '',
-      count: (json['count'] as num?)?.toInt() ?? 1,
+      count: _intFromJson(json['count'], fallback: 1),
       type: json['type']?.toString(),
     );
   }
@@ -172,6 +175,10 @@ class MonsterRepository {
   static const String _assetPath = 'assets/data/5e-SRD-Monsters.json';
   static List<SrdMonster>? _cache;
 
+  static void clearCache() {
+    _cache = null;
+  }
+
   static Future<List<SrdMonster>> loadMonsters() async {
     final cached = _cache;
     if (cached != null) return cached;
@@ -180,14 +187,27 @@ class MonsterRepository {
     final decoded = jsonDecode(raw);
     final rawList = decoded is List
         ? decoded
-        : decoded is Map<String, dynamic>
+        : decoded is Map
             ? decoded.values.whereType<List>().expand((item) => item)
             : const [];
-    final monsters = rawList
-        .whereType<Map<String, dynamic>>()
+    final rawStatBlocks = rawList
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .where(_looksLikeSrdStatBlock)
+        .toList(growable: false);
+    final source = rawStatBlocks.isEmpty
+        ? rawList
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList(growable: false)
+        : rawStatBlocks;
+    final monsters = source
         .map(SrdMonster.fromJson)
         .where((monster) => monster.index.isNotEmpty)
         .toList(growable: false);
+    if (monsters.isEmpty) {
+      throw StateError('No SRD monster statblocks were found in $_assetPath.');
+    }
 
     _cache = monsters;
     return monsters;
@@ -477,12 +497,15 @@ String? _damageTypeName(Object? raw) {
 }
 
 int _parseArmorClass(Object? raw) {
-  if (raw is num) return raw.toInt();
+  final direct = _optionalIntFromJson(raw);
+  if (direct != null) return direct;
   if (raw is List && raw.isNotEmpty) {
     final first = raw.first;
-    if (first is num) return first.toInt();
-    if (first is Map && first['value'] is num) {
-      return (first['value'] as num).toInt();
+    final firstValue = _optionalIntFromJson(first);
+    if (firstValue != null) return firstValue;
+    if (first is Map) {
+      final value = _optionalIntFromJson(first['value']);
+      if (value != null) return value;
     }
   }
   return 10;
@@ -530,10 +553,26 @@ Map<String, int> _parseSavingThrowBonuses(Object? raw) {
     ).firstMatch(name);
     if (match == null) continue;
     final ability = _normalizeAbilityLabel(match.group(1)!);
-    final value = (item['value'] as num?)?.toInt();
+    final value = _optionalIntFromJson(item['value']);
     if (value != null) bonuses[ability] = value;
   }
   return bonuses;
+}
+
+int _intFromJson(Object? raw, {required int fallback}) {
+  return _optionalIntFromJson(raw) ?? fallback;
+}
+
+int? _optionalIntFromJson(Object? raw) {
+  if (raw == null) return null;
+  if (raw is num) return raw.toInt();
+  final text = raw.toString().trim();
+  if (text.isEmpty || text == 'null') return null;
+  final direct = num.tryParse(text);
+  if (direct != null) return direct.toInt();
+  final match = RegExp(r'-?\d+').firstMatch(text);
+  if (match == null) return null;
+  return int.tryParse(match.group(0)!);
 }
 
 String _normalizeAbilityLabel(String value) {
@@ -552,6 +591,13 @@ String _normalizeKey(String value) {
       .toLowerCase()
       .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
       .replaceAll(RegExp(r'^-+|-+$'), '');
+}
+
+bool _looksLikeSrdStatBlock(Map<String, dynamic> json) {
+  return json.containsKey('name') &&
+      json.containsKey('armor_class') &&
+      json.containsKey('hit_points') &&
+      json.containsKey('challenge_rating');
 }
 
 String? _cleanFormula(String? formula) {

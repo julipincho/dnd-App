@@ -172,6 +172,54 @@ Listar assets razas:
   - la UI debe facilitar futuras vistas colaborativas DM/jugadores, no solo edicion local.
 - Evitar clonar D&D Beyond 1:1; tomar su arquitectura de informacion y densidad funcional manteniendo identidad visual propia del proyecto.
 
+## Direccion de Producto: Combat Mode
+
+- Combat Mode apunta a una mesa tactica jugable, no solo a una demo visual.
+- La vista desktop/tablet usa una escena cinematica con dungeon, iniciativa izquierda, battlefield central, enemigos derecha y deck de acciones inferior.
+- Prioridad actual: rendimiento en emulador/tablet, cero overflows visibles, cartas accionables y feedback claro de tiradas/dano/estado.
+- Flujo esperado del turno:
+  - tocar una carta ejecuta su accion primaria contextual;
+  - preparar agrega la accion al plan del turno;
+  - confirmar cambia segun contexto: tirar plan, tirar siguiente, resolver dano, confirmar accion o pasar turno;
+  - al completar el plan preparado, el turno avanza automaticamente tras un feedback breve.
+- UI de acciones debe mostrar estado visible en la carta: plan, dano pendiente, usada o sin recurso.
+- Mantener imagenes cacheadas, `RepaintBoundary` en arte pesado y layouts con alturas estables para que el emulador no se ahogue.
+- Reglas 5e revisadas para economia de combate:
+  - cada criatura tiene action, movement, posible bonus action, object interaction y reaction;
+  - reaction pertenece a la criatura, puede ocurrir en el turno de otro y se recupera al inicio del proximo turno de esa criatura;
+  - Ready usa la reaction antes del inicio del siguiente turno del personaje;
+  - ataques multiples deben seguir siendo pasos de ataque/dano, no una resolucion opaca.
+- Primer corte aplicado:
+  - multiattack ahora se resuelve por pasos: ataque, dano si impacta, siguiente ataque, dano si impacta.
+  - selector Normal / Advantage / Disadvantage para tiradas d20.
+  - barra de reacciones disponibles para criaturas fuera del turno activo.
+  - battlefield central limita tokens visibles por equipo y muestra contador de grupos extra.
+  - target rail se compacta cuando hay muchos objetivos.
+- Segundo corte aplicado:
+  - Ready Action ya existe como flujo real: gasta Action, guarda trigger textual, queda disponible como Reaction en turnos ajenos y expira al inicio del proximo turno de esa criatura.
+  - Ready spell marca Concentrating como primer corte; queda pendiente resolver concentration checks y disipar el ready si se rompe concentracion.
+  - La ficha activa muestra snapshot de economia: Action, Bonus, Reaction, movement y Ready si existe.
+- Tercer corte aplicado:
+  - Se agrego vista previa de configuracion DM antes de iniciar combate: party, bestiario SRD, cantidad de monstruos y preview de enemigos.
+  - El combate no arranca hasta confirmar "Comenzar combate"; la configuracion construye los combatientes y acciones desde `MonsterRepository`.
+  - Vista DM puede ajustar HP desde iniciativa, card activa y rail de enemigos.
+  - Cards de accion migradas de pergamino claro a superficie oscura/cobre para encajar mejor con la escena cinematica.
+  - Rail de enemigos y ficha activa ahora compactan/scrollan contenido para evitar RenderFlex overflow en alturas pequenas.
+- Cuarto corte aplicado:
+  - `MonsterRepository` fuerza statblocks estructurados del SRD y permite limpiar cache para recargar el bestiario.
+  - Setup DM suma busqueda por nombre/tipo/CR y muestra hasta 80 resultados filtrados del SRD cargado.
+  - Los combatientes de personaje reciben `portraitPath` real desde `CharacterCombatBuilderService`; si falta imagen usan placeholder, mientras monstruos mantienen assets de ejemplo cuando existen.
+  - Se eliminaron los botones visibles de ajuste de HP; la barra de vida es mas grande y abre un modal para restar, sumar o fijar HP.
+- Pendientes:
+  - probar en tablet real/perfil de rendimiento;
+  - seguir refinando responsive para alturas pequenas y setup DM en mobile;
+  - mejorar animacion/resultado de dados por cada paso del plan;
+  - convertir configuracion DM en flujo persistente de encuentros/campana, con filtros/busqueda del bestiario;
+  - completar concentration checks, concentration break y expiracion de ready spell;
+  - separar action economy por combatiente en modelo/servicio dedicado para action/bonus/movement/object/reaction;
+  - futuro tablero real con posicion, alcance, cobertura, oportunidad y movimiento;
+  - extraer widgets del archivo enorme de Combat Mode cuando el flujo este estable.
+
 ## Roadmaps Pendientes
 
 - Personajes / backgrounds:

@@ -627,6 +627,7 @@ class _DieGlyph extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.stitch;
+    final label = sides <= 0 ? 'F' : '$sides';
 
     return CustomPaint(
       size: Size.square(size),
@@ -639,7 +640,7 @@ class _DieGlyph extends StatelessWidget {
         dimension: size,
         child: Center(
           child: Text(
-            '$sides',
+            label,
             style: TextStyle(
               color: Colors.white,
               fontSize: size * 0.34,
@@ -674,15 +675,16 @@ class _DieGlyphPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.4;
     final path = Path();
-    final points = sides == 4
+    final safeSides = sides <= 0 ? 6 : sides;
+    final points = safeSides == 4
         ? 3
-        : sides == 6
+        : safeSides == 6
             ? 4
-            : sides == 8
+            : safeSides == 8
                 ? 6
-                : sides == 10
+                : safeSides == 10
                     ? 5
-                    : sides == 12
+                    : safeSides == 12
                         ? 6
                         : 8;
     final radius = size.width * 0.43;

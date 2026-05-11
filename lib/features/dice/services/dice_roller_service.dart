@@ -78,6 +78,8 @@ class DiceRollerService {
   static DiceRollResult rollFormula({
     required String formula,
     String label = 'Roll',
+    bool advantage = false,
+    bool disadvantage = false,
   }) {
     final normalized = formula.replaceAll(' ', '').toLowerCase();
     if (normalized.isEmpty) {
@@ -96,6 +98,9 @@ class DiceRollerService {
 
     final terms = <DiceRollTermResult>[];
     var flatModifier = 0;
+    int? firstD20;
+    int? secondD20;
+    int? selectedD20;
 
     for (final rawToken in tokens) {
       var sign = 1;
@@ -122,10 +127,28 @@ class DiceRollerService {
           throw FormatException('Unsupported dice term: $rawToken');
         }
 
-        final rolls = List.generate(
-          diceCount,
-          (_) => _random.nextInt(sides) + 1,
-        );
+        final rolls = <int>[];
+        if (sides == 20 &&
+            diceCount == 1 &&
+            (advantage || disadvantage) &&
+            firstD20 == null) {
+          final first = _random.nextInt(sides) + 1;
+          final second = _random.nextInt(sides) + 1;
+          final selected = advantage
+              ? (first >= second ? first : second)
+              : (first <= second ? first : second);
+          firstD20 = first;
+          secondD20 = second;
+          selectedD20 = selected;
+          rolls.add(selected);
+        } else {
+          rolls.addAll(
+            List.generate(
+              diceCount,
+              (_) => _random.nextInt(sides) + 1,
+            ),
+          );
+        }
 
         terms.add(
           DiceRollTermResult(
@@ -147,7 +170,20 @@ class DiceRollerService {
     }
 
     if (terms.isEmpty) {
-      throw FormatException('Formula must include at least one dice term.');
+      return DiceRollResult(
+        sides: 0,
+        diceCount: 0,
+        rolls: const [],
+        modifier: flatModifier,
+        formula: _prettyFormula(normalized),
+        terms: const [],
+        flatModifier: flatModifier,
+        advantage: false,
+        disadvantage: false,
+        total: flatModifier,
+        timestamp: DateTime.now(),
+        label: label,
+      );
     }
 
     final total =
@@ -163,8 +199,11 @@ class DiceRollerService {
       formula: _prettyFormula(normalized),
       terms: terms,
       flatModifier: flatModifier,
-      advantage: false,
-      disadvantage: false,
+      advantage: firstD20 != null && advantage,
+      disadvantage: firstD20 != null && disadvantage,
+      firstD20: firstD20,
+      secondD20: secondD20,
+      selectedD20: selectedD20,
       total: total,
       timestamp: DateTime.now(),
       label: label,
