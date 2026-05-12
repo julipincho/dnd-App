@@ -27,6 +27,8 @@ Este documento captura la direccion visual actual de Stitch para que las proxima
 
 ## Componentes
 
+- Navegacion: usar `StitchAppBar` como barra estandar de pantalla. Debe mostrar marca cuando corresponda, accion de Home en rutas internas y fallback a Home si no existe historial para volver.
+- Marca: usar `StitchBrandMark` o `StitchBrandLockup` en puntos de entrada, carga, autenticacion y home. El logo oficial vive en `assets/images/app/stitch_logo.png` y se muestra sobre fondo oscuro para preservar el PNG blanco/transparente.
 - Paneles: fondo `panel`, borde `accentRead` con alpha baja, radio `8`.
 - Headers de seccion: icono en badge cuadrado de `32x32`, titulo en mayusculas, peso alto, color `accentReadSoft` o `accentRead`.
 - Tarjetas internas: gradiente sutil de `surfaceRaised` a `surface`, borde fino, radio `8`.

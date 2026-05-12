@@ -466,6 +466,7 @@ Fase 3 - Acciones reales del personaje:
 - `CombatModeScreen` ya consume `CharacterCombatBuilderService` para crear el combatiente activo y sus acciones disponibles, reemplazando la logica local duplicada.
 - Construir un `CombatActionBuilder` que genere acciones desde toda la informacion real del personaje.
 - Incluir armas equipadas, armas del inventario, ataques desarmados, thrown/ranged/melee, magic weapons, infusiones y bonos pasivos.
+- Armas custom iniciadas: desde la ficha se pueden crear armas manuales con dado de dano, tipo de dano, finesse/ranged/two-handed, retrato opcional y slots de equipo; el builder de combate las consume como ataques reales.
 - Ataques intrinsecos fase 1: el builder ya agrega `Unarmed Strike` aunque no haya armas equipadas, escala con Martial Arts para monjes y detecta primeras armas naturales desde rasgos raciales/subclase como claws, bite, horns, talons, hooves y tail.
 - Incluir spells preparados/conocidos relevantes para combate: spell attacks, saving throws, damage/healing formulas, area, range, concentration, duration y spell slots.
 - Incluir class features, subclass features, racial traits, feats, fighting styles, maneuvers, metamagic, invocations, infusions y recursos personalizados.
@@ -484,6 +485,7 @@ Fase 4 - Economia de turnos y triggers:
 - Ajuste visual aplicado: el acceso al Action Catalog se mueve a la card del personaje activo y el dock inferior queda dedicado a la secuencia de acciones preparadas.
 - Action Catalog 2.0 iniciado: busqueda, filtros por categoria, conteos por timing y estados visibles de disponibilidad (`Available`, `Prepared`, `Timing spent`, `Damage pending`).
 - Primer filtro de usabilidad: features pasivas obvias ya no se convierten en botones de combate y las acciones con recurso muestran usos restantes/bloqueo por recurso agotado.
+- HUD de turno refinado: el dock inferior prioriza accion destacada, modo de tirada, plan preparado y confirmacion; el catalogo completo de acciones vive en un emergente para no saturar la arena.
 - Action Surge queda integrado como caso especial de economia: se fuerza a Bonus Action aun si llega por feature/recurso con texto ambiguo, gasta su recurso si corresponde y vuelve a habilitar el slot de Action durante ese turno.
 - Multiattack / Extra Attack fase 1: las acciones compuestas pueden resolver una secuencia de ataques dentro de una sola Action, con tiradas por golpe, criticos, dano acumulado, log detallado y feedback final.
 - `Roll Plan` deja de resolver todo como automatismo invisible: ahora abre una cola participativa y el jugador avanza con `Roll Next` para ver cada tirada y cada consecuencia antes de seguir.
@@ -515,6 +517,8 @@ Fase 6 - Rediseno UI/UX premium:
 - Cockpit landscape iniciado: telefonos horizontales y tablets medianas evitan el scroll largo y concentran initiative rail, personaje activo, dice theater, target y plan preparado en una sola vista compacta.
 - Fix de scope de combate: `CombatModeScreen` ahora distingue personaje/campana activa, resetea el estado local al cambiar de scope y evita arrastrar party/enemigos/HP de un combate anterior.
 - Responsive UX 2.0: el Combat Mode deja de caer al layout legacy con scroll largo; pantallas medianas/chicas usan una variante compacta del cockpit y portrait muestra una experiencia util con recomendacion de rotar.
+- Pulido HUD aplicado: retratos del combatiente activo vuelven a proporciones reales, el arte de personajes alinea mejor el encuadre y el aviso de iniciativa pendiente se limpia al tirar iniciativa.
+- Overview pasa a ventana amplia/modal desde el toolbar para evitar que el tablero central se sobrecargue cuando el DM o los jugadores necesitan revisar todo el encuentro.
 - Mejorar target selection con cards claras, portrait, distancia/rango, amenaza, AC/HP segun permisos, estados y prioridad tactica.
 - Redisenar Overview para eliminar informacion repetida: una vista tactica clara con party, enemigos, iniciativa, estados clave, turn owner y ultimo evento.
 - Crear vista DM distinta de vista jugador: el DM ve todo, jugadores ven solo lo que corresponde.
@@ -537,6 +541,7 @@ Fase 8 - Monstruos reales y encounter builder:
 
 - Integrar `assets/data/monsters.json` y/o `assets/data/5e-SRD-Monsters.json` con un `MonsterRepository`.
 - Estado: iniciado. `MonsterRepository` carga `assets/data/5e-SRD-Monsters.json`, normaliza statblocks SRD y el Combat Mode ya reemplaza enemigos demo por Hobgoblin/Goblin reales como primer encuentro integrado.
+- Arte de monstruos conectado: el parser SRD consume el campo `image` de 5e-bits / D&D 5e SRD API y lo expone como `portraitPath` del combatiente, con permiso Android de internet para cargar retratos remotos.
 - Primera conversion aplicada: AC, HP, speed, iniciativa por DEX, CR, hit dice, acciones de ataque y features accionables pasan a `Combatant` + `PreparedCombatAction`.
 - El encuentro demo mantiene fallback hardcodeado si el asset no carga, pero cuando el JSON esta disponible las acciones del enemigo salen de su statblock real: Scimitar, Shortbow, Longsword, Longbow, Nimble Escape, etc.
 - Multiattack SRD iniciado: se lee el arreglo `actions` del statblock, se convierte en pasos internos y el Combat Mode puede ejecutar esos ataques como una sola accion compuesta.
@@ -544,7 +549,9 @@ Fase 8 - Monstruos reales y encounter builder:
 - Convertir acciones de monstruos a `PreparedCombatAction`: ataque, multiattack, dano, recharge, area, saves DC, condiciones aplicadas y efectos.
 - Crear selector de monstruos para el DM: buscar por nombre, CR, tipo, ambiente, fuente y tags.
 - Permitir crear encounter desde monstruos reales: cantidad, HP promedio/manual, iniciativa, ocultar/mostrar HP, notas privadas.
-- Soportar enemigos custom y reskin rapido.
+- Enemigos custom fase 2: se agrega bestiario personalizado persistente en `SharedPreferences`, con plantillas editables desde el setup de combate.
+- El creador custom ya soporta multiples entradas por monstruo: acciones, bonus actions, reactions, rasgos pasivos y multiattack por pasos (`2x Claw`, `1x Bite`), convirtiendo todo a `Combatant` + `PreparedCombatAction`.
+- Pendiente: reskin rapido desde monstruos SRD, legendary actions, recharge automatizado, senses/resistencias/inmunidades/condiciones estructuradas y sincronizacion cloud por campana.
 - Esta fase debe empezar despues de Fase 2, porque primero necesitamos el modelo `Combatant`; puede avanzar en paralelo con Fase 3 si el parser se mantiene aislado.
 
 Fase 9 - Experiencia multiplayer y alertas:

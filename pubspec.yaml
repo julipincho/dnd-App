@@ -68,6 +68,7 @@ flutter:
   assets:
     - assets/data/
     - assets/images/combat/
+    - assets/images/app/
     - assets/images/classes/
     - assets/images/races/
     - assets/data/5etools/

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
@@ -55,7 +57,7 @@ class _SubclassDetailScreenState extends State<SubclassDetailScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFF2B1A1A),
-      appBar: AppBar(
+      appBar: StitchAppBar(
         backgroundColor: const Color(0xFF3C2A2A),
         title: Text(widget.subclassName),
         centerTitle: true,
@@ -73,7 +75,7 @@ class _SubclassDetailScreenState extends State<SubclassDetailScreen> {
               },
             ),
 
-      // ⭐ BOTÓN CONTINUAR
+      // * BOTON CONTINUAR
       floatingActionButton: FloatingActionButton.extended(
         backgroundColor: Colors.orangeAccent,
         onPressed: () {

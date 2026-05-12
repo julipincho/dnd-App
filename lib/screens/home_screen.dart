@@ -12,6 +12,7 @@ import '../providers/auth_provider.dart';
 import '../providers/campaign_provider.dart';
 import '../providers/character_provider.dart';
 import '../utils/image_path_utils.dart';
+import '../widgets/stitch_navigation.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -35,34 +36,40 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadBaseData() async {
-    final userId = context.read<AuthProvider>().userId;
+    final authProvider = context.read<AuthProvider>();
+    final characterProvider = context.read<CharacterProvider>();
+    final campaignProvider = context.read<CampaignProvider>();
+    final userId = authProvider.userId;
     if (userId == null) return;
 
-    await context.read<CharacterProvider>().loadCharacters(userId);
-    await context.read<CampaignProvider>().loadCampaigns(userId);
+    await characterProvider.loadCharacters(userId);
+    if (!mounted) return;
+    await campaignProvider.loadCampaigns(userId);
+    if (!mounted) return;
 
-    final activeCampaign = context.read<CampaignProvider>().activeCampaign;
+    final activeCampaign = campaignProvider.activeCampaign;
     if (activeCampaign != null) {
       _lastCampaignIdLoaded = activeCampaign.id;
-      await context
-          .read<CharacterProvider>()
-          .loadCampaignCharacters(activeCampaign.id);
+      await characterProvider.loadCampaignCharacters(activeCampaign.id);
     }
   }
 
   Future<void> _refreshHome() async {
-    final userId = context.read<AuthProvider>().userId;
+    final authProvider = context.read<AuthProvider>();
+    final characterProvider = context.read<CharacterProvider>();
+    final campaignProvider = context.read<CampaignProvider>();
+    final userId = authProvider.userId;
     if (userId == null) return;
 
-    await context.read<CharacterProvider>().loadCharacters(userId);
-    await context.read<CampaignProvider>().loadCampaigns(userId);
+    await characterProvider.loadCharacters(userId);
+    if (!mounted) return;
+    await campaignProvider.loadCampaigns(userId);
+    if (!mounted) return;
 
-    final activeCampaign = context.read<CampaignProvider>().activeCampaign;
+    final activeCampaign = campaignProvider.activeCampaign;
     if (activeCampaign != null) {
       _lastCampaignIdLoaded = activeCampaign.id;
-      await context
-          .read<CharacterProvider>()
-          .loadCampaignCharacters(activeCampaign.id);
+      await characterProvider.loadCampaignCharacters(activeCampaign.id);
     }
   }
 
@@ -139,40 +146,7 @@ class _HomeTopBar extends StatelessWidget {
 
     return Row(
       children: [
-        Container(
-          width: 56,
-          height: 56,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: const LinearGradient(
-              colors: [
-                Color(0xFF4DA8FF),
-                Color(0xFF6D5BFF),
-              ],
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF4DA8FF).withOpacity(0.25),
-                blurRadius: 18,
-                spreadRadius: 1,
-              ),
-            ],
-          ),
-          child: ClipOval(
-            child: hasAvatar
-                ? Image(
-                    image: imageProviderFromPath(effectiveAvatarPath!),
-                    width: 56,
-                    height: 56,
-                    fit: BoxFit.cover,
-                  )
-                : const Icon(
-                    Icons.auto_stories_rounded,
-                    color: Colors.white,
-                    size: 28,
-                  ),
-          ),
-        ),
+        const StitchBrandMark(size: 56),
         const SizedBox(width: 14),
         Expanded(
           child: Column(
@@ -199,6 +173,19 @@ class _HomeTopBar extends StatelessWidget {
             ],
           ),
         ),
+        if (hasAvatar) ...[
+          const SizedBox(width: 10),
+          ClipOval(
+            child: Image(
+              image: imageProviderFromPath(effectiveAvatarPath!),
+              width: 42,
+              height: 42,
+              fit: BoxFit.cover,
+              filterQuality: FilterQuality.high,
+            ),
+          ),
+        ],
+        const SizedBox(width: 10),
         Container(
           decoration: BoxDecoration(
             color: const Color(0xFF17132A),
@@ -220,9 +207,11 @@ class _HomeTopBar extends StatelessWidget {
             onSelected: (value) async {
               if (value == 'edit-profile') {
                 await _showEditProfileDialog(context);
+                return;
               }
 
               if (value == 'logout') {
+                final authProvider = context.read<AuthProvider>();
                 final confirm = await showDialog<bool>(
                   context: context,
                   builder: (dialogContext) {
@@ -256,8 +245,9 @@ class _HomeTopBar extends StatelessWidget {
                   },
                 );
 
+                if (!context.mounted) return;
                 if (confirm == true) {
-                  await context.read<AuthProvider>().logout();
+                  await authProvider.logout();
                 }
               }
             },
@@ -754,6 +744,7 @@ class _CampaignPortraitStrip extends StatelessWidget {
                   image: imageProviderFromPath(characters[i].portraitPath!),
                   fit: BoxFit.cover,
                   alignment: Alignment.topCenter,
+                  filterQuality: FilterQuality.high,
                 ),
               ),
             ),

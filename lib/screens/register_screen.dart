@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/auth_provider.dart';
+import '../widgets/stitch_navigation.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -90,6 +91,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   key: _formKey,
                   child: Column(
                     children: [
+                      const StitchBrandLockup(
+                        title: Text(
+                          'Stitch',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        markSize: 44,
+                      ),
+                      const SizedBox(height: 20),
                       GestureDetector(
                         onTap: authProvider.isLoading ? null : _pickAvatar,
                         child: Stack(

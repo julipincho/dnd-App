@@ -1,5 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -33,7 +35,7 @@ class _NameCharacterScreenState extends State<NameCharacterScreen> {
     super.initState();
     final char = context.read<CharacterProvider>().character;
 
-    // Si por alguna razón se abre sin personaje → no crashea
+    // Si por alguna razon se abre sin personaje -> no crashea
     if (char == null) return;
 
     _controller.text = char.name;
@@ -59,7 +61,7 @@ class _NameCharacterScreenState extends State<NameCharacterScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFF1E1E22),
-      appBar: AppBar(
+      appBar: StitchAppBar(
         backgroundColor: const Color(0xFF121214),
         title: const Text("Name Your Character"),
       ),

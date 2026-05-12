@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
@@ -71,7 +73,9 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
         .read<CampaignEventProvider>()
         .loadEvents(_currentSession.campaignId);
     context.read<CompendiumProvider>().loadEntries();
-    context.read<JournalEntryProvider>().loadEntries(_currentSession.campaignId);
+    context
+        .read<JournalEntryProvider>()
+        .loadEntries(_currentSession.campaignId);
 
     final userId = context.read<AuthProvider>().userId;
     if (userId != null) {
@@ -249,7 +253,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFF0C0916),
-      appBar: AppBar(
+      appBar: StitchAppBar(
         title: const Text('Session'),
         backgroundColor: const Color(0xFF0C0916),
         elevation: 0,

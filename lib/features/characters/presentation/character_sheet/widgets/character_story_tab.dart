@@ -152,6 +152,7 @@ class _PortraitPanel extends StatelessWidget {
             ? DecorationImage(
                 image: imageProviderFromPath(character.portraitPath!),
                 fit: BoxFit.cover,
+                filterQuality: FilterQuality.high,
               )
             : null,
       ),

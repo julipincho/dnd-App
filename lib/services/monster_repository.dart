@@ -15,8 +15,11 @@ class MonsterCombatBuild {
 }
 
 class SrdMonster {
+  static const String imageBaseUrl = 'https://www.dnd5eapi.co';
+
   final String index;
   final String name;
+  final String? imagePath;
   final String size;
   final String type;
   final String? subtype;
@@ -39,6 +42,7 @@ class SrdMonster {
   const SrdMonster({
     required this.index,
     required this.name,
+    required this.imagePath,
     required this.size,
     required this.type,
     required this.subtype,
@@ -66,6 +70,7 @@ class SrdMonster {
       index:
           rawIndex == null || rawIndex.isEmpty ? _normalizeKey(name) : rawIndex,
       name: name,
+      imagePath: _normalizeImagePath(json['image']),
       size: json['size']?.toString() ?? 'Medium',
       type: json['type']?.toString() ?? 'creature',
       subtype: json['subtype']?.toString(),
@@ -247,6 +252,7 @@ class MonsterRepository {
         : ' ${monster.subtype}';
     final role =
         '${monster.size} ${monster.type}$subtype${cr == null ? '' : ' - CR $cr'}';
+    final portraitPath = monster.imagePath;
 
     return MonsterCombatBuild(
       combatant: Combatant(
@@ -278,6 +284,11 @@ class MonsterRepository {
           'savingThrowBonuses': monster.savingThrowBonuses,
           if (monster.challengeRating != null) 'challengeRating': cr,
           if (monster.hitDice != null) 'hitDice': monster.hitDice,
+          if (portraitPath != null) ...{
+            'portraitPath': portraitPath,
+            'portraitSource': 'D&D 5e SRD API',
+            'portraitSourceUrl': SrdMonster.imageBaseUrl,
+          },
           'proficiencyBonus': monster.proficiencyBonus,
         },
       ),
@@ -494,6 +505,20 @@ String? _damageTypeName(Object? raw) {
     return raw['name']?.toString();
   }
   return null;
+}
+
+String? _normalizeImagePath(Object? raw) {
+  final path = raw?.toString().trim();
+  if (path == null || path.isEmpty) return null;
+  if (path.startsWith('http://') ||
+      path.startsWith('https://') ||
+      path.startsWith('assets/')) {
+    return path;
+  }
+  if (path.startsWith('/')) {
+    return '${SrdMonster.imageBaseUrl}$path';
+  }
+  return path;
 }
 
 int _parseArmorClass(Object? raw) {

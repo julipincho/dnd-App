@@ -53,6 +53,7 @@ class CharacterSheetHeader extends StatelessWidget {
               _classImagePath(character.charClass),
               fit: BoxFit.cover,
               alignment: Alignment.centerRight,
+              filterQuality: FilterQuality.high,
               errorBuilder: (_, __, ___) => const ColoredBox(
                 color: Color(0xFF11141B),
               ),
@@ -219,6 +220,7 @@ class _CharacterHeaderPortrait extends StatelessWidget {
             ? DecorationImage(
                 image: imageProviderFromPath(character.portraitPath!),
                 fit: BoxFit.cover,
+                filterQuality: FilterQuality.high,
               )
             : null,
       ),

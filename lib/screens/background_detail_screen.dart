@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 
@@ -17,7 +19,7 @@ class BackgroundDetailScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF2B1A1A),
-      appBar: AppBar(
+      appBar: StitchAppBar(
         backgroundColor: const Color(0xFF3C2A2A),
         title: Text(background.name),
         centerTitle: true,
@@ -132,7 +134,7 @@ class BackgroundDetailScreen extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Text(
-        '• $text',
+        '\u2022 $text',
         style: const TextStyle(
           color: Colors.white70,
           fontSize: 14,

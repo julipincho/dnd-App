@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:provider/provider.dart';
 
 import '../models/campaign_event.dart';
@@ -74,7 +76,7 @@ class CompendiumEntryDetailScreen extends StatelessWidget {
         File(entry.imagePath!).existsSync();
 
     return Scaffold(
-      appBar: AppBar(
+      appBar: StitchAppBar(
         title: Text(entry.title),
       ),
       body: SingleChildScrollView(

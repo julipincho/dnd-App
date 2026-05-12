@@ -1,5 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
@@ -9,7 +11,6 @@ import '../models/dnd_class_level.dart';
 import '../services/class_data_service.dart';
 import '../services/class_level_service.dart';
 import '../models/character.dart';
-import '../providers/campaign_provider.dart';
 import '../services/supabase_storage_service.dart';
 import '../utils/image_path_utils.dart';
 
@@ -35,9 +36,9 @@ class _SummaryScreenState extends State<SummaryScreen> {
     final character = context.read<CharacterProvider>().character;
     if (character == null) return;
 
-    print("════════ SUMMARY LOAD DATA ════════");
-    print(character.toJson());
-    print("════════════════════════════════════");
+    debugPrint("======== SUMMARY LOAD DATA ========");
+    debugPrint(character.toJson().toString());
+    debugPrint("===================================");
 
     final loadedClass = await ClassDataService.loadClass(character.charClass);
     final loadedLevel =
@@ -135,7 +136,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFF1E1E22),
-      appBar: AppBar(
+      appBar: StitchAppBar(
         title: const Text("Review Your Character"),
         backgroundColor: const Color(0xFF121214),
         centerTitle: true,
@@ -162,7 +163,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
                 if (userId == null) return;
 
                 characterProvider.update((character) {
-                  // ❌ ELIMINADO:
+                  // Removed ELIMINADO:
                   // character.campaignId = activeCampaign?.id;
 
                   final effectiveCon =
@@ -277,7 +278,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
           ),
           const SizedBox(height: 12),
           Text(
-            "${c.race}${c.subrace != null ? ' (${c.subrace})' : ''} · ${c.charClass} · Level ${c.level}",
+            "${c.race}${c.subrace != null ? ' (${c.subrace})' : ''} - ${c.charClass} - Level ${c.level}",
             textAlign: TextAlign.center,
             style: const TextStyle(
               fontSize: 22,
@@ -286,7 +287,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
             ),
           ),
           Text(
-            "${c.background.name} · ${c.alignment ?? 'True Neutral'}",
+            "${c.background.name} - ${c.alignment ?? 'True Neutral'}",
             style: TextStyle(
               fontSize: 14,
               color: Colors.white.withOpacity(0.7),

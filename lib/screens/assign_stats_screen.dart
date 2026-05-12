@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
@@ -70,8 +72,8 @@ class _AssignStatsScreenState extends State<AssignStatsScreen> {
     final charClass = character.charClass;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text("Asignar Stats – $race, $charClass"),
+      appBar: StitchAppBar(
+        title: Text("Asignar Stats - $race, $charClass"),
         centerTitle: true,
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -162,7 +164,7 @@ class _AssignStatsScreenState extends State<AssignStatsScreen> {
                             ),
                             if (racialBonus > 0)
                               Text(
-                                "Racial +$racialBonus • Total $total (${totalMod >= 0 ? "+$totalMod" : "$totalMod"})",
+                                "Racial +$racialBonus \u2022 Total $total (${totalMod >= 0 ? "+$totalMod" : "$totalMod"})",
                                 style: const TextStyle(
                                   fontSize: 12,
                                   color: Colors.white54,

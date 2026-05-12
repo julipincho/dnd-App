@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../widgets/stitch_navigation.dart';
+
 class WelcomeScreen extends StatelessWidget {
   const WelcomeScreen({super.key});
 
@@ -25,7 +27,7 @@ class WelcomeScreen extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.auto_fix_high, size: 120, color: Colors.white),
+              const StitchBrandMark(size: 112),
               const SizedBox(height: 20),
               const Text(
                 "STITCH",
@@ -91,6 +93,8 @@ class WelcomeScreen extends StatelessWidget {
                   ),
                 ),
               ),
+              const SizedBox(height: 12),
+              const StitchHomeButton(),
             ],
           ),
         ),

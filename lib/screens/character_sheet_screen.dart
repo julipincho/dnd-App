@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -3510,7 +3512,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       length: 6,
       child: Scaffold(
         backgroundColor: const Color(0xFF15151A),
-        appBar: AppBar(
+        appBar: StitchAppBar(
           backgroundColor: const Color(0xFF121214),
           elevation: 4,
           title: Text(
@@ -8241,9 +8243,14 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         hasCampaignItems ? campaignItemEntries.first : null;
 
     final nameController = TextEditingController();
+    final damageDiceController = TextEditingController(text: '1d8');
+    final damageTypeController = TextEditingController(text: 'slashing');
     final quantityController = TextEditingController(text: '1');
     final notesController = TextEditingController();
     String? selectedImagePath;
+    bool customWeaponFinesse = false;
+    bool customWeaponRanged = false;
+    bool customWeaponTwoHanded = false;
 
     showDialog(
       context: context,
@@ -8254,6 +8261,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
             final isManual = selectedSource == 'manual';
             final isEquipment = selectedSource == 'equipment';
             final isCampaign = selectedSource == 'campaign';
+            final isCustomWeapon = selectedSource == 'customWeapon';
 
             return AlertDialog(
               backgroundColor: tokens.panel,
@@ -8304,9 +8312,11 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         Text(
                           isManual
                               ? 'Create a custom inventory entry'
-                              : isEquipment
-                                  ? 'Grant gear from the armory'
-                                  : 'Grant from campaign compendium',
+                              : isCustomWeapon
+                                  ? 'Create a custom combat weapon'
+                                  : isEquipment
+                                      ? 'Grant gear from the armory'
+                                      : 'Grant from campaign compendium',
                           style: TextStyle(
                             color: tokens.textSecondary,
                             fontSize: 12,
@@ -8360,6 +8370,27 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                             onSelected: (_) {
                               setDialogState(() {
                                 selectedSource = 'manual';
+                              });
+                            },
+                          ),
+                          ChoiceChip(
+                            label: const Text('Custom weapon'),
+                            selected: isCustomWeapon,
+                            selectedColor:
+                                tokens.accentAction.withValues(alpha: 0.18),
+                            backgroundColor: tokens.surface,
+                            side: BorderSide(
+                              color: isCustomWeapon
+                                  ? tokens.accentAction.withValues(alpha: 0.34)
+                                  : Colors.white.withValues(alpha: 0.08),
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius:
+                                  BorderRadius.circular(tokens.radiusSm),
+                            ),
+                            onSelected: (_) {
+                              setDialogState(() {
+                                selectedSource = 'customWeapon';
                               });
                             },
                           ),
@@ -8568,14 +8599,84 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                           ),
                         ],
                       ],
-                      if (isManual) ...[
+                      if (isManual || isCustomWeapon) ...[
                         const SizedBox(height: 16),
                         TextField(
                           controller: nameController,
-                          decoration: const InputDecoration(
-                            labelText: 'Item name',
-                            hintText: 'Example: Rusty key',
+                          decoration: InputDecoration(
+                            labelText:
+                                isCustomWeapon ? 'Weapon name' : 'Item name',
+                            hintText: isCustomWeapon
+                                ? 'Example: Moonsteel Saber'
+                                : 'Example: Rusty key',
                           ),
+                        ),
+                      ],
+                      if (isCustomWeapon) ...[
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: damageDiceController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Damage dice',
+                                  hintText: '1d8',
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: TextField(
+                                controller: damageTypeController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Damage type',
+                                  hintText: 'slashing',
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        SwitchListTile(
+                          value: customWeaponFinesse,
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Finesse'),
+                          subtitle: const Text(
+                              'Uses STR or DEX, whichever is better.'),
+                          onChanged: (value) {
+                            setDialogState(() {
+                              customWeaponFinesse = value;
+                            });
+                          },
+                        ),
+                        SwitchListTile(
+                          value: customWeaponRanged,
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Ranged'),
+                          subtitle:
+                              const Text('Uses DEX for attacks and damage.'),
+                          onChanged: (value) {
+                            setDialogState(() {
+                              customWeaponRanged = value;
+                              if (value) customWeaponFinesse = false;
+                            });
+                          },
+                        ),
+                        SwitchListTile(
+                          value: customWeaponTwoHanded,
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Two-handed'),
+                          subtitle: const Text(
+                              'Can only be equipped in the main hand.'),
+                          onChanged: (value) {
+                            setDialogState(() {
+                              customWeaponTwoHanded = value;
+                            });
+                          },
                         ),
                       ],
                       const SizedBox(height: 12),
@@ -8592,12 +8693,12 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         maxLines: 3,
                         decoration: InputDecoration(
                           labelText: 'Notes',
-                          hintText: isManual
-                              ? 'Optional notes about this manual item...'
+                          hintText: isManual || isCustomWeapon
+                              ? 'Optional notes about this custom item...'
                               : 'Optional notes about this item...',
                         ),
                       ),
-                      if (isManual) ...[
+                      if (isManual || isCustomWeapon) ...[
                         const SizedBox(height: 16),
                         Row(
                           children: [
@@ -8690,6 +8791,48 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         );
                         return;
                       }
+                    } else if (isCustomWeapon) {
+                      itemName = nameController.text.trim();
+                      sourceType = InventoryItemSourceType.manual;
+                      final damageDice = damageDiceController.text.trim();
+                      final damageType = damageTypeController.text.trim();
+                      final validDice = RegExp(
+                        r'^\d*d\d+$',
+                        caseSensitive: false,
+                      ).hasMatch(damageDice);
+                      if (!validDice) {
+                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Use a dice formula like 1d8 or 2d6.',
+                            ),
+                          ),
+                        );
+                        return;
+                      }
+                      description = [
+                        'Custom weapon.',
+                        'Damage: $damageDice${damageType.isEmpty ? '' : ' $damageType'}.',
+                        if (customWeaponFinesse) 'Property: Finesse.',
+                        if (customWeaponRanged) 'Property: Ranged.',
+                        if (customWeaponTwoHanded) 'Property: Two-handed.',
+                      ].join('\n');
+                      try {
+                        imagePath = await _uploadPickedImageIfNeeded(
+                          selectedImagePath,
+                          ownerUserId: context.read<AuthProvider>().userId,
+                          folder: 'inventory-items',
+                          entityId: itemId,
+                        );
+                      } catch (e) {
+                        if (!dialogContext.mounted) return;
+                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                          const SnackBar(
+                            content: Text('Could not upload the image.'),
+                          ),
+                        );
+                        return;
+                      }
                     } else if (isEquipment) {
                       if (selectedEquipmentEntry == null) return;
 
@@ -8729,6 +8872,26 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       description: description,
                       imagePath: imagePath,
                       createdAt: DateTime.now(),
+                      isEquippable: isCustomWeapon,
+                      itemType: isCustomWeapon
+                          ? EquipItemType.weapon
+                          : EquipItemType.generic,
+                      allowedSlots: isCustomWeapon
+                          ? [
+                              EquipSlot.weaponMainHand,
+                              if (!customWeaponTwoHanded && !customWeaponRanged)
+                                EquipSlot.weaponOffHand,
+                            ]
+                          : const [],
+                      damageDice: isCustomWeapon
+                          ? damageDiceController.text.trim()
+                          : null,
+                      damageType: isCustomWeapon
+                          ? damageTypeController.text.trim()
+                          : null,
+                      isFinesse: isCustomWeapon && customWeaponFinesse,
+                      isRanged: isCustomWeapon && customWeaponRanged,
+                      isTwoHanded: isCustomWeapon && customWeaponTwoHanded,
                     );
 
                     await characterProvider.addInventoryItemToCharacter(
@@ -8744,9 +8907,11 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         content: Text(
                           isManual
                               ? 'Manual item added'
-                              : isEquipment
-                                  ? 'Item granted from armory'
-                                  : 'Item granted from campaign compendium',
+                              : isCustomWeapon
+                                  ? 'Custom weapon added'
+                                  : isEquipment
+                                      ? 'Item granted from armory'
+                                      : 'Item granted from campaign compendium',
                         ),
                       ),
                     );
@@ -8755,7 +8920,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     backgroundColor: tokens.accentRead,
                     foregroundColor: Colors.white,
                   ),
-                  child: Text(isManual ? 'Add' : 'Grant'),
+                  child: Text(
+                    isManual || isCustomWeapon ? 'Add' : 'Grant',
+                  ),
                 ),
               ],
             );

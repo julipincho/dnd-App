@@ -18,6 +18,7 @@ import 'firebase_options.dart';
 import 'providers/auth_provider.dart';
 import 'screens/login_screen.dart';
 import 'services/supabase_storage_service.dart';
+import 'widgets/stitch_navigation.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -94,7 +95,14 @@ class StitchApp extends StatelessWidget {
         debugShowCheckedModeBanner: false,
         home: const Scaffold(
           body: Center(
-            child: CircularProgressIndicator(),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                StitchBrandMark(size: 64),
+                SizedBox(height: 18),
+                CircularProgressIndicator(),
+              ],
+            ),
           ),
         ),
       );

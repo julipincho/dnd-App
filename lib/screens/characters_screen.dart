@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
@@ -58,7 +60,7 @@ class _CharactersScreenState extends State<CharactersScreen> {
 
     if (isCampaignMode && activeCampaign == null) {
       return Scaffold(
-        appBar: AppBar(
+        appBar: StitchAppBar(
           title: const Text('Campaign Characters'),
         ),
         body: const Center(
@@ -79,7 +81,7 @@ class _CharactersScreenState extends State<CharactersScreen> {
         : 'No characters created yet';
 
     return Scaffold(
-      appBar: AppBar(
+      appBar: StitchAppBar(
         title: Text(title),
       ),
       body: characters.isEmpty
@@ -115,7 +117,7 @@ class _CharactersScreenState extends State<CharactersScreen> {
                           : character.name,
                     ),
                     subtitle: Text(
-                      '${character.race}${character.subrace != null ? ' (${character.subrace})' : ''} · ${character.charClass} · Level ${character.level}',
+                      '${character.race}${character.subrace != null ? ' (${character.subrace})' : ''} - ${character.charClass} - Level ${character.level}',
                     ),
                     onTap: () {
                       context.push('/character/${character.id}');

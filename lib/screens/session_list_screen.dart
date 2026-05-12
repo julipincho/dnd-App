@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
@@ -44,7 +46,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
 
     if (activeCampaign == null) {
       return Scaffold(
-        appBar: AppBar(
+        appBar: StitchAppBar(
           title: const Text('Sessions'),
         ),
         body: const Center(
@@ -57,11 +59,11 @@ class _SessionListScreenState extends State<SessionListScreen> {
         .getSessionsByCampaign(activeCampaign.id)
         .toList()
       ..sort((a, b) => b.date.compareTo(a.date));
-    final isDm = currentUserId != null &&
-        activeCampaign.ownerUserId == currentUserId;
+    final isDm =
+        currentUserId != null && activeCampaign.ownerUserId == currentUserId;
 
     return Scaffold(
-      appBar: AppBar(
+      appBar: StitchAppBar(
         title: Text('${activeCampaign.name} Sessions'),
       ),
       body: sessions.isEmpty
@@ -155,7 +157,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
               onPressed: () => _showCreateSessionDialog(
                 context,
                 activeCampaign.id,
-                currentUserId!,
+                currentUserId,
               ),
               icon: const Icon(Icons.add),
               label: const Text('Session'),

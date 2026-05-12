@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import '../models/dnd_class.dart';
 import '../services/class_data_service.dart';
@@ -60,7 +62,7 @@ class _SubclassSelectionScreenState extends State<SubclassSelectionScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFF2B1A1A),
-      appBar: AppBar(
+      appBar: StitchAppBar(
         backgroundColor: const Color(0xFF3C2A2A),
         title: Text("Choose ${_cls!.name} Subclass"),
       ),

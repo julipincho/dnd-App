@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:provider/provider.dart';
 
 import '../models/campaign_event.dart';
@@ -53,7 +55,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
 
     if (activeCampaign == null) {
       return Scaffold(
-        appBar: AppBar(
+        appBar: StitchAppBar(
           title: const Text('Timeline'),
         ),
         body: const Center(
@@ -131,7 +133,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
         (isDm && _showPrivateNotes && privateEntries.isNotEmpty);
 
     return Scaffold(
-      appBar: AppBar(
+      appBar: StitchAppBar(
         title: Text('${activeCampaign.name} Timeline'),
       ),
       body: Column(

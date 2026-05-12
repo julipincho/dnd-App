@@ -28,6 +28,7 @@ Widget buildImageFromPath(
   required double width,
   required double height,
   BoxFit fit = BoxFit.cover,
+  FilterQuality filterQuality = FilterQuality.high,
 }) {
   if (isRemoteImagePath(path)) {
     return Image.network(
@@ -35,6 +36,7 @@ Widget buildImageFromPath(
       width: width,
       height: height,
       fit: fit,
+      filterQuality: filterQuality,
     );
   }
 
@@ -44,6 +46,7 @@ Widget buildImageFromPath(
       width: width,
       height: height,
       fit: fit,
+      filterQuality: filterQuality,
     );
   }
 
@@ -52,5 +55,6 @@ Widget buildImageFromPath(
     width: width,
     height: height,
     fit: fit,
+    filterQuality: filterQuality,
   );
 }

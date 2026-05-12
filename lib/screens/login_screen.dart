@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'register_screen.dart';
 import '../providers/auth_provider.dart';
+import '../widgets/stitch_navigation.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -64,24 +65,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   key: _formKey,
                   child: Column(
                     children: [
-                      Container(
-                        width: 72,
-                        height: 72,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: const LinearGradient(
-                            colors: [
-                              Color(0xFF4DA8FF),
-                              Color(0xFF6D5BFF),
-                            ],
-                          ),
-                        ),
-                        child: const Icon(
-                          Icons.auto_stories_rounded,
-                          color: Colors.white,
-                          size: 36,
-                        ),
-                      ),
+                      const StitchBrandMark(size: 72),
                       const SizedBox(height: 20),
                       const Text(
                         'Welcome back',

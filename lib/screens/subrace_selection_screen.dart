@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:go_router/go_router.dart';
 
 import '../models/dnd_race.dart';
@@ -18,7 +20,7 @@ class SubraceSelectionScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF1E1E22),
-      appBar: AppBar(
+      appBar: StitchAppBar(
         backgroundColor: const Color(0xFF121214),
         elevation: 4,
         title: Text(
@@ -98,7 +100,7 @@ class SubraceSelectionScreen extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      "• $name",
+                      "\u2022 $name",
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,

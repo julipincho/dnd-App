@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
@@ -67,7 +69,7 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFF1E1E22),
-      appBar: AppBar(
+      appBar: StitchAppBar(
         backgroundColor: const Color(0xFF121214),
         elevation: 4,
         title: const Text(
@@ -193,7 +195,7 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
                       ),
                     ),
                     Text(
-                      "${c.race} ${c.charClass} · Level ${c.level}",
+                      "${c.race} ${c.charClass} - Level ${c.level}",
                       style: TextStyle(
                         fontSize: 14,
                         color: Colors.white.withOpacity(0.7),

@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
-import '../providers/auth_provider.dart';
 import '../providers/campaign_provider.dart';
 import '../providers/session_provider.dart';
 import '../providers/campaign_event_provider.dart';
@@ -45,7 +46,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
     final characterProvider = context.watch<CharacterProvider>();
 
     return Scaffold(
-      appBar: AppBar(
+      appBar: StitchAppBar(
         title: const Text('Campaign'),
       ),
       body: campaign == null
@@ -65,7 +66,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                   ..sort((a, b) => b.date.compareTo(a.date));
 
                 final characters = characterProvider
-                    .getCharactersByCampaignSafe(campaign.id); // 👈 NUEVO
+                    .getCharactersByCampaignSafe(campaign.id); // ðŸ‘ˆ NUEVO
 
                 final entries = compendiumProvider
                     .getEntriesByCampaign(campaign.id)
@@ -130,8 +131,8 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                         ),
                         Expanded(
                           child: _OverviewStatCard(
-                            title: 'Characters', // 👈 CAMBIO
-                            value: characters.length.toString(), // 👈 CAMBIO
+                            title: 'Characters', // ðŸ‘ˆ CAMBIO
+                            value: characters.length.toString(), // ðŸ‘ˆ CAMBIO
                             icon: Icons.groups_outlined,
                           ),
                         ),
@@ -186,9 +187,10 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                       icon: Icons.groups_outlined,
                       title: 'Characters',
                       subtitle:
-                          '${characters.length} characters in this campaign', // 👈 MEJOR UX
+                          '${characters.length} characters in this campaign', // ðŸ‘ˆ MEJOR UX
                       onTap: () {
-                        context.push('/campaign-characters'); // 👈 CAMBIO CLAVE
+                        context
+                            .push('/campaign-characters'); // ðŸ‘ˆ CAMBIO CLAVE
                       },
                     ),
                     _CampaignModuleTile(

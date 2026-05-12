@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../widgets/stitch_navigation.dart';
+
 import '../models/dnd_class.dart';
 import '../models/dnd_class_level.dart';
 import '../services/class_level_service.dart';
@@ -52,7 +54,7 @@ class _ClassProgressionScreenState extends State<ClassProgressionScreen> {
 
     return Scaffold(
       backgroundColor: _progressBg,
-      appBar: AppBar(
+      appBar: StitchAppBar(
         backgroundColor: _progressAppBar,
         elevation: 0,
         title: Text(

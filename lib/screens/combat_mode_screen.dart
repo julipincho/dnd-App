@@ -10,6 +10,7 @@ import '../features/dice/models/dice_roll_result.dart';
 import '../features/dice/services/dice_roller_service.dart';
 import '../models/character.dart';
 import '../models/combat_encounter.dart' as encounter_models;
+import '../models/custom_monster.dart';
 import '../providers/campaign_provider.dart';
 import '../providers/compendium_provider.dart';
 import '../providers/character_provider.dart';
@@ -17,9 +18,11 @@ import '../providers/equipment_provider.dart';
 import '../providers/spell_provider.dart';
 import '../services/character_combat_builder_service.dart';
 import '../services/combat_encounter_engine.dart';
+import '../services/custom_monster_repository.dart';
 import '../services/monster_repository.dart';
 import '../theme.dart';
 import '../utils/image_path_utils.dart';
+import '../widgets/stitch_navigation.dart';
 
 class CombatModeScreen extends StatefulWidget {
   final String? characterId;
@@ -65,6 +68,10 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     'hobgoblin': 1,
     'goblin': 1,
   };
+  final Map<String, int> _stagedCustomMonsterCounts = {};
+  List<CustomMonster> _customMonsterCatalog = const [];
+  bool _customMonsterCatalogLoading = false;
+  String? _customMonsterCatalogError;
   List<SrdMonster> _monsterCatalog = const [];
   Future<void>? _monsterCatalogLoadFuture;
   String _monsterSearchQuery = '';
@@ -189,6 +196,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     _encounter = _createEncounterFromCombatants(_combatants);
     _syncUiFromEncounter();
     _loadMonsterCatalog();
+    _loadCustomMonsterCatalog();
     _loadRealDemoMonsters();
   }
 
@@ -368,6 +376,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     _selectedCommandTiming = 'Action';
     _workspace = _CombatWorkspace.turn;
     _seededMonsters = false;
+    _stagedCustomMonsterCounts.clear();
     _combatStarted = false;
     _seededCharacterId = null;
     _loadingCampaignId = null;
@@ -605,7 +614,44 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
 
   bool _isMonsterActionSource(encounter_models.PreparedCombatAction action) {
     final source = action.metadata['source']?.toString();
-    return source == 'monster' || source == 'monsterFeature';
+    return source == 'monster' ||
+        source == 'monsterFeature' ||
+        source == 'customMonster';
+  }
+
+  Future<void> _loadCustomMonsterCatalog() async {
+    if (_customMonsterCatalogLoading) return;
+    setState(() {
+      _customMonsterCatalogLoading = true;
+      _customMonsterCatalogError = null;
+    });
+    try {
+      final monsters = await CustomMonsterRepository.loadCustomMonsters();
+      if (!mounted) return;
+      setState(() {
+        _customMonsterCatalog = monsters;
+        _customMonsterCatalogLoading = false;
+      });
+      await _applyStagedMonsterSetup();
+    } catch (error, stackTrace) {
+      debugPrint('Custom bestiary load failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) return;
+      setState(() {
+        _customMonsterCatalogLoading = false;
+        _customMonsterCatalogError = error.toString();
+      });
+    }
+  }
+
+  Future<void> _saveCustomMonster(CustomMonster monster) async {
+    final next = await CustomMonsterRepository.upsertCustomMonster(monster);
+    if (!mounted) return;
+    setState(() {
+      _customMonsterCatalog = next;
+      _customMonsterCatalogError = null;
+    });
+    await _applyStagedMonsterSetup();
   }
 
   Future<void> _loadMonsterCatalog() async {
@@ -717,9 +763,1182 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     await _applyStagedMonsterSetup();
   }
 
+  Future<void> _setStagedCustomMonsterCount(
+    CustomMonster monster,
+    int count,
+  ) async {
+    final safeCount = count.clamp(0, 12).toInt();
+    setState(() {
+      if (safeCount == 0) {
+        _stagedCustomMonsterCounts.remove(monster.id);
+      } else {
+        _stagedCustomMonsterCounts[monster.id] = safeCount;
+      }
+    });
+    await _applyStagedMonsterSetup();
+  }
+
+  Future<void> _removeCustomEnemy(String combatantId) async {
+    final engineCombatant = _encounter?.combatantById(combatantId);
+    final monsterId = engineCombatant?.sourceId ??
+        engineCombatant?.metadata['customMonsterId']?.toString();
+    if (monsterId == null || monsterId.trim().isEmpty) return;
+
+    setState(() {
+      final current = _stagedCustomMonsterCounts[monsterId] ?? 0;
+      if (current <= 1) {
+        _stagedCustomMonsterCounts.remove(monsterId);
+      } else {
+        _stagedCustomMonsterCounts[monsterId] = current - 1;
+      }
+    });
+    await _applyStagedMonsterSetup();
+  }
+
+  Future<void> _deleteCustomMonster(CustomMonster monster) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Eliminar plantilla'),
+          content: Text(
+            'Eliminar ${monster.name} del bestiario personalizado?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Eliminar'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true) return;
+
+    final next = await CustomMonsterRepository.deleteCustomMonster(monster.id);
+    if (!mounted) return;
+    setState(() {
+      _customMonsterCatalog = next;
+      _stagedCustomMonsterCounts.remove(monster.id);
+    });
+    await _applyStagedMonsterSetup();
+  }
+
+  void _disposeDialogControllersAfterPop(
+    List<TextEditingController> controllers,
+  ) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future<void>.delayed(const Duration(milliseconds: 300), () {
+        for (final controller in controllers) {
+          controller.dispose();
+        }
+      });
+    });
+  }
+
+  Future<void> _showCustomEnemyDialog({CustomMonster? existing}) async {
+    if (!mounted) return;
+    final isEditing = existing != null;
+    final nameController = TextEditingController(
+      text: existing?.name ?? 'Custom Enemy',
+    );
+    final sizeController =
+        TextEditingController(text: existing?.size ?? 'Medium');
+    final typeController =
+        TextEditingController(text: existing?.type ?? 'humanoid');
+    final subtypeController =
+        TextEditingController(text: existing?.subtype ?? '');
+    final crController =
+        TextEditingController(text: existing?.challengeRating ?? '');
+    final hpController =
+        TextEditingController(text: '${existing?.hitPoints ?? 12}');
+    final acController =
+        TextEditingController(text: '${existing?.armorClass ?? 13}');
+    final speedController =
+        TextEditingController(text: '${existing?.speed ?? 30}');
+    final initiativeController =
+        TextEditingController(text: '${existing?.initiativeBonus ?? 0}');
+    final portraitController =
+        TextEditingController(text: existing?.portraitPath ?? '');
+    final strController =
+        TextEditingController(text: '${existing?.strength ?? 10}');
+    final dexController =
+        TextEditingController(text: '${existing?.dexterity ?? 10}');
+    final conController =
+        TextEditingController(text: '${existing?.constitution ?? 10}');
+    final intController =
+        TextEditingController(text: '${existing?.intelligence ?? 10}');
+    final wisController =
+        TextEditingController(text: '${existing?.wisdom ?? 10}');
+    final chaController =
+        TextEditingController(text: '${existing?.charisma ?? 10}');
+    var hideHpFromPlayers = existing?.hideHpFromPlayers ?? true;
+    var actions = [
+      ...(existing?.actions ?? const <CustomMonsterAction>[]),
+    ];
+    if (actions.isEmpty) {
+      actions = [
+        CustomMonsterAction(
+          id: CustomMonsterRepository.newActionId('Strike'),
+          name: 'Strike',
+          description: 'Melee Weapon Attack.',
+          timing: encounter_models.CombatActionTiming.action,
+          rollKind: encounter_models.CombatActionRollKind.attack,
+          attackBonus: 3,
+          damageFormula: '1d6+1',
+          damageType: 'slashing',
+          tags: const ['Melee'],
+        ),
+      ];
+    }
+
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              final tokens = context.stitch;
+
+              int readInt(TextEditingController controller, int fallback) {
+                return int.tryParse(controller.text.trim()) ?? fallback;
+              }
+
+              return AlertDialog(
+                backgroundColor: tokens.panel,
+                surfaceTintColor: Colors.transparent,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(tokens.radiusMd),
+                  side: BorderSide(
+                    color: _CinematicColors.blood.withValues(alpha: 0.34),
+                  ),
+                ),
+                title: Text(
+                  isEditing
+                      ? 'Editar monstruo personalizado'
+                      : 'Crear monstruo personalizado',
+                ),
+                content: SingleChildScrollView(
+                  child: SizedBox(
+                    width: 620,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextField(
+                          controller: nameController,
+                          decoration: const InputDecoration(
+                            labelText: 'Nombre',
+                            hintText: 'Cultist Captain',
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: sizeController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Tamano',
+                                  hintText: 'Medium',
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: TextField(
+                                controller: typeController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Tipo',
+                                  hintText: 'humanoid',
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: TextField(
+                                controller: subtypeController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Subtipo',
+                                  hintText: 'goblinoid',
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            SizedBox(
+                              width: 88,
+                              child: TextField(
+                                controller: crController,
+                                decoration: const InputDecoration(
+                                  labelText: 'CR',
+                                  hintText: '1/2',
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: hpController,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(
+                                  labelText: 'HP',
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: TextField(
+                                controller: acController,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(
+                                  labelText: 'CA',
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: TextField(
+                                controller: speedController,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(
+                                  labelText: 'Vel',
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: TextField(
+                                controller: initiativeController,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(
+                                  labelText: 'Init',
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: portraitController,
+                          decoration: const InputDecoration(
+                            labelText: 'Retrato URL o asset path',
+                            hintText: 'Opcional',
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        SwitchListTile(
+                          value: hideHpFromPlayers,
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Ocultar HP a jugadores'),
+                          onChanged: (value) {
+                            setDialogState(() {
+                              hideHpFromPlayers = value;
+                            });
+                          },
+                        ),
+                        ExpansionTile(
+                          tilePadding: EdgeInsets.zero,
+                          title: const Text('Ability scores'),
+                          children: [
+                            Row(
+                              children: [
+                                _CompactNumberField(
+                                  controller: strController,
+                                  label: 'STR',
+                                ),
+                                const SizedBox(width: 8),
+                                _CompactNumberField(
+                                  controller: dexController,
+                                  label: 'DEX',
+                                ),
+                                const SizedBox(width: 8),
+                                _CompactNumberField(
+                                  controller: conController,
+                                  label: 'CON',
+                                ),
+                                const SizedBox(width: 8),
+                                _CompactNumberField(
+                                  controller: intController,
+                                  label: 'INT',
+                                ),
+                                const SizedBox(width: 8),
+                                _CompactNumberField(
+                                  controller: wisController,
+                                  label: 'WIS',
+                                ),
+                                const SizedBox(width: 8),
+                                _CompactNumberField(
+                                  controller: chaController,
+                                  label: 'CHA',
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            'ACCIONES Y RASGOS',
+                            style: TextStyle(
+                              color:
+                                  tokens.accentAction.withValues(alpha: 0.86),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: () async {
+                                final action =
+                                    await _showCustomMonsterActionDialog(
+                                  existingActions: actions,
+                                );
+                                if (action == null || !dialogContext.mounted) {
+                                  return;
+                                }
+                                setDialogState(() {
+                                  actions = [...actions, action];
+                                });
+                              },
+                              icon: const Icon(Icons.add),
+                              label: const Text('Accion'),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: () async {
+                                final action =
+                                    await _showCustomMonsterActionDialog(
+                                  existingActions: actions,
+                                  seed: CustomMonsterAction(
+                                    id: CustomMonsterRepository.newActionId(
+                                      'Passive trait',
+                                    ),
+                                    name: 'Passive trait',
+                                    description: '',
+                                    timing: encounter_models
+                                        .CombatActionTiming.passive,
+                                    rollKind: encounter_models
+                                        .CombatActionRollKind.none,
+                                  ),
+                                );
+                                if (action == null || !dialogContext.mounted) {
+                                  return;
+                                }
+                                setDialogState(() {
+                                  actions = [...actions, action];
+                                });
+                              },
+                              icon: const Icon(Icons.auto_awesome_outlined),
+                              label: const Text('Rasgo'),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: () async {
+                                final firstAttack = _firstOrNull(
+                                  actions.where(
+                                    (action) =>
+                                        action.attackBonus != null ||
+                                        (action.damageFormula ?? '')
+                                            .trim()
+                                            .isNotEmpty,
+                                  ),
+                                );
+                                final action =
+                                    await _showCustomMonsterActionDialog(
+                                  existingActions: actions,
+                                  seed: CustomMonsterAction(
+                                    id: CustomMonsterRepository.newActionId(
+                                      'Multiattack',
+                                    ),
+                                    name: 'Multiattack',
+                                    description:
+                                        'The monster makes multiple attacks.',
+                                    timing: encounter_models
+                                        .CombatActionTiming.action,
+                                    rollKind: encounter_models
+                                        .CombatActionRollKind.attack,
+                                    multiattackSteps: [
+                                      if (firstAttack != null)
+                                        CustomMonsterMultiattackStep(
+                                          actionName: firstAttack.name,
+                                          count: 2,
+                                        ),
+                                    ],
+                                    tags: const ['Multiattack'],
+                                  ),
+                                );
+                                if (action == null || !dialogContext.mounted) {
+                                  return;
+                                }
+                                setDialogState(() {
+                                  actions = [...actions, action];
+                                });
+                              },
+                              icon: const Icon(
+                                Icons.auto_awesome_motion_outlined,
+                              ),
+                              label: const Text('Multiattack'),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        if (actions.isEmpty)
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.20),
+                              borderRadius:
+                                  BorderRadius.circular(tokens.radiusSm),
+                              border: Border.all(
+                                color:
+                                    tokens.accentRead.withValues(alpha: 0.20),
+                              ),
+                            ),
+                            child: const Text(
+                              'Agrega acciones, reacciones o rasgos pasivos.',
+                              style: TextStyle(
+                                color: _CinematicColors.paper,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        for (final action in actions) ...[
+                          Container(
+                            width: double.infinity,
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.22),
+                              borderRadius:
+                                  BorderRadius.circular(tokens.radiusSm),
+                              border: Border.all(
+                                color: _CinematicColors.gold
+                                    .withValues(alpha: 0.18),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  action.multiattackSteps.isNotEmpty
+                                      ? Icons.auto_awesome_motion_outlined
+                                      : action.timing ==
+                                              encounter_models
+                                                  .CombatActionTiming.passive
+                                          ? Icons.auto_awesome_outlined
+                                          : Icons.casino_outlined,
+                                  color: _CinematicColors.goldBright,
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        action.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: _CinematicColors.paper,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 3),
+                                      Text(
+                                        _customActionSummary(action),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: tokens.textSecondary,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: 'Editar',
+                                  onPressed: () async {
+                                    final edited =
+                                        await _showCustomMonsterActionDialog(
+                                      existing: action,
+                                      existingActions: actions,
+                                    );
+                                    if (edited == null ||
+                                        !dialogContext.mounted) {
+                                      return;
+                                    }
+                                    setDialogState(() {
+                                      actions = actions
+                                          .map(
+                                            (item) => item.id == action.id
+                                                ? edited
+                                                : item,
+                                          )
+                                          .toList(growable: false);
+                                    });
+                                  },
+                                  icon: const Icon(Icons.edit_outlined),
+                                ),
+                                IconButton(
+                                  tooltip: 'Quitar',
+                                  onPressed: () {
+                                    setDialogState(() {
+                                      actions = actions
+                                          .where((item) => item.id != action.id)
+                                          .toList(growable: false);
+                                    });
+                                  },
+                                  icon: const Icon(Icons.delete_outline),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 6),
+                        Text(
+                          'Preview: CA ${readInt(acController, 13)} - HP ${readInt(hpController, 12)} - ${actions.length} entradas',
+                          style: TextStyle(
+                            color: tokens.textSecondary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: const Text('Cancelar'),
+                  ),
+                  FilledButton.icon(
+                    onPressed: () async {
+                      final name = nameController.text.trim();
+                      if (name.isEmpty) return;
+                      final hp =
+                          readInt(hpController, 12).clamp(1, 999).toInt();
+                      final ac = readInt(acController, 13).clamp(1, 40).toInt();
+                      final speed =
+                          readInt(speedController, 30).clamp(0, 240).toInt();
+                      final initiativeBonus = readInt(initiativeController, 0)
+                          .clamp(-10, 20)
+                          .toInt();
+                      final now = DateTime.now();
+                      final monster = CustomMonster(
+                        id: existing?.id ??
+                            CustomMonsterRepository.newMonsterId(name),
+                        name: name,
+                        size: sizeController.text.trim().isEmpty
+                            ? 'Medium'
+                            : sizeController.text.trim(),
+                        type: typeController.text.trim().isEmpty
+                            ? 'creature'
+                            : typeController.text.trim(),
+                        subtype: _nullableText(subtypeController.text),
+                        challengeRating: _nullableText(crController.text),
+                        portraitPath: _nullableText(portraitController.text),
+                        armorClass: ac,
+                        hitPoints: hp,
+                        speed: speed,
+                        initiativeBonus: initiativeBonus,
+                        strength:
+                            readInt(strController, 10).clamp(1, 30).toInt(),
+                        dexterity:
+                            readInt(dexController, 10).clamp(1, 30).toInt(),
+                        constitution:
+                            readInt(conController, 10).clamp(1, 30).toInt(),
+                        intelligence:
+                            readInt(intController, 10).clamp(1, 30).toInt(),
+                        wisdom: readInt(wisController, 10).clamp(1, 30).toInt(),
+                        charisma:
+                            readInt(chaController, 10).clamp(1, 30).toInt(),
+                        hideHpFromPlayers: hideHpFromPlayers,
+                        actions: actions,
+                        createdAt: existing?.createdAt ?? now,
+                        updatedAt: now,
+                      );
+
+                      await _saveCustomMonster(monster);
+                      if (!isEditing) {
+                        setState(() {
+                          _stagedCustomMonsterCounts[monster.id] = 1;
+                        });
+                        await _applyStagedMonsterSetup();
+                      }
+                      if (!dialogContext.mounted) return;
+                      Navigator.of(dialogContext).pop();
+                    },
+                    icon: Icon(isEditing ? Icons.save_outlined : Icons.add),
+                    label: Text(isEditing ? 'Guardar' : 'Crear'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      _disposeDialogControllersAfterPop([
+        nameController,
+        sizeController,
+        typeController,
+        subtypeController,
+        crController,
+        hpController,
+        acController,
+        speedController,
+        initiativeController,
+        portraitController,
+        strController,
+        dexController,
+        conController,
+        intController,
+        wisController,
+        chaController,
+      ]);
+    }
+  }
+
+  Future<CustomMonsterAction?> _showCustomMonsterActionDialog({
+    CustomMonsterAction? existing,
+    CustomMonsterAction? seed,
+    List<CustomMonsterAction> existingActions = const [],
+  }) async {
+    if (!mounted) return null;
+    final source = existing ?? seed;
+    final nameController = TextEditingController(
+      text: source?.name ?? 'Strike',
+    );
+    final descriptionController = TextEditingController(
+      text: source?.description ?? '',
+    );
+    final attackBonusController = TextEditingController(
+      text: source?.attackBonus?.toString() ?? '3',
+    );
+    final damageController = TextEditingController(
+      text: source?.damageFormula ?? '1d6+1',
+    );
+    final damageTypeController = TextEditingController(
+      text: source?.damageType ?? 'slashing',
+    );
+    final healingController = TextEditingController(
+      text: source?.healingFormula ?? '',
+    );
+    final saveDcController = TextEditingController(
+      text: source?.saveDc?.toString() ?? '',
+    );
+    final tagsController = TextEditingController(
+      text: source?.tags.join(', ') ?? '',
+    );
+    final multiattackController = TextEditingController(
+      text: (source?.multiattackSteps ?? const <CustomMonsterMultiattackStep>[])
+          .map((step) => '${step.count}x ${step.actionName}')
+          .join('\n'),
+    );
+    var timing = source?.timing ?? encounter_models.CombatActionTiming.action;
+    var rollKind =
+        source?.rollKind ?? encounter_models.CombatActionRollKind.attack;
+    var saveAbility = source?.saveAbility ?? 'DEX';
+    var halfDamageOnSave = source?.halfDamageOnSave ?? false;
+    var targetsSelf = source?.targetsSelf ?? false;
+    var isRanged = source?.isRanged ?? false;
+
+    try {
+      return await showDialog<CustomMonsterAction>(
+        context: context,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              final tokens = context.stitch;
+              final isPassive =
+                  timing == encounter_models.CombatActionTiming.passive;
+              final usesAttack =
+                  rollKind == encounter_models.CombatActionRollKind.attack;
+              final usesDamage = rollKind ==
+                      encounter_models.CombatActionRollKind.attack ||
+                  rollKind == encounter_models.CombatActionRollKind.damage ||
+                  rollKind == encounter_models.CombatActionRollKind.savingThrow;
+              final usesHealing =
+                  rollKind == encounter_models.CombatActionRollKind.healing;
+              final usesSave =
+                  rollKind == encounter_models.CombatActionRollKind.savingThrow;
+
+              return AlertDialog(
+                backgroundColor: tokens.panel,
+                surfaceTintColor: Colors.transparent,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(tokens.radiusMd),
+                  side: BorderSide(
+                    color: _CinematicColors.gold.withValues(alpha: 0.28),
+                  ),
+                ),
+                title: Text(
+                    existing == null ? 'Agregar entrada' : 'Editar entrada'),
+                content: SingleChildScrollView(
+                  child: SizedBox(
+                    width: 540,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextField(
+                          controller: nameController,
+                          decoration: const InputDecoration(
+                            labelText: 'Nombre',
+                            hintText: 'Claw, Fire Breath, Parry...',
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: DropdownButtonFormField<
+                                  encounter_models.CombatActionTiming>(
+                                value: timing,
+                                decoration: const InputDecoration(
+                                  labelText: 'Timing',
+                                ),
+                                items: const [
+                                  encounter_models.CombatActionTiming.action,
+                                  encounter_models
+                                      .CombatActionTiming.bonusAction,
+                                  encounter_models.CombatActionTiming.reaction,
+                                  encounter_models.CombatActionTiming.passive,
+                                ].map((value) {
+                                  return DropdownMenuItem(
+                                    value: value,
+                                    child: Text(_timingMenuLabel(value)),
+                                  );
+                                }).toList(),
+                                onChanged: (value) {
+                                  if (value == null) return;
+                                  setDialogState(() {
+                                    timing = value;
+                                    if (value ==
+                                        encounter_models
+                                            .CombatActionTiming.passive) {
+                                      rollKind = encounter_models
+                                          .CombatActionRollKind.none;
+                                    }
+                                  });
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: DropdownButtonFormField<
+                                  encounter_models.CombatActionRollKind>(
+                                value: rollKind,
+                                decoration: const InputDecoration(
+                                  labelText: 'Resolucion',
+                                ),
+                                items: const [
+                                  encounter_models.CombatActionRollKind.none,
+                                  encounter_models.CombatActionRollKind.attack,
+                                  encounter_models.CombatActionRollKind.damage,
+                                  encounter_models.CombatActionRollKind.healing,
+                                  encounter_models
+                                      .CombatActionRollKind.savingThrow,
+                                ].map((value) {
+                                  return DropdownMenuItem(
+                                    value: value,
+                                    child: Text(_rollKindMenuLabel(value)),
+                                  );
+                                }).toList(),
+                                onChanged: isPassive
+                                    ? null
+                                    : (value) {
+                                        if (value == null) return;
+                                        setDialogState(() {
+                                          rollKind = value;
+                                        });
+                                      },
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: descriptionController,
+                          maxLines: 3,
+                          decoration: const InputDecoration(
+                            labelText: 'Descripcion',
+                            hintText:
+                                'Texto de regla, condicion, recharge, aura...',
+                          ),
+                        ),
+                        if (!isPassive && usesAttack) ...[
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: attackBonusController,
+                                  keyboardType: TextInputType.number,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Ataque +',
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: SwitchListTile(
+                                  value: isRanged,
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  title: const Text('Ranged'),
+                                  onChanged: (value) {
+                                    setDialogState(() => isRanged = value);
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                        if (!isPassive && usesDamage) ...[
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: damageController,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Dano',
+                                    hintText: '2d6+3',
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: TextField(
+                                  controller: damageTypeController,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Tipo de dano',
+                                    hintText: 'slashing',
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                        if (!isPassive && usesHealing) ...[
+                          const SizedBox(height: 10),
+                          TextField(
+                            controller: healingController,
+                            decoration: const InputDecoration(
+                              labelText: 'Curacion',
+                              hintText: '2d8+2',
+                            ),
+                          ),
+                        ],
+                        if (!isPassive && usesSave) ...[
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: DropdownButtonFormField<String>(
+                                  value: saveAbility,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Save',
+                                  ),
+                                  items: const [
+                                    'STR',
+                                    'DEX',
+                                    'CON',
+                                    'INT',
+                                    'WIS',
+                                    'CHA',
+                                  ].map((value) {
+                                    return DropdownMenuItem(
+                                      value: value,
+                                      child: Text(value),
+                                    );
+                                  }).toList(),
+                                  onChanged: (value) {
+                                    if (value == null) return;
+                                    setDialogState(() => saveAbility = value);
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: TextField(
+                                  controller: saveDcController,
+                                  keyboardType: TextInputType.number,
+                                  decoration: const InputDecoration(
+                                    labelText: 'DC',
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: SwitchListTile(
+                                  value: halfDamageOnSave,
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  title: const Text('Half on save'),
+                                  onChanged: (value) {
+                                    setDialogState(
+                                      () => halfDamageOnSave = value,
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: tagsController,
+                          decoration: const InputDecoration(
+                            labelText: 'Tags',
+                            hintText: 'Recharge 5-6, Poison, Aura',
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: multiattackController,
+                          maxLines: 3,
+                          decoration: InputDecoration(
+                            labelText: 'Multiattack steps',
+                            hintText: existingActions.isEmpty
+                                ? '2x Claw\n1x Bite'
+                                : '2x ${existingActions.first.name}',
+                          ),
+                        ),
+                        SwitchListTile(
+                          value: targetsSelf,
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Se usa sobre si mismo'),
+                          onChanged: (value) {
+                            setDialogState(() => targetsSelf = value);
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: const Text('Cancelar'),
+                  ),
+                  FilledButton.icon(
+                    onPressed: () {
+                      final name = nameController.text.trim();
+                      if (name.isEmpty) return;
+                      final damage = _nullableText(damageController.text);
+                      final healing = _nullableText(healingController.text);
+                      if (!isPassive &&
+                          usesDamage &&
+                          damage != null &&
+                          !_isValidDiceFormula(damage)) {
+                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                          const SnackBar(
+                            content: Text('Usa dano como 1d6, 2d8+3 o 4d10.'),
+                          ),
+                        );
+                        return;
+                      }
+                      if (!isPassive &&
+                          usesHealing &&
+                          healing != null &&
+                          !_isValidDiceFormula(healing)) {
+                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                          const SnackBar(
+                            content:
+                                Text('Usa curacion como 1d8, 2d8+3 o 4d10.'),
+                          ),
+                        );
+                        return;
+                      }
+                      final saveDc = int.tryParse(saveDcController.text.trim());
+                      if (!isPassive && usesSave && saveDc == null) {
+                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                          const SnackBar(
+                            content: Text('Indica una DC para la salvacion.'),
+                          ),
+                        );
+                        return;
+                      }
+
+                      final steps =
+                          _parseMultiattackSteps(multiattackController.text);
+                      final attackBonus = int.tryParse(
+                        attackBonusController.text.trim(),
+                      );
+                      final tags = tagsController.text
+                          .split(',')
+                          .map((item) => item.trim())
+                          .where((item) => item.isNotEmpty)
+                          .toList(growable: false);
+                      final action = CustomMonsterAction(
+                        id: existing?.id ??
+                            source?.id ??
+                            CustomMonsterRepository.newActionId(name),
+                        name: name,
+                        description: descriptionController.text.trim(),
+                        timing: timing,
+                        rollKind: isPassive
+                            ? encounter_models.CombatActionRollKind.none
+                            : rollKind,
+                        attackBonus:
+                            !isPassive && usesAttack ? attackBonus : null,
+                        damageFormula: !isPassive && usesDamage ? damage : null,
+                        damageType: !isPassive && usesDamage
+                            ? _nullableText(damageTypeController.text)
+                            : null,
+                        healingFormula:
+                            !isPassive && usesHealing ? healing : null,
+                        saveAbility:
+                            !isPassive && usesSave ? saveAbility : null,
+                        saveDc: !isPassive && usesSave ? saveDc : null,
+                        halfDamageOnSave:
+                            !isPassive && usesSave && halfDamageOnSave,
+                        targetsSelf: targetsSelf,
+                        isRanged: !isPassive && isRanged,
+                        tags: tags,
+                        multiattackSteps: steps,
+                      );
+                      Navigator.of(dialogContext).pop(action);
+                    },
+                    icon: const Icon(Icons.save_outlined),
+                    label: const Text('Guardar'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      _disposeDialogControllersAfterPop([
+        nameController,
+        descriptionController,
+        attackBonusController,
+        damageController,
+        damageTypeController,
+        healingController,
+        saveDcController,
+        tagsController,
+        multiattackController,
+      ]);
+    }
+  }
+
+  String _customActionSummary(CustomMonsterAction action) {
+    final parts = [
+      _timingMenuLabel(action.timing),
+      _rollKindMenuLabel(action.rollKind),
+      if (action.attackBonus != null)
+        'd20${action.attackBonus! >= 0 ? '+' : ''}${action.attackBonus}',
+      if ((action.damageFormula ?? '').trim().isNotEmpty)
+        action.damageFormula!.trim(),
+      if ((action.healingFormula ?? '').trim().isNotEmpty)
+        'Heal ${action.healingFormula!.trim()}',
+      if (action.saveAbility != null && action.saveDc != null)
+        '${action.saveAbility} DC ${action.saveDc}',
+      if (action.multiattackSteps.isNotEmpty)
+        action.multiattackSteps
+            .map((step) => '${step.count}x ${step.actionName}')
+            .join(', '),
+    ];
+    return parts.join(' - ');
+  }
+
+  List<CustomMonsterMultiattackStep> _parseMultiattackSteps(String value) {
+    final steps = <CustomMonsterMultiattackStep>[];
+    final lines = value
+        .split(RegExp(r'[\r\n]+'))
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty);
+    for (final line in lines) {
+      final match =
+          RegExp(r'^(\d+)\s*x?\s+(.+)$', caseSensitive: false).firstMatch(line);
+      if (match == null) {
+        steps.add(CustomMonsterMultiattackStep(actionName: line, count: 1));
+        continue;
+      }
+      final count = int.tryParse(match.group(1) ?? '') ?? 1;
+      final actionName = match.group(2)?.trim() ?? '';
+      if (actionName.isEmpty) continue;
+      steps.add(
+        CustomMonsterMultiattackStep(
+          actionName: actionName,
+          count: count.clamp(1, 12).toInt(),
+        ),
+      );
+    }
+    return steps;
+  }
+
+  String? _nullableText(String value) {
+    final text = value.trim();
+    if (text.isEmpty || text == 'null') return null;
+    return text;
+  }
+
+  bool _isValidDiceFormula(String value) {
+    return RegExp(
+      r'^\d*d\d+([+-]\d+)?$',
+      caseSensitive: false,
+    ).hasMatch(value.trim().replaceAll(' ', ''));
+  }
+
+  String _timingMenuLabel(encounter_models.CombatActionTiming timing) {
+    return switch (timing) {
+      encounter_models.CombatActionTiming.action => 'Action',
+      encounter_models.CombatActionTiming.bonusAction => 'Bonus Action',
+      encounter_models.CombatActionTiming.reaction => 'Reaction',
+      encounter_models.CombatActionTiming.passive => 'Passive',
+      encounter_models.CombatActionTiming.movement => 'Movement',
+      encounter_models.CombatActionTiming.objectInteraction =>
+        'Object Interaction',
+      encounter_models.CombatActionTiming.free => 'Free',
+      encounter_models.CombatActionTiming.onHit => 'On Hit',
+      encounter_models.CombatActionTiming.onDamageTaken => 'On Damage Taken',
+      encounter_models.CombatActionTiming.startOfTurn => 'Start of Turn',
+      encounter_models.CombatActionTiming.endOfTurn => 'End of Turn',
+    };
+  }
+
+  String _rollKindMenuLabel(encounter_models.CombatActionRollKind rollKind) {
+    return switch (rollKind) {
+      encounter_models.CombatActionRollKind.none => 'Utility',
+      encounter_models.CombatActionRollKind.attack => 'Attack',
+      encounter_models.CombatActionRollKind.damage => 'Damage',
+      encounter_models.CombatActionRollKind.healing => 'Healing',
+      encounter_models.CombatActionRollKind.savingThrow => 'Saving Throw',
+      encounter_models.CombatActionRollKind.abilityCheck => 'Ability Check',
+      encounter_models.CombatActionRollKind.resource => 'Resource',
+    };
+  }
+
   Future<void> _beginConfiguredCombat() async {
-    if (_stagedMonsterCounts.values.fold<int>(0, (sum, count) => sum + count) ==
-        0) {
+    final stagedEnemyCount =
+        _stagedMonsterCounts.values.fold<int>(0, (sum, count) => sum + count) +
+            _stagedCustomMonsterCounts.values
+                .fold<int>(0, (sum, count) => sum + count);
+    if (stagedEnemyCount == 0) {
       setState(() {
         _activity.insert(
           0,
@@ -834,21 +2053,53 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         );
       }
     }
+    final customById = {
+      for (final monster in _customMonsterCatalog) monster.id: monster,
+    };
+    for (final entry in _stagedCustomMonsterCounts.entries) {
+      final monster = customById[entry.key];
+      if (monster == null || entry.value <= 0) continue;
+      for (var index = 1; index <= entry.value; index++) {
+        builds.add(
+          CustomMonsterRepository.buildCombatant(
+            monster: monster,
+            instanceNumber: index,
+            displayName:
+                entry.value == 1 ? monster.name : '${monster.name} $index',
+          ),
+        );
+      }
+    }
     if (!mounted) return;
     if (builds.isEmpty) {
-      if (beginCombat &&
-          _combatants.any((combatant) => combatant.team == _CombatTeam.enemy)) {
-        setState(() {
-          _combatStarted = true;
-          _workspace = _CombatWorkspace.turn;
+      setState(() {
+        final partyCombatants =
+            (_encounter?.combatants ?? const <encounter_models.Combatant>[])
+                .where(
+                  (combatant) =>
+                      combatant.team == encounter_models.CombatantTeam.party,
+                )
+                .toList(growable: false);
+        final fallbackParty = _combatants
+            .where((combatant) => combatant.team == _CombatTeam.party)
+            .map(_engineCombatantFromUi)
+            .toList(growable: false);
+        final party = partyCombatants.isEmpty ? fallbackParty : partyCombatants;
+
+        _engineActions
+            .removeWhere((_, action) => _isMonsterActionSource(action));
+        _enemyActionsByCombatantId.clear();
+        _encounter = _createEncounterFromEngineCombatants(party);
+        _syncUiFromEncounter();
+        _targetIndex = _findDefaultTargetIndex(_activeIndex);
+        _seededMonsters = false;
+        if (!beginCombat) {
           _activity.insert(
             0,
-            _CombatLogEntry.system(
-              'Combat begins with the currently staged enemies.',
-            ),
+            _CombatLogEntry.system('Encounter setup has no enemies staged.'),
           );
-        });
-      }
+        }
+      });
       return;
     }
 
@@ -1295,6 +2546,11 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       _clearMultiAttackProgress();
       _preparedActions.clear();
       _resetQueuedPreparedActions();
+      _rollFeedback = null;
+      _activity.removeWhere(
+        (entry) =>
+            entry.title == 'DM requested initiative. Waiting for party rolls.',
+      );
       _activity.insert(
         0,
         _CombatLogEntry.system('Initiative rolled. Round 1 begins.'),
@@ -3169,9 +4425,40 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
   }
 
   void _selectWorkspace(_CombatWorkspace workspace) {
+    if (workspace == _CombatWorkspace.overview) {
+      _showEncounterOverviewWindow();
+      return;
+    }
+
     setState(() {
       _workspace = workspace;
     });
+  }
+
+  void _showEncounterOverviewWindow() {
+    if (_combatants.isEmpty) return;
+
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.72),
+      builder: (dialogContext) {
+        return Dialog(
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 22,
+            vertical: 20,
+          ),
+          backgroundColor: Colors.transparent,
+          child: _EncounterOverviewWindow(
+            combatants: _combatants,
+            activeIndex: _activeIndex,
+            targetIndex: _safeTargetIndex,
+            rollFeedback: _rollFeedback,
+            showEnemyHp: _dmView,
+            onClose: () => Navigator.of(dialogContext).maybePop(),
+          ),
+        );
+      },
+    );
   }
 
   void _toggleDmView() {
@@ -3202,11 +4489,21 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
                     monsterSearchQuery: _monsterSearchQuery,
                     monsterCatalogError: _monsterCatalogError,
                     stagedMonsterCounts: _stagedMonsterCounts,
+                    customMonsters: _customMonsterCatalog,
+                    stagedCustomMonsterCounts: _stagedCustomMonsterCounts,
+                    customMonsterLoading: _customMonsterCatalogLoading,
+                    customMonsterError: _customMonsterCatalogError,
                     loading: _monsterCatalogLoading,
-                    onBack: () => Navigator.of(context).maybePop(),
+                    onBack: () => stitchGoBackOrHome(context),
                     onReloadCatalog: _reloadMonsterCatalog,
                     onMonsterSearchChanged: _setMonsterSearchQuery,
                     onChangeMonsterCount: _setStagedMonsterCount,
+                    onChangeCustomMonsterCount: _setStagedCustomMonsterCount,
+                    onCreateCustomEnemy: () => _showCustomEnemyDialog(),
+                    onEditCustomEnemy: (monster) =>
+                        _showCustomEnemyDialog(existing: monster),
+                    onDeleteCustomEnemy: _deleteCustomMonster,
+                    onRemoveCustomEnemy: _removeCustomEnemy,
                     onBeginCombat: _beginConfiguredCombat,
                   );
                 }
@@ -3245,7 +4542,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
                         entries: _activity,
                         resourcePool: _activeResourcePool,
                         rollMode: _rollMode,
-                        onBack: () => Navigator.of(context).maybePop(),
+                        onBack: () => stitchGoBackOrHome(context),
                         onRequestInitiative: _requestInitiative,
                         onRollInitiative: _rollInitiativeForAll,
                         onNextTurn: _nextTurn,
@@ -3289,7 +4586,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
                     selectedCommandTiming: _selectedCommandTiming,
                     showEnemyHp: _dmView,
                     resourcePool: _activeResourcePool,
-                    onBack: () => Navigator.of(context).maybePop(),
+                    onBack: () => stitchGoBackOrHome(context),
                     onRequestInitiative: _requestInitiative,
                     onRollInitiative: _rollInitiativeForAll,
                     onNextTurn: _nextTurn,
@@ -3325,7 +4622,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
                   selectedCommandTiming: _selectedCommandTiming,
                   showEnemyHp: _dmView,
                   resourcePool: _activeResourcePool,
-                  onBack: () => Navigator.of(context).maybePop(),
+                  onBack: () => stitchGoBackOrHome(context),
                   onRequestInitiative: _requestInitiative,
                   onRollInitiative: _rollInitiativeForAll,
                   onNextTurn: _nextTurn,
@@ -3486,7 +4783,8 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       resourceKey: action.resourceKey,
       resourceCost: action.resourceCost,
       targetsSelf:
-          action.rollKind == encounter_models.CombatActionRollKind.resource,
+          action.rollKind == encounter_models.CombatActionRollKind.resource ||
+              action.metadata['targetsSelf'] == true,
       isHealing:
           action.rollKind == encounter_models.CombatActionRollKind.healing ||
               action.healingFormula != null,
@@ -3533,6 +4831,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       if (source == 'unarmedMultiattack') return 'Unarmed Extra Attack';
       if (source == 'naturalWeaponMultiattack') return 'Natural Multiattack';
       if (source == 'monster') return 'Monster Multiattack';
+      if (source == 'customMonster') return 'Custom Multiattack';
       return 'Multiattack';
     }
     if (source == 'unarmed') return 'Unarmed Attack';
@@ -3561,6 +4860,15 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     if (source == 'spellcasting') return 'Spellcasting';
     if (source == 'monster') return 'Monster Attack';
     if (source == 'monsterFeature') return 'Monster Feature';
+    if (source == 'customMonster') {
+      if (action.timing == encounter_models.CombatActionTiming.passive) {
+        return 'Passive Trait';
+      }
+      if (action.timing == encounter_models.CombatActionTiming.reaction) {
+        return 'Monster Reaction';
+      }
+      return 'Custom Monster';
+    }
     return action.rollKind.name;
   }
 
@@ -3652,6 +4960,17 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
           : Icons.gavel_outlined;
     }
     if (source == 'monsterFeature') return Icons.crisis_alert_outlined;
+    if (source == 'customMonster') {
+      if (action.timing == encounter_models.CombatActionTiming.passive) {
+        return Icons.auto_awesome_outlined;
+      }
+      if (action.timing == encounter_models.CombatActionTiming.reaction) {
+        return Icons.reply_outlined;
+      }
+      return action.tags.any((tag) => tag.toLowerCase() == 'ranged')
+          ? Icons.ads_click_outlined
+          : Icons.crisis_alert_outlined;
+    }
     return Icons.casino_outlined;
   }
 
@@ -3689,6 +5008,14 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
           : _CombatAccentKind.action;
     }
     if (source == 'monsterFeature') return _CombatAccentKind.support;
+    if (source == 'customMonster') {
+      if (action.timing == encounter_models.CombatActionTiming.passive) {
+        return _CombatAccentKind.support;
+      }
+      return action.tags.any((tag) => tag.toLowerCase() == 'ranged')
+          ? _CombatAccentKind.read
+          : _CombatAccentKind.action;
+    }
     return _CombatAccentKind.info;
   }
 
@@ -3939,6 +5266,27 @@ class _CombatLayeredGameView extends StatelessWidget {
   }
 }
 
+class _CompactNumberField extends StatelessWidget {
+  final TextEditingController controller;
+  final String label;
+
+  const _CompactNumberField({
+    required this.controller,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: TextField(
+        controller: controller,
+        keyboardType: TextInputType.number,
+        decoration: InputDecoration(labelText: label),
+      ),
+    );
+  }
+}
+
 class _CombatSetupView extends StatelessWidget {
   final List<_Combatant> combatants;
   final List<SrdMonster> monsterCatalog;
@@ -3946,12 +5294,22 @@ class _CombatSetupView extends StatelessWidget {
   final String monsterSearchQuery;
   final String? monsterCatalogError;
   final Map<String, int> stagedMonsterCounts;
+  final List<CustomMonster> customMonsters;
+  final Map<String, int> stagedCustomMonsterCounts;
+  final bool customMonsterLoading;
+  final String? customMonsterError;
   final bool loading;
   final VoidCallback onBack;
   final VoidCallback onReloadCatalog;
   final ValueChanged<String> onMonsterSearchChanged;
   final Future<void> Function(SrdMonster monster, int count)
       onChangeMonsterCount;
+  final Future<void> Function(CustomMonster monster, int count)
+      onChangeCustomMonsterCount;
+  final Future<void> Function() onCreateCustomEnemy;
+  final Future<void> Function(CustomMonster monster) onEditCustomEnemy;
+  final Future<void> Function(CustomMonster monster) onDeleteCustomEnemy;
+  final Future<void> Function(String combatantId) onRemoveCustomEnemy;
   final Future<void> Function() onBeginCombat;
 
   const _CombatSetupView({
@@ -3961,11 +5319,20 @@ class _CombatSetupView extends StatelessWidget {
     required this.monsterSearchQuery,
     required this.monsterCatalogError,
     required this.stagedMonsterCounts,
+    required this.customMonsters,
+    required this.stagedCustomMonsterCounts,
+    required this.customMonsterLoading,
+    required this.customMonsterError,
     required this.loading,
     required this.onBack,
     required this.onReloadCatalog,
     required this.onMonsterSearchChanged,
     required this.onChangeMonsterCount,
+    required this.onChangeCustomMonsterCount,
+    required this.onCreateCustomEnemy,
+    required this.onEditCustomEnemy,
+    required this.onDeleteCustomEnemy,
+    required this.onRemoveCustomEnemy,
     required this.onBeginCombat,
   });
 
@@ -4033,6 +5400,13 @@ class _CombatSetupView extends StatelessWidget {
                       label: 'Comenzar combate',
                       onTap: () => onBeginCombat(),
                     );
+                    final customEnemyButton = _CinematicFooterButton(
+                      icon: Icons.add_circle_outline,
+                      label: 'Crear enemigo',
+                      color: _CinematicColors.goldBright,
+                      compact: true,
+                      onTap: () => onCreateCustomEnemy(),
+                    );
                     final header = compactHeader
                         ? Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -4049,6 +5423,8 @@ class _CombatSetupView extends StatelessWidget {
                                 ],
                               ),
                               const SizedBox(height: 10),
+                              customEnemyButton,
+                              const SizedBox(height: 8),
                               beginButton,
                             ],
                           )
@@ -4062,6 +5438,8 @@ class _CombatSetupView extends StatelessWidget {
                               const SizedBox(width: 12),
                               titleBlock,
                               const SizedBox(width: 12),
+                              SizedBox(width: 190, child: customEnemyButton),
+                              const SizedBox(width: 10),
                               SizedBox(width: 220, child: beginButton),
                             ],
                           );
@@ -4071,10 +5449,17 @@ class _CombatSetupView extends StatelessWidget {
                       searchQuery: monsterSearchQuery,
                       errorMessage: monsterCatalogError,
                       stagedMonsterCounts: stagedMonsterCounts,
+                      customMonsters: customMonsters,
+                      stagedCustomMonsterCounts: stagedCustomMonsterCounts,
+                      customMonsterLoading: customMonsterLoading,
+                      customMonsterError: customMonsterError,
                       loading: loading,
                       onReload: onReloadCatalog,
                       onSearchChanged: onMonsterSearchChanged,
                       onChangeCount: onChangeMonsterCount,
+                      onChangeCustomCount: onChangeCustomMonsterCount,
+                      onEditCustomMonster: onEditCustomEnemy,
+                      onDeleteCustomMonster: onDeleteCustomEnemy,
                     );
 
                     return Column(
@@ -4096,6 +5481,8 @@ class _CombatSetupView extends StatelessWidget {
                                       width: 300,
                                       child: _SetupEnemyPreview(
                                         enemies: enemies,
+                                        onRemoveCustomEnemy:
+                                            onRemoveCustomEnemy,
                                       ),
                                     ),
                                   ],
@@ -4123,6 +5510,8 @@ class _CombatSetupView extends StatelessWidget {
                                       height: 240,
                                       child: _SetupEnemyPreview(
                                         enemies: enemies,
+                                        onRemoveCustomEnemy:
+                                            onRemoveCustomEnemy,
                                       ),
                                     ),
                                   ],
@@ -4176,9 +5565,11 @@ class _SetupPartyPanel extends StatelessWidget {
 
 class _SetupEnemyPreview extends StatelessWidget {
   final List<_Combatant> enemies;
+  final Future<void> Function(String combatantId) onRemoveCustomEnemy;
 
   const _SetupEnemyPreview({
     required this.enemies,
+    required this.onRemoveCustomEnemy,
   });
 
   @override
@@ -4210,7 +5601,19 @@ class _SetupEnemyPreview extends StatelessWidget {
                     itemCount: enemies.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 8),
                     itemBuilder: (context, index) {
-                      return _SetupCombatantRow(combatant: enemies[index]);
+                      final enemy = enemies[index];
+                      final canRemove = enemy.id.startsWith('custom_monster_');
+                      return _SetupCombatantRow(
+                        combatant: enemy,
+                        trailing: canRemove
+                            ? IconButton(
+                                onPressed: () => onRemoveCustomEnemy(enemy.id),
+                                icon: const Icon(Icons.delete_outline),
+                                color: _CinematicColors.paper,
+                                tooltip: 'Quitar enemigo personalizado',
+                              )
+                            : null,
+                      );
                     },
                   ),
           ),
@@ -4226,10 +5629,18 @@ class _SetupMonsterCatalogPanel extends StatelessWidget {
   final String searchQuery;
   final String? errorMessage;
   final Map<String, int> stagedMonsterCounts;
+  final List<CustomMonster> customMonsters;
+  final Map<String, int> stagedCustomMonsterCounts;
+  final bool customMonsterLoading;
+  final String? customMonsterError;
   final bool loading;
   final VoidCallback onReload;
   final ValueChanged<String> onSearchChanged;
   final Future<void> Function(SrdMonster monster, int count) onChangeCount;
+  final Future<void> Function(CustomMonster monster, int count)
+      onChangeCustomCount;
+  final Future<void> Function(CustomMonster monster) onEditCustomMonster;
+  final Future<void> Function(CustomMonster monster) onDeleteCustomMonster;
 
   const _SetupMonsterCatalogPanel({
     required this.monsters,
@@ -4237,10 +5648,17 @@ class _SetupMonsterCatalogPanel extends StatelessWidget {
     required this.searchQuery,
     required this.errorMessage,
     required this.stagedMonsterCounts,
+    required this.customMonsters,
+    required this.stagedCustomMonsterCounts,
+    required this.customMonsterLoading,
+    required this.customMonsterError,
     required this.loading,
     required this.onReload,
     required this.onSearchChanged,
     required this.onChangeCount,
+    required this.onChangeCustomCount,
+    required this.onEditCustomMonster,
+    required this.onDeleteCustomMonster,
   });
 
   @override
@@ -4248,67 +5666,118 @@ class _SetupMonsterCatalogPanel extends StatelessWidget {
     return _CinematicPanelFrame(
       borderColor: _CinematicColors.gold,
       backgroundAlpha: 0.78,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: _SetupPanelTitle(
-                  icon: Icons.menu_book_outlined,
-                  label: 'Bestiario SRD ($totalMonsterCount)',
+      child: DefaultTabController(
+        length: 2,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: _SetupPanelTitle(
+                    icon: Icons.menu_book_outlined,
+                    label: 'Bestiario',
+                  ),
                 ),
-              ),
-              if (loading)
-                const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              else
-                _CinematicRoundIconButton(
-                  icon: Icons.refresh,
-                  tooltip: 'Recargar',
-                  onTap: onReload,
-                ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          _SetupMonsterSearchField(
-            query: searchQuery,
-            onChanged: onSearchChanged,
-          ),
-          const SizedBox(height: 10),
-          Expanded(
-            child: errorMessage != null
-                ? _SetupMonsterError(
-                    message: errorMessage!,
-                    onReload: onReload,
+                if (loading || customMonsterLoading)
+                  const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : monsters.isEmpty
-                    ? _SetupMonsterEmptyState(loading: loading)
-                    : GridView.builder(
-                        gridDelegate:
-                            const SliverGridDelegateWithMaxCrossAxisExtent(
-                          maxCrossAxisExtent: 230,
-                          mainAxisExtent: 104,
-                          crossAxisSpacing: 8,
-                          mainAxisSpacing: 8,
-                        ),
-                        itemCount: monsters.length,
-                        itemBuilder: (context, index) {
-                          final monster = monsters[index];
-                          final count = stagedMonsterCounts[monster.index] ?? 0;
-                          return _SetupMonsterTile(
-                            monster: monster,
-                            count: count,
-                            onChangeCount: (next) =>
-                                onChangeCount(monster, next),
-                          );
-                        },
+                else
+                  _CinematicRoundIconButton(
+                    icon: Icons.refresh,
+                    tooltip: 'Recargar',
+                    onTap: onReload,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            TabBar(
+              indicatorColor: _CinematicColors.goldBright,
+              labelColor: _CinematicColors.paper,
+              unselectedLabelColor: _CinematicColors.actionTextMuted,
+              tabs: [
+                Tab(text: 'SRD ($totalMonsterCount)'),
+                Tab(text: 'Custom (${customMonsters.length})'),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Expanded(
+              child: TabBarView(
+                children: [
+                  Column(
+                    children: [
+                      _SetupMonsterSearchField(
+                        query: searchQuery,
+                        onChanged: onSearchChanged,
                       ),
-          ),
-        ],
+                      const SizedBox(height: 10),
+                      Expanded(
+                        child: errorMessage != null
+                            ? _SetupMonsterError(
+                                message: errorMessage!,
+                                onReload: onReload,
+                              )
+                            : monsters.isEmpty
+                                ? _SetupMonsterEmptyState(loading: loading)
+                                : GridView.builder(
+                                    gridDelegate:
+                                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                                      maxCrossAxisExtent: 230,
+                                      mainAxisExtent: 104,
+                                      crossAxisSpacing: 8,
+                                      mainAxisSpacing: 8,
+                                    ),
+                                    itemCount: monsters.length,
+                                    itemBuilder: (context, index) {
+                                      final monster = monsters[index];
+                                      final count =
+                                          stagedMonsterCounts[monster.index] ??
+                                              0;
+                                      return _SetupMonsterTile(
+                                        monster: monster,
+                                        count: count,
+                                        onChangeCount: (next) =>
+                                            onChangeCount(monster, next),
+                                      );
+                                    },
+                                  ),
+                      ),
+                    ],
+                  ),
+                  customMonsterError != null
+                      ? _SetupMonsterError(
+                          message: customMonsterError!,
+                          onReload: () {},
+                        )
+                      : customMonsters.isEmpty
+                          ? const _SetupCustomMonsterEmptyState()
+                          : ListView.separated(
+                              itemCount: customMonsters.length,
+                              separatorBuilder: (_, __) =>
+                                  const SizedBox(height: 8),
+                              itemBuilder: (context, index) {
+                                final monster = customMonsters[index];
+                                final count =
+                                    stagedCustomMonsterCounts[monster.id] ?? 0;
+                                return _SetupCustomMonsterTile(
+                                  monster: monster,
+                                  count: count,
+                                  onChangeCount: (next) =>
+                                      onChangeCustomCount(monster, next),
+                                  onEdit: () => onEditCustomMonster(monster),
+                                  onDelete: () =>
+                                      onDeleteCustomMonster(monster),
+                                );
+                              },
+                            ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -4520,9 +5989,11 @@ class _SetupPanelTitle extends StatelessWidget {
 
 class _SetupCombatantRow extends StatelessWidget {
   final _Combatant combatant;
+  final Widget? trailing;
 
   const _SetupCombatantRow({
     required this.combatant,
+    this.trailing,
   });
 
   @override
@@ -4576,6 +6047,10 @@ class _SetupCombatantRow extends StatelessWidget {
               ],
             ),
           ),
+          if (trailing != null) ...[
+            const SizedBox(width: 6),
+            trailing!,
+          ],
         ],
       ),
     );
@@ -4660,6 +6135,199 @@ class _SetupMonsterTile extends StatelessWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SetupCustomMonsterEmptyState extends StatelessWidget {
+  const _SetupCustomMonsterEmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(18),
+        child: Text(
+          'Tu bestiario personalizado esta vacio. Usa Crear enemigo para guardar una plantilla con acciones, reacciones, multiattack y rasgos pasivos.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: _CinematicColors.paper,
+            fontWeight: FontWeight.w800,
+            height: 1.35,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SetupCustomMonsterTile extends StatelessWidget {
+  final CustomMonster monster;
+  final int count;
+  final ValueChanged<int> onChangeCount;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  const _SetupCustomMonsterTile({
+    required this.monster,
+    required this.count,
+    required this.onChangeCount,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final selected = count > 0;
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: selected
+            ? _CinematicColors.blood.withValues(alpha: 0.20)
+            : Colors.black.withValues(alpha: 0.22),
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(
+          color: selected
+              ? _CinematicColors.goldBright.withValues(alpha: 0.44)
+              : _CinematicColors.gold.withValues(alpha: 0.18),
+        ),
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 52,
+            height: 52,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(7),
+              child: monster.portraitPath == null
+                  ? Container(
+                      color: _CinematicColors.blood.withValues(alpha: 0.18),
+                      child: const Icon(
+                        Icons.crisis_alert_outlined,
+                        color: _CinematicColors.paper,
+                      ),
+                    )
+                  : buildImageFromPath(
+                      monster.portraitPath!,
+                      width: 52,
+                      height: 52,
+                      fit: BoxFit.cover,
+                    ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  monster.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: _CinematicColors.paper,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  monster.role,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: tokens.textSecondary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: [
+                    _MiniSetupBadge(label: 'HP ${monster.hitPoints}'),
+                    _MiniSetupBadge(label: 'CA ${monster.armorClass}'),
+                    _MiniSetupBadge(label: '${monster.activeActionCount} act'),
+                    if (monster.passiveCount > 0)
+                      _MiniSetupBadge(label: '${monster.passiveCount} pas'),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 96,
+            child: Row(
+              children: [
+                _SetupCountButton(
+                  icon: Icons.remove,
+                  onTap: () => onChangeCount(count - 1),
+                ),
+                Expanded(
+                  child: Text(
+                    '$count',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: _CinematicColors.paper,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                _SetupCountButton(
+                  icon: Icons.add,
+                  onTap: () => onChangeCount(count + 1),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Editar plantilla',
+            onPressed: onEdit,
+            icon: const Icon(Icons.edit_outlined),
+            color: _CinematicColors.paper,
+          ),
+          IconButton(
+            tooltip: 'Eliminar plantilla',
+            onPressed: onDelete,
+            icon: const Icon(Icons.delete_outline),
+            color: _CinematicColors.paper,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MiniSetupBadge extends StatelessWidget {
+  final String label;
+
+  const _MiniSetupBadge({
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      decoration: BoxDecoration(
+        color: _CinematicColors.gold.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(5),
+        border: Border.all(
+          color: _CinematicColors.gold.withValues(alpha: 0.22),
+        ),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: _CinematicColors.paper,
+          fontSize: 10,
+          fontWeight: FontWeight.w900,
+        ),
       ),
     );
   }
@@ -6093,8 +7761,12 @@ class _CinematicActiveCard extends StatelessWidget {
               : compact
                   ? 96.0
                   : 112.0;
-          final portraitHeight =
-              boundedHeight ? constraints.maxHeight : portraitWidth + 80;
+          final idealPortraitHeight = combatant.team == _CombatTeam.party
+              ? portraitWidth * 1.25
+              : portraitWidth * 1.18;
+          final portraitHeight = boundedHeight
+              ? math.min(constraints.maxHeight, idealPortraitHeight)
+              : idealPortraitHeight;
           final details = Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -6162,18 +7834,22 @@ class _CinematicActiveCard extends StatelessWidget {
           );
 
           return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SizedBox(
-                width: portraitWidth,
-                height: portraitHeight,
-                child: _CinematicPortraitBox(
-                  combatant: combatant,
-                  color: accent,
-                  iconSize: veryCompact
-                      ? 32
-                      : compact
-                          ? 36
-                          : 42,
+              Align(
+                alignment: Alignment.topCenter,
+                child: SizedBox(
+                  width: portraitWidth,
+                  height: portraitHeight,
+                  child: _CinematicPortraitBox(
+                    combatant: combatant,
+                    color: accent,
+                    iconSize: veryCompact
+                        ? 32
+                        : compact
+                            ? 36
+                            : 42,
+                  ),
                 ),
               ),
               const SizedBox(width: 12),
@@ -6305,10 +7981,267 @@ class _CinematicActionDeck extends StatelessWidget {
             );
           };
 
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxHeight < 340) {
+          return _CinematicActionQuickDock(
+            activeCombatant: activeCombatant,
+            actions: actions,
+            spentTimings: spentTimings,
+            pendingDamageActions: pendingDamageActions,
+            preparedActions: preparedActions,
+            reactionOptions: reactionOptions,
+            queuedPreparedIndex: queuedPreparedIndex,
+            queuedPreparedTotal: queuedPreparedTotal,
+            queuedPreparedActionName: queuedPreparedActionName,
+            selectedTiming: selectedTiming,
+            resourcePool: resourcePool,
+            rollMode: rollMode,
+            featuredAction: featuredAction,
+            featuredPending: featuredPending,
+            featuredSpent: featuredSpent,
+            confirmLabel: confirmLabel,
+            confirmAction: confirmAction,
+            hasPrepared: hasPrepared,
+            onSelectTiming: onSelectTiming,
+            onSelectRollMode: onSelectRollMode,
+            onUseReaction: onUseReaction,
+            onRollAction: onRollAction,
+            onUseAction: onUseAction,
+            onPrepareAction: onPrepareAction,
+            onClearPreparedActions: onClearPreparedActions,
+            onNextTurn: onNextTurn,
+          );
+        }
+
+        return _CinematicPanelFrame(
+          borderColor: _CinematicColors.gold,
+          padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+          backgroundAlpha: 0.78,
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: _CinematicTimingTabs(
+                      actions: actions,
+                      selectedTiming: selectedTiming,
+                      spentTimings: spentTimings,
+                      preparedActions: preparedActions,
+                      onSelectTiming: onSelectTiming,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  if (queuedPreparedTotal > 0)
+                    _CinematicQueueChip(
+                      index: queuedPreparedIndex,
+                      total: queuedPreparedTotal,
+                      name: queuedPreparedActionName,
+                    ),
+                ],
+              ),
+              if (reactionOptions.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                _CinematicReactionBar(
+                  options: reactionOptions,
+                  activeName: activeCombatant.name,
+                  onUseReaction: onUseReaction,
+                ),
+              ],
+              if (preparedActions.isNotEmpty || featuredPending) ...[
+                const SizedBox(height: 6),
+                _CinematicTurnPlanStrip(
+                  preparedActions: preparedActions,
+                  pendingAction: featuredPending ? featuredAction : null,
+                ),
+              ],
+              const SizedBox(height: 6),
+              Expanded(
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 282,
+                      child: featuredAction == null
+                          ? const _CinematicEmptyActionCard()
+                          : _CinematicFeaturedActionCard(
+                              action: featuredAction,
+                              activeCombatant: activeCombatant,
+                              selectedTarget: selectedTarget,
+                              prepared: prepared == featuredAction,
+                              spent: spentTimings
+                                      .contains(featuredAction.timing) &&
+                                  !featuredMultiAttackActive,
+                              pendingDamage: pendingDamageActions
+                                  .contains(_actionCardKey(featuredAction)),
+                              blocked: _actionLacksResource(
+                                  featuredAction, resourcePool),
+                              resourceRemaining: _actionResourceRemaining(
+                                featuredAction,
+                                resourcePool,
+                              ),
+                              onRollAction: onRollAction,
+                              onUseAction: onUseAction,
+                              onPrepareAction: onPrepareAction,
+                              onReadyAction: onReadyAction,
+                            ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: secondaryActions.isEmpty
+                          ? _CinematicActionListEmpty(
+                              selectedTiming: selectedTiming,
+                            )
+                          : ListView.separated(
+                              scrollDirection: Axis.horizontal,
+                              itemCount: secondaryActions.length,
+                              separatorBuilder: (_, __) =>
+                                  const SizedBox(width: 10),
+                              itemBuilder: (context, index) {
+                                final action = secondaryActions[index];
+                                final secondaryMultiAttackActive =
+                                    activeMultiAttackActionKey ==
+                                        _actionCardKey(action);
+                                return SizedBox(
+                                  width: 178,
+                                  child: _CinematicSmallActionCard(
+                                    action: action,
+                                    prepared: preparedActions[action.timing] ==
+                                        action,
+                                    spent:
+                                        spentTimings.contains(action.timing) &&
+                                            !secondaryMultiAttackActive,
+                                    pendingDamage: pendingDamageActions
+                                        .contains(_actionCardKey(action)),
+                                    blocked: _actionLacksResource(
+                                        action, resourcePool),
+                                    resourceRemaining: _actionResourceRemaining(
+                                      action,
+                                      resourcePool,
+                                    ),
+                                    onRollAction: onRollAction,
+                                    onUseAction: onUseAction,
+                                    onPrepareAction: onPrepareAction,
+                                    onReadyAction: onReadyAction,
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  SizedBox(
+                    width: 214,
+                    child: _CinematicFooterButton(
+                      icon: Icons.hourglass_bottom_outlined,
+                      label: 'Terminar turno',
+                      color: _CinematicColors.paper,
+                      onTap: onNextTurn,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  if (hasPrepared)
+                    _CinematicFooterButton(
+                      icon: Icons.clear_all_outlined,
+                      label: 'Limpiar plan',
+                      color: _CinematicColors.goldBright,
+                      onTap: onClearPreparedActions,
+                      compact: true,
+                    ),
+                  const SizedBox(width: 10),
+                  SizedBox(
+                    width: 232,
+                    child: _CinematicRollModeToggle(
+                      value: rollMode,
+                      onChanged: onSelectRollMode,
+                    ),
+                  ),
+                  const Spacer(),
+                  SizedBox(
+                    width: 276,
+                    child: _CinematicConfirmButton(
+                      enabled: featuredAction != null || hasPrepared,
+                      label: confirmLabel,
+                      onTap: confirmAction,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _CinematicActionQuickDock extends StatelessWidget {
+  final _Combatant activeCombatant;
+  final List<_CombatAction> actions;
+  final Set<String> spentTimings;
+  final Set<String> pendingDamageActions;
+  final Map<String, _CombatAction> preparedActions;
+  final List<_ReactionOption> reactionOptions;
+  final int queuedPreparedIndex;
+  final int queuedPreparedTotal;
+  final String? queuedPreparedActionName;
+  final String selectedTiming;
+  final Map<String, int> resourcePool;
+  final _CombatRollMode rollMode;
+  final _CombatAction? featuredAction;
+  final bool featuredPending;
+  final bool featuredSpent;
+  final String confirmLabel;
+  final VoidCallback confirmAction;
+  final bool hasPrepared;
+  final ValueChanged<String> onSelectTiming;
+  final ValueChanged<_CombatRollMode> onSelectRollMode;
+  final void Function(int actorIndex, _CombatAction action) onUseReaction;
+  final void Function(_CombatAction action, _CombatActionRoll rollType)
+      onRollAction;
+  final ValueChanged<_CombatAction> onUseAction;
+  final ValueChanged<_CombatAction> onPrepareAction;
+  final VoidCallback onClearPreparedActions;
+  final VoidCallback onNextTurn;
+
+  const _CinematicActionQuickDock({
+    required this.activeCombatant,
+    required this.actions,
+    required this.spentTimings,
+    required this.pendingDamageActions,
+    required this.preparedActions,
+    required this.reactionOptions,
+    required this.queuedPreparedIndex,
+    required this.queuedPreparedTotal,
+    required this.queuedPreparedActionName,
+    required this.selectedTiming,
+    required this.resourcePool,
+    required this.rollMode,
+    required this.featuredAction,
+    required this.featuredPending,
+    required this.featuredSpent,
+    required this.confirmLabel,
+    required this.confirmAction,
+    required this.hasPrepared,
+    required this.onSelectTiming,
+    required this.onSelectRollMode,
+    required this.onUseReaction,
+    required this.onRollAction,
+    required this.onUseAction,
+    required this.onPrepareAction,
+    required this.onClearPreparedActions,
+    required this.onNextTurn,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return _CinematicPanelFrame(
       borderColor: _CinematicColors.gold,
       padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-      backgroundAlpha: 0.78,
+      backgroundAlpha: 0.80,
       child: Column(
         children: [
           Row(
@@ -6322,13 +8255,14 @@ class _CinematicActionDeck extends StatelessWidget {
                   onSelectTiming: onSelectTiming,
                 ),
               ),
-              const SizedBox(width: 12),
-              if (queuedPreparedTotal > 0)
+              if (queuedPreparedTotal > 0) ...[
+                const SizedBox(width: 10),
                 _CinematicQueueChip(
                   index: queuedPreparedIndex,
                   total: queuedPreparedTotal,
                   name: queuedPreparedActionName,
                 ),
+              ],
             ],
           ),
           if (reactionOptions.isNotEmpty) ...[
@@ -6346,75 +8280,49 @@ class _CinematicActionDeck extends StatelessWidget {
               pendingAction: featuredPending ? featuredAction : null,
             ),
           ],
-          const SizedBox(height: 6),
+          const SizedBox(height: 8),
           Expanded(
             child: Row(
               children: [
-                SizedBox(
-                  width: 282,
-                  child: featuredAction == null
-                      ? const _CinematicEmptyActionCard()
-                      : _CinematicFeaturedActionCard(
-                          action: featuredAction,
-                          activeCombatant: activeCombatant,
-                          selectedTarget: selectedTarget,
-                          prepared: prepared == featuredAction,
-                          spent: spentTimings.contains(featuredAction.timing) &&
-                              !featuredMultiAttackActive,
-                          pendingDamage: pendingDamageActions
-                              .contains(_actionCardKey(featuredAction)),
-                          blocked: _actionLacksResource(
-                              featuredAction, resourcePool),
-                          resourceRemaining: _actionResourceRemaining(
-                            featuredAction,
-                            resourcePool,
-                          ),
-                          onRollAction: onRollAction,
-                          onUseAction: onUseAction,
-                          onPrepareAction: onPrepareAction,
-                          onReadyAction: onReadyAction,
-                        ),
-                ),
-                const SizedBox(width: 12),
                 Expanded(
-                  child: secondaryActions.isEmpty
-                      ? _CinematicActionListEmpty(
-                          selectedTiming: selectedTiming,
-                        )
-                      : ListView.separated(
-                          scrollDirection: Axis.horizontal,
-                          itemCount: secondaryActions.length,
-                          separatorBuilder: (_, __) =>
-                              const SizedBox(width: 10),
-                          itemBuilder: (context, index) {
-                            final action = secondaryActions[index];
-                            final secondaryMultiAttackActive =
-                                activeMultiAttackActionKey ==
-                                    _actionCardKey(action);
-                            return SizedBox(
-                              width: 178,
-                              child: _CinematicSmallActionCard(
-                                action: action,
-                                prepared:
-                                    preparedActions[action.timing] == action,
-                                spent: spentTimings.contains(action.timing) &&
-                                    !secondaryMultiAttackActive,
-                                pendingDamage: pendingDamageActions
-                                    .contains(_actionCardKey(action)),
-                                blocked:
-                                    _actionLacksResource(action, resourcePool),
-                                resourceRemaining: _actionResourceRemaining(
-                                  action,
-                                  resourcePool,
-                                ),
-                                onRollAction: onRollAction,
-                                onUseAction: onUseAction,
-                                onPrepareAction: onPrepareAction,
-                                onReadyAction: onReadyAction,
-                              ),
-                            );
-                          },
-                        ),
+                  child: _CinematicQuickActionSummary(
+                    action: featuredAction,
+                    pendingDamage: featuredPending,
+                    spent: featuredSpent,
+                    preparedActions: preparedActions,
+                    resourcePool: resourcePool,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                SizedBox(
+                  width: 202,
+                  child: _CinematicFooterButton(
+                    icon: Icons.view_module_outlined,
+                    label: 'Acciones',
+                    color: _CinematicColors.goldBright,
+                    compact: true,
+                    onTap: () => _showActionCatalogSheet(
+                      context: context,
+                      actions: actions,
+                      spentTimings: spentTimings,
+                      pendingDamageActions: pendingDamageActions,
+                      resourcePool: resourcePool,
+                      preparedActions: preparedActions,
+                      selectedTiming: selectedTiming,
+                      onSelectTiming: onSelectTiming,
+                      onRollAction: onRollAction,
+                      onUseAction: onUseAction,
+                      onPrepareAction: onPrepareAction,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                SizedBox(
+                  width: 222,
+                  child: _CinematicRollModeToggle(
+                    value: rollMode,
+                    onChanged: onSelectRollMode,
+                  ),
                 ),
               ],
             ),
@@ -6423,7 +8331,7 @@ class _CinematicActionDeck extends StatelessWidget {
           Row(
             children: [
               SizedBox(
-                width: 214,
+                width: 190,
                 child: _CinematicFooterButton(
                   icon: Icons.hourglass_bottom_outlined,
                   label: 'Terminar turno',
@@ -6431,23 +8339,19 @@ class _CinematicActionDeck extends StatelessWidget {
                   onTap: onNextTurn,
                 ),
               ),
-              const SizedBox(width: 10),
-              if (hasPrepared)
-                _CinematicFooterButton(
-                  icon: Icons.clear_all_outlined,
-                  label: 'Limpiar plan',
-                  color: _CinematicColors.goldBright,
-                  onTap: onClearPreparedActions,
-                  compact: true,
+              if (hasPrepared) ...[
+                const SizedBox(width: 10),
+                SizedBox(
+                  width: 168,
+                  child: _CinematicFooterButton(
+                    icon: Icons.clear_all_outlined,
+                    label: 'Limpiar plan',
+                    color: _CinematicColors.goldBright,
+                    onTap: onClearPreparedActions,
+                    compact: true,
+                  ),
                 ),
-              const SizedBox(width: 10),
-              SizedBox(
-                width: 232,
-                child: _CinematicRollModeToggle(
-                  value: rollMode,
-                  onChanged: onSelectRollMode,
-                ),
-              ),
+              ],
               const Spacer(),
               SizedBox(
                 width: 276,
@@ -6463,6 +8367,141 @@ class _CinematicActionDeck extends StatelessWidget {
       ),
     );
   }
+}
+
+class _CinematicQuickActionSummary extends StatelessWidget {
+  final _CombatAction? action;
+  final bool pendingDamage;
+  final bool spent;
+  final Map<String, _CombatAction> preparedActions;
+  final Map<String, int> resourcePool;
+
+  const _CinematicQuickActionSummary({
+    required this.action,
+    required this.pendingDamage,
+    required this.spent,
+    required this.preparedActions,
+    required this.resourcePool,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final currentAction = action;
+    if (currentAction == null) {
+      return _CinematicActionListEmpty(selectedTiming: 'este timing');
+    }
+
+    final accent = _accentForKind(currentAction.accentKind, tokens);
+    final resourceRemaining =
+        _actionResourceRemaining(currentAction, resourcePool);
+    final isPrepared = preparedActions[currentAction.timing] == currentAction;
+    final stateLabel = pendingDamage
+        ? 'Dano pendiente'
+        : spent
+            ? 'Timing usado'
+            : isPrepared
+                ? 'Preparada'
+                : 'Lista';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.28),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: accent.withValues(alpha: 0.28)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: accent.withValues(alpha: 0.32)),
+            ),
+            child: Icon(
+              pendingDamage ? Icons.auto_fix_high_outlined : currentAction.icon,
+              color: _CinematicColors.paper,
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  currentAction.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: _CinematicColors.paper,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w900,
+                    height: 1,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  _cinematicQuickActionLine(
+                    currentAction,
+                    resourceRemaining,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: tokens.textSecondary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Container(
+            constraints: const BoxConstraints(maxWidth: 132),
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(7),
+              border: Border.all(color: accent.withValues(alpha: 0.28)),
+            ),
+            child: Text(
+              stateLabel.toUpperCase(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: _CinematicColors.paper,
+                fontSize: 10,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+String _cinematicQuickActionLine(_CombatAction action, int? resourceRemaining) {
+  final formula = action.attackFormula ??
+      (action.requiresSavingThrow
+          ? '${action.saveAbility} DC ${action.saveDc}'
+          : null);
+  final damage = action.damageFormula;
+  final resource = resourceRemaining == null
+      ? null
+      : '${_readableActionResourceName(action.resourceKey ?? 'resource')}: $resourceRemaining';
+  return [
+    action.timing,
+    if (formula != null) formula,
+    if (damage != null) damage,
+    if (resource != null) resource,
+  ].join('  -  ');
 }
 
 class _CinematicTimingTabs extends StatelessWidget {
@@ -11430,6 +13469,9 @@ class _CombatantArtwork extends StatelessWidget {
           final cacheHeight = (height * pixelRatio).clamp(96.0, 520.0).round();
           final portraitPath = combatant.portraitAsset;
           final hasPortrait = hasDisplayableImagePath(portraitPath);
+          final imageAlignment = combatant.team == _CombatTeam.party
+              ? const Alignment(0, -0.14)
+              : Alignment.center;
 
           return Stack(
             fit: StackFit.expand,
@@ -11446,6 +13488,7 @@ class _CombatantArtwork extends StatelessWidget {
                   fit: combatant.team == _CombatTeam.party
                       ? BoxFit.cover
                       : BoxFit.contain,
+                  alignment: imageAlignment,
                   filterQuality: FilterQuality.low,
                   gaplessPlayback: true,
                   errorBuilder: (_, __, ___) => fallback,
@@ -11692,6 +13735,86 @@ class _TurnLogStage extends StatelessWidget {
   }
 }
 
+class _EncounterOverviewWindow extends StatelessWidget {
+  final List<_Combatant> combatants;
+  final int activeIndex;
+  final int targetIndex;
+  final _CombatRollFeedback? rollFeedback;
+  final bool showEnemyHp;
+  final VoidCallback onClose;
+
+  const _EncounterOverviewWindow({
+    required this.combatants,
+    required this.activeIndex,
+    required this.targetIndex,
+    required this.rollFeedback,
+    required this.showEnemyHp,
+    required this.onClose,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    final maxDialogWidth = math.max(320.0, size.width - 44);
+    final maxDialogHeight = math.max(420.0, size.height - 40);
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxWidth: math.min(1180.0, maxDialogWidth),
+        maxHeight: math.min(760.0, maxDialogHeight),
+      ),
+      child: _CinematicPanelFrame(
+        borderColor: _CinematicColors.gold,
+        padding: const EdgeInsets.all(14),
+        backgroundAlpha: 0.88,
+        child: Column(
+          children: [
+            Row(
+              children: [
+                const Icon(
+                  Icons.groups_2_outlined,
+                  color: _CinematicColors.goldBright,
+                  size: 19,
+                ),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'RESUMEN DEL ENCUENTRO',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: _CinematicColors.paper,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                _ParchmentIconButton(
+                  icon: Icons.close,
+                  tooltip: 'Cerrar resumen',
+                  color: _CinematicColors.gold,
+                  compact: true,
+                  onTap: onClose,
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: _EncounterOverviewStage(
+                combatants: combatants,
+                activeIndex: activeIndex,
+                targetIndex: targetIndex,
+                rollFeedback: rollFeedback,
+                showEnemyHp: showEnemyHp,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _EncounterOverviewStage extends StatelessWidget {
   final List<_Combatant> combatants;
   final int activeIndex;
@@ -11720,33 +13843,69 @@ class _EncounterOverviewStage extends StatelessWidget {
       }
     }
 
-    return Row(
-      children: [
-        Expanded(
-          child: _EncounterTeamColumn(
-            title: 'Party',
-            entries: party,
-            activeIndex: activeIndex,
-            targetIndex: targetIndex,
-            showEnemyHp: showEnemyHp,
-          ),
-        ),
-        const SizedBox(width: 14),
-        Expanded(
-          child: _EncounterTeamColumn(
-            title: 'Enemies',
-            entries: enemies,
-            activeIndex: activeIndex,
-            targetIndex: targetIndex,
-            showEnemyHp: showEnemyHp,
-          ),
-        ),
-        const SizedBox(width: 14),
-        SizedBox(
-          width: 248,
-          child: _OverviewRollSummary(feedback: rollFeedback),
-        ),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 760;
+        if (compact) {
+          return Column(
+            children: [
+              Expanded(
+                child: _EncounterTeamColumn(
+                  title: 'Party',
+                  entries: party,
+                  activeIndex: activeIndex,
+                  targetIndex: targetIndex,
+                  showEnemyHp: showEnemyHp,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Expanded(
+                child: _EncounterTeamColumn(
+                  title: 'Enemies',
+                  entries: enemies,
+                  activeIndex: activeIndex,
+                  targetIndex: targetIndex,
+                  showEnemyHp: showEnemyHp,
+                ),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 148,
+                child: _OverviewRollSummary(feedback: rollFeedback),
+              ),
+            ],
+          );
+        }
+
+        return Row(
+          children: [
+            Expanded(
+              child: _EncounterTeamColumn(
+                title: 'Party',
+                entries: party,
+                activeIndex: activeIndex,
+                targetIndex: targetIndex,
+                showEnemyHp: showEnemyHp,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: _EncounterTeamColumn(
+                title: 'Enemies',
+                entries: enemies,
+                activeIndex: activeIndex,
+                targetIndex: targetIndex,
+                showEnemyHp: showEnemyHp,
+              ),
+            ),
+            const SizedBox(width: 14),
+            SizedBox(
+              width: 248,
+              child: _OverviewRollSummary(feedback: rollFeedback),
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -18104,4 +20263,22 @@ class _ActionDetailLine extends StatelessWidget {
 String _formatRollFormula(String dice, int modifier) {
   if (modifier == 0) return dice;
   return modifier > 0 ? '$dice+$modifier' : '$dice$modifier';
+}
+
+String? _criticalFormulaForDamage(String formula) {
+  final trimmed = formula.trim();
+  if (trimmed.isEmpty) return null;
+  final match = RegExp(
+    r'^(\d*)d(\d+)([+-]\d+)?$',
+    caseSensitive: false,
+  ).firstMatch(trimmed);
+  if (match == null) return trimmed;
+
+  final rawCount = match.group(1);
+  final count =
+      rawCount == null || rawCount.isEmpty ? 1 : int.tryParse(rawCount) ?? 1;
+  final sides = match.group(2);
+  final modifier = match.group(3) ?? '';
+  if (sides == null || sides.isEmpty) return trimmed;
+  return '${count * 2}d$sides$modifier';
 }

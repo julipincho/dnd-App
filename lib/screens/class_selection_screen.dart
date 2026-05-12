@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -285,7 +287,7 @@ class _ClassSelectionScreenState extends State<ClassSelectionScreen> {
 
     return Scaffold(
       backgroundColor: _classBg,
-      appBar: AppBar(
+      appBar: StitchAppBar(
         backgroundColor: _classAppBar,
         elevation: 0,
         title: const Text(

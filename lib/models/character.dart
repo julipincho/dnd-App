@@ -215,7 +215,69 @@ class Character {
         deathSaveFailures = deathSaveFailures ?? 0,
         selectedOptionGroups = selectedOptionGroups ?? [],
         spellSlots = spellSlots ?? {},
-        pactMagicSlots = pactMagicSlots ?? {};
+        pactMagicSlots = pactMagicSlots ?? {} {
+    spellIds = List<String>.from(spellIds);
+    preparedSpellIds = List<String>.from(preparedSpellIds);
+    selectedFeatIds = List<String>.from(selectedFeatIds);
+    featSelections = _mutableDynamicMap(featSelections);
+
+    stats = Map<String, int>.from(stats);
+    racialBonuses = Map<String, int>.from(racialBonuses);
+    featAbilityBonuses = Map<String, int>.from(featAbilityBonuses);
+
+    this.features = List<CharacterFeature>.from(this.features);
+    this.resources = List<CharacterResource>.from(this.resources);
+    this.classSkills = List<String>.from(this.classSkills);
+    this.savingThrows = List<String>.from(this.savingThrows);
+    this.inventory = List<CharacterInventoryItem>.from(this.inventory);
+    this.selectedOptionGroups = List<CharacterSelectedOptionGroup>.from(
+      this.selectedOptionGroups,
+    );
+
+    this.spellcastingAbilitiesByClass = Map<String, String>.from(
+      this.spellcastingAbilitiesByClass,
+    );
+    this.knownSpells = List<String>.from(this.knownSpells);
+    this.preparedSpells = List<String>.from(this.preparedSpells);
+    this.knownSpellIdsByClass = _mutableSpellIdsByClass(
+      this.knownSpellIdsByClass,
+    );
+    this.preparedSpellIdsByClass = _mutableSpellIdsByClass(
+      this.preparedSpellIdsByClass,
+    );
+    this.spellSlots = Map<String, int>.from(this.spellSlots);
+    this.pactMagicSlots = Map<String, int>.from(this.pactMagicSlots);
+
+    featArmorProficiencies = List<String>.from(featArmorProficiencies);
+    featWeaponProficiencies = List<String>.from(featWeaponProficiencies);
+    featToolProficiencies = List<String>.from(featToolProficiencies);
+    featLanguageProficiencies = List<String>.from(
+      featLanguageProficiencies,
+    );
+    featResistances = List<String>.from(featResistances);
+    featImmunities = List<String>.from(featImmunities);
+    featConditionImmunities = List<String>.from(featConditionImmunities);
+    featSenses = List<String>.from(featSenses);
+
+    racialArmorProficiencies = List<String>.from(racialArmorProficiencies);
+    racialWeaponProficiencies = List<String>.from(racialWeaponProficiencies);
+    racialToolProficiencies = List<String>.from(racialToolProficiencies);
+    racialLanguageProficiencies = List<String>.from(
+      racialLanguageProficiencies,
+    );
+    racialResistances = List<String>.from(racialResistances);
+    racialImmunities = List<String>.from(racialImmunities);
+    racialConditionImmunities = List<String>.from(
+      racialConditionImmunities,
+    );
+    racialSenses = List<String>.from(racialSenses);
+
+    if (damageReductionWhileWearingHeavyArmor != null) {
+      damageReductionWhileWearingHeavyArmor = Map<String, dynamic>.from(
+        damageReductionWhileWearingHeavyArmor!,
+      );
+    }
+  }
 
   factory Character.empty() {
     return Character(
@@ -790,6 +852,40 @@ class Character {
             : <String>[];
         return MapEntry(key.toString(), ids);
       }),
+    );
+  }
+
+  static Map<String, dynamic> _mutableDynamicMap(Map<String, dynamic> value) {
+    return value.map(
+      (key, entryValue) => MapEntry(
+        key,
+        _mutableDynamicValue(entryValue),
+      ),
+    );
+  }
+
+  static dynamic _mutableDynamicValue(dynamic value) {
+    if (value is Map) {
+      return value.map(
+        (key, entryValue) => MapEntry(
+          key.toString(),
+          _mutableDynamicValue(entryValue),
+        ),
+      );
+    }
+
+    if (value is List) {
+      return value.map(_mutableDynamicValue).toList();
+    }
+
+    return value;
+  }
+
+  static Map<String, List<String>> _mutableSpellIdsByClass(
+    Map<String, List<String>> value,
+  ) {
+    return value.map(
+      (key, ids) => MapEntry(key, List<String>.from(ids)),
     );
   }
 

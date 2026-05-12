@@ -6,6 +6,7 @@ class FeatSyncService {
     required Character character,
     required List<FeatData> feats,
   }) {
+    _ensureMutableFeatCollections(character);
     _clearPreviousFeatDerivedData(character);
 
     for (final feat in feats) {
@@ -56,7 +57,7 @@ class FeatSyncService {
     final featGrantedPreparedSpellIds = <String>{};
     final featGrantedSpellIds = <String>{};
 
-    for (final entry in character.featSelections.entries) {
+    for (final entry in character.featSelections.entries.toList()) {
       final value = entry.value;
       if (value is! Map) continue;
 
@@ -139,6 +140,16 @@ class FeatSyncService {
 
     character.spellIds
         .removeWhere((spellId) => featGrantedSpellIds.contains(spellId));
+  }
+
+  static void _ensureMutableFeatCollections(Character character) {
+    character.knownSpells = List<String>.from(character.knownSpells);
+    character.preparedSpellIds = List<String>.from(character.preparedSpellIds);
+    character.preparedSpells = List<String>.from(character.preparedSpells);
+    character.spellIds = List<String>.from(character.spellIds);
+    character.featSelections = Map<String, dynamic>.from(
+      character.featSelections,
+    );
   }
 
   static void _applyAbilityIncreases(Character character, FeatData feat) {

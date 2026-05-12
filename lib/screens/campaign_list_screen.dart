@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 
@@ -155,7 +157,7 @@ class _CampaignListScreenState extends State<CampaignListScreen> {
     final campaigns = campaignProvider.campaigns;
 
     return Scaffold(
-      appBar: AppBar(
+      appBar: StitchAppBar(
         title: const Text('Campaigns'),
       ),
       body: campaigns.isEmpty

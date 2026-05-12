@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:go_router/go_router.dart';
 
 import '../models/dnd_background.dart';
@@ -42,7 +44,7 @@ class _BackgroundSelectionScreenState extends State<BackgroundSelectionScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFF2B1A1A),
-      appBar: AppBar(
+      appBar: StitchAppBar(
         backgroundColor: const Color(0xFF3C2A2A),
         title: const Text('Choose Background'),
         centerTitle: true,
@@ -104,7 +106,7 @@ class _BackgroundSelectionScreenState extends State<BackgroundSelectionScreen> {
 
             const SizedBox(height: 8),
 
-            // Descripción breve
+            // Descripcion breve
             Text(
               hasDescription
                   ? bg.featureDescription.first

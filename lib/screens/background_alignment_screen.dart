@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
@@ -54,8 +56,8 @@ class _BackgroundAlignmentScreenState extends State<BackgroundAlignmentScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFF1E1E22),
-      appBar: AppBar(
-        title: Text("Background & Alignment – $race, $charClass"),
+      appBar: StitchAppBar(
+        title: Text("Background & Alignment - $race, $charClass"),
         backgroundColor: const Color(0xFF121214),
       ),
       body: SingleChildScrollView(

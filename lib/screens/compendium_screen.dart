@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:provider/provider.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
@@ -37,7 +39,7 @@ class _CompendiumScreenState extends State<CompendiumScreen> {
 
     if (activeCampaign == null) {
       return Scaffold(
-        appBar: AppBar(
+        appBar: StitchAppBar(
           title: const Text('Compendium'),
         ),
         body: const Center(
@@ -66,7 +68,7 @@ class _CompendiumScreenState extends State<CompendiumScreen> {
           }).toList();
 
     return Scaffold(
-      appBar: AppBar(
+      appBar: StitchAppBar(
         title: Text('${activeCampaign.name} Compendium'),
       ),
       body: Column(

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
@@ -237,7 +239,7 @@ class _LevelUpScreenState extends State<LevelUpScreen> {
     if (character == null || _classes.isEmpty || _selectedClass == null) {
       return Scaffold(
         backgroundColor: const Color(0xFF0D0E13),
-        appBar: AppBar(title: const Text('Level Up')),
+        appBar: StitchAppBar(title: const Text('Level Up')),
         body: const Center(
           child: Text('Character or class data unavailable.'),
         ),
@@ -261,7 +263,7 @@ class _LevelUpScreenState extends State<LevelUpScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFF0D0E13),
-      appBar: AppBar(
+      appBar: StitchAppBar(
         backgroundColor: const Color(0xFF101117),
         elevation: 0,
         title: const Text(

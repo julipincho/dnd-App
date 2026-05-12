@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -56,7 +58,7 @@ class _RaceDetailScreenState extends State<RaceDetailScreen> {
 
     return Scaffold(
       backgroundColor: _raceBg,
-      appBar: AppBar(
+      appBar: StitchAppBar(
         backgroundColor: _raceAppBar,
         elevation: 0,
         title: Text(

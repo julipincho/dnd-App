@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
@@ -99,7 +101,7 @@ class _SkillsProficienciesScreenState extends State<SkillsProficienciesScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFF1E1E22),
-      appBar: AppBar(
+      appBar: StitchAppBar(
         backgroundColor: const Color(0xFF121214),
         title: const Text("Choose Skills"),
       ),
@@ -193,7 +195,7 @@ class _SkillsProficienciesScreenState extends State<SkillsProficienciesScreen> {
                                 ? const Text('Already chosen in another group')
                                 : null,
                         value: backgroundGranted || isSelected,
-                        onChanged: backgroundGranted
+                        onChanged: disabled
                             ? null
                             : (_) {
                                 setState(() {

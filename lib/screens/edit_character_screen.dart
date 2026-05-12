@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
@@ -474,7 +476,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                       Align(
                         alignment: Alignment.centerLeft,
                         child: Text(
-                          '${character!.charClass} • ${selectedSkills.length} / $maxChoices selected',
+                          '${character!.charClass} \u2022 ${selectedSkills.length} / $maxChoices selected',
                           style: TextStyle(
                             color: Colors.white.withOpacity(0.72),
                             fontSize: 13,
@@ -892,7 +894,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                 FilledButton(
                   onPressed: () async {
                     final featSelections = Map<String, dynamic>.from(
-                      character!.featSelections ?? const <String, dynamic>{},
+                      character!.featSelections,
                     );
 
                     for (final feat in _allFeats) {
@@ -1301,8 +1303,6 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                     ),
                     const SizedBox(height: 14),
                     ...options.map((ability) {
-                      final isSelected = selected == ability;
-
                       return RadioListTile<String>(
                         value: ability,
                         groupValue: selected,
@@ -1368,8 +1368,6 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                     ),
                     const SizedBox(height: 14),
                     ...options.map((damageType) {
-                      final isSelected = selected == damageType;
-
                       return RadioListTile<String>(
                         value: damageType,
                         groupValue: selected,
@@ -2394,7 +2392,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFF1E1E22),
-      appBar: AppBar(
+      appBar: StitchAppBar(
         title: const Text("Edit Character"),
         backgroundColor: const Color(0xFF121214),
         elevation: 2,
