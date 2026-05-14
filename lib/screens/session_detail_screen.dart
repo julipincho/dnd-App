@@ -21,6 +21,7 @@ import '../providers/session_provider.dart';
 import '../services/supabase_storage_service.dart';
 import '../utils/image_path_utils.dart';
 import '../widgets/compendium_aware_text_field.dart';
+import '../widgets/journal_entry_composer_dialog.dart';
 import '../widgets/linked_compendium_text.dart';
 
 class SessionDetailScreen extends StatefulWidget {
@@ -932,8 +933,9 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     required int minLines,
     required int maxLines,
   }) {
-    return TextField(
+    return CompendiumAwareTextField(
       controller: controller,
+      campaignId: _currentSession.campaignId,
       minLines: minLines,
       maxLines: maxLines,
       keyboardType: TextInputType.multiline,
@@ -968,6 +970,14 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     required String text,
     bool isMuted = false,
   }) {
+    final style = TextStyle(
+      color: isMuted
+          ? Colors.white.withOpacity(0.48)
+          : Colors.white.withOpacity(0.9),
+      fontSize: 16,
+      height: 1.58,
+    );
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -976,15 +986,10 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: Colors.white.withOpacity(0.06)),
       ),
-      child: Text(
-        text,
-        style: TextStyle(
-          color: isMuted
-              ? Colors.white.withOpacity(0.48)
-              : Colors.white.withOpacity(0.9),
-          fontSize: 16,
-          height: 1.58,
-        ),
+      child: LinkedCompendiumText(
+        text: text,
+        campaignId: _currentSession.campaignId,
+        style: style,
       ),
     );
   }
@@ -1409,7 +1414,6 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     JournalEntry entry,
     List<Character> campaignCharacters,
   ) {
-    final contentController = TextEditingController(text: entry.content);
     final currentUserId = context.read<AuthProvider>().userId;
     final editableCharacters = currentUserId == null
         ? <Character>[]
@@ -1417,187 +1421,78 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
             .where((character) => character.ownerUserId == currentUserId)
             .toList();
 
-    Character? selectedCharacter;
-    String? selectedImagePath = entry.imagePath;
-
-    if (entry.authorCharacterId != null) {
-      try {
-        selectedCharacter = editableCharacters.firstWhere(
-          (c) => c.id == entry.authorCharacterId,
-        );
-      } catch (_) {
-        selectedCharacter = null;
-      }
+    if (editableCharacters.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No editable characters available for this note.'),
+        ),
+      );
+      return;
     }
 
-    selectedCharacter ??=
-        editableCharacters.isNotEmpty ? editableCharacters.first : null;
+    final journalProvider = context.read<JournalEntryProvider>();
+    final messenger = ScaffoldMessenger.of(context);
 
     showDialog(
       context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Edit journal entry'),
-              content: SingleChildScrollView(
-                child: SizedBox(
-                  width: 320,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (selectedCharacter != null)
-                        DropdownButtonFormField<Character>(
-                          value: selectedCharacter,
-                          decoration: const InputDecoration(
-                            labelText: 'Character',
-                          ),
-                          items: editableCharacters.map((character) {
-                            final characterName = character.name.isEmpty
-                                ? 'Unnamed Character'
-                                : character.name;
+      builder: (_) {
+        return JournalEntryComposerDialog(
+          title: 'Edit journal entry',
+          actionLabel: 'Save note',
+          campaignId: _currentSession.campaignId,
+          characters: editableCharacters,
+          initialCharacterId: entry.authorCharacterId,
+          initialContent: entry.content,
+          initialImagePath: entry.imagePath,
+          onPickImage: _pickJournalImage,
+          onSubmit: (draft) async {
+            final characterName = draft.character.name.isEmpty
+                ? 'Unnamed Character'
+                : draft.character.name;
 
-                            return DropdownMenuItem<Character>(
-                              value: character,
-                              child: Text(characterName),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            if (value == null) return;
-                            setDialogState(() {
-                              selectedCharacter = value;
-                            });
-                          },
-                        ),
-                      const SizedBox(height: 12),
-                      CompendiumAwareTextField(
-                        controller: contentController,
-                        campaignId: _currentSession.campaignId,
-                        decoration: const InputDecoration(
-                          labelText: 'Entry content',
-                          hintText: 'Update this journal entry...',
-                        ),
-                        maxLines: 5,
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () async {
-                                final path = await _pickJournalImage();
-                                if (path == null) return;
-
-                                setDialogState(() {
-                                  selectedImagePath = path;
-                                });
-                              },
-                              icon: const Icon(Icons.image_outlined),
-                              label: Text(
-                                selectedImagePath == null
-                                    ? 'Attach image'
-                                    : 'Change image',
-                              ),
-                            ),
-                          ),
-                          if (selectedImagePath != null) ...[
-                            const SizedBox(width: 8),
-                            IconButton(
-                              onPressed: () {
-                                setDialogState(() {
-                                  selectedImagePath = null;
-                                });
-                              },
-                              icon: const Icon(Icons.close),
-                              tooltip: 'Remove image',
-                            ),
-                          ],
-                        ],
-                      ),
-                      if (selectedImagePath != null) ...[
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          height: 160,
-                          width: 320,
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: buildImageFromPath(
-                              selectedImagePath!,
-                              width: 320,
-                              height: 160,
-                              fit: BoxFit.cover,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
+            String? imagePath;
+            try {
+              imagePath = await _uploadImageIfNeeded(
+                draft.imagePath,
+                ownerUserId: entry.authorUserId ?? currentUserId,
+                folder: 'journal-entries',
+                entityId: entry.id,
+              );
+            } catch (e) {
+              if (mounted) {
+                messenger.showSnackBar(
+                  const SnackBar(
+                    content: Text('Could not upload the image.'),
                   ),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () async {
-                    final content = contentController.text.trim();
-                    if (content.isEmpty || selectedCharacter == null) return;
-                    final currentUserId =
-                        dialogContext.read<AuthProvider>().userId;
+                );
+              }
+              return false;
+            }
 
-                    final characterName = selectedCharacter!.name.isEmpty
-                        ? 'Unnamed Character'
-                        : selectedCharacter!.name;
-                    String? imagePath;
-                    try {
-                      imagePath = await _uploadImageIfNeeded(
-                        selectedImagePath,
-                        ownerUserId: entry.authorUserId ?? currentUserId,
-                        folder: 'journal-entries',
-                        entityId: entry.id,
-                      );
-                    } catch (e) {
-                      if (!dialogContext.mounted) return;
-                      ScaffoldMessenger.of(dialogContext).showSnackBar(
-                        const SnackBar(
-                          content: Text('Could not upload the image.'),
-                        ),
-                      );
-                      return;
-                    }
-
-                    final updatedEntry = JournalEntry(
-                      id: entry.id,
-                      campaignId: entry.campaignId,
-                      sessionId: entry.sessionId,
-                      authorRole: entry.authorRole,
-                      authorName: characterName,
-                      authorCharacterName: characterName,
-                      authorCharacterPortraitPath:
-                          selectedCharacter!.portraitPath,
-                      authorCharacterId: selectedCharacter!.id,
-                      authorUserId: entry.authorUserId ?? currentUserId,
-                      content: content,
-                      imagePath: imagePath,
-                      createdAt: entry.createdAt,
-                    );
-
-                    await dialogContext
-                        .read<JournalEntryProvider>()
-                        .updateEntry(updatedEntry);
-
-                    if (!dialogContext.mounted) return;
-                    Navigator.of(dialogContext).pop();
-
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Journal entry updated')),
-                    );
-                  },
-                  child: const Text('Save'),
-                ),
-              ],
+            final updatedEntry = JournalEntry(
+              id: entry.id,
+              campaignId: entry.campaignId,
+              sessionId: entry.sessionId,
+              authorRole: entry.authorRole,
+              authorName: characterName,
+              authorCharacterName: characterName,
+              authorCharacterPortraitPath: draft.character.portraitPath,
+              authorCharacterId: draft.character.id,
+              authorUserId: entry.authorUserId ?? currentUserId,
+              content: draft.content,
+              imagePath: imagePath,
+              createdAt: entry.createdAt,
             );
+
+            await journalProvider.updateEntry(updatedEntry);
+
+            if (mounted) {
+              messenger.showSnackBar(
+                const SnackBar(content: Text('Journal entry updated')),
+              );
+            }
+
+            return true;
           },
         );
       },
@@ -1799,161 +1694,69 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
       return;
     }
 
-    final contentController = TextEditingController();
-    Character selectedCharacter = campaignCharacters.first;
-    String? selectedImagePath;
+    final authProvider = context.read<AuthProvider>();
+    final journalProvider = context.read<JournalEntryProvider>();
+    final messenger = ScaffoldMessenger.of(context);
 
     showDialog(
       context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Create journal entry'),
-              content: SingleChildScrollView(
-                child: SizedBox(
-                  width: 320,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      DropdownButtonFormField<Character>(
-                        value: selectedCharacter,
-                        decoration: const InputDecoration(
-                          labelText: 'Character',
-                        ),
-                        items: campaignCharacters.map((character) {
-                          final characterName = character.name.isEmpty
-                              ? 'Unnamed Character'
-                              : character.name;
+      builder: (_) {
+        return JournalEntryComposerDialog(
+          title: 'Create journal entry',
+          actionLabel: 'Publish note',
+          campaignId: _currentSession.campaignId,
+          characters: campaignCharacters,
+          onPickImage: _pickJournalImage,
+          onSubmit: (draft) async {
+            final currentUserId = authProvider.userId;
+            final entryId = DateTime.now().millisecondsSinceEpoch.toString();
+            final characterName = draft.character.name.isEmpty
+                ? 'Unnamed Character'
+                : draft.character.name;
 
-                          return DropdownMenuItem<Character>(
-                            value: character,
-                            child: Text(characterName),
-                          );
-                        }).toList(),
-                        onChanged: (value) {
-                          if (value == null) return;
-                          setDialogState(() {
-                            selectedCharacter = value;
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      CompendiumAwareTextField(
-                        controller: contentController,
-                        campaignId: _currentSession.campaignId,
-                        decoration: const InputDecoration(
-                          labelText: 'Entry content',
-                          hintText: 'Write what this character experienced...',
-                        ),
-                        maxLines: 5,
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () async {
-                                final path = await _pickJournalImage();
-                                if (path == null) return;
-
-                                setDialogState(() {
-                                  selectedImagePath = path;
-                                });
-                              },
-                              icon: const Icon(Icons.image_outlined),
-                              label: Text(
-                                selectedImagePath == null
-                                    ? 'Attach image'
-                                    : 'Change image',
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (selectedImagePath != null) ...[
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          height: 160,
-                          width: 320,
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: buildImageFromPath(
-                              selectedImagePath!,
-                              width: 320,
-                              height: 160,
-                              fit: BoxFit.cover,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
+            String? imagePath;
+            try {
+              imagePath = await _uploadImageIfNeeded(
+                draft.imagePath,
+                ownerUserId: currentUserId,
+                folder: 'journal-entries',
+                entityId: entryId,
+              );
+            } catch (e) {
+              if (mounted) {
+                messenger.showSnackBar(
+                  const SnackBar(
+                    content: Text('Could not upload the image.'),
                   ),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () async {
-                    final content = contentController.text.trim();
+                );
+              }
+              return false;
+            }
 
-                    if (content.isEmpty) return;
-                    final currentUserId =
-                        dialogContext.read<AuthProvider>().userId;
-                    final entryId =
-                        DateTime.now().millisecondsSinceEpoch.toString();
-
-                    final characterName = selectedCharacter.name.isEmpty
-                        ? 'Unnamed Character'
-                        : selectedCharacter.name;
-                    String? imagePath;
-                    try {
-                      imagePath = await _uploadImageIfNeeded(
-                        selectedImagePath,
-                        ownerUserId: currentUserId,
-                        folder: 'journal-entries',
-                        entityId: entryId,
-                      );
-                    } catch (e) {
-                      if (!dialogContext.mounted) return;
-                      ScaffoldMessenger.of(dialogContext).showSnackBar(
-                        const SnackBar(
-                          content: Text('Could not upload the image.'),
-                        ),
-                      );
-                      return;
-                    }
-
-                    final entry = JournalEntry(
-                      id: entryId,
-                      campaignId: _currentSession.campaignId,
-                      sessionId: _currentSession.id,
-                      authorRole: 'player',
-                      authorName: characterName,
-                      authorCharacterName: characterName,
-                      authorCharacterPortraitPath:
-                          selectedCharacter.portraitPath,
-                      authorCharacterId: selectedCharacter.id,
-                      authorUserId: currentUserId,
-                      content: content,
-                      imagePath: imagePath,
-                      createdAt: DateTime.now(),
-                    );
-
-                    await dialogContext
-                        .read<JournalEntryProvider>()
-                        .addEntry(entry);
-
-                    if (!dialogContext.mounted) return;
-                    Navigator.of(dialogContext).pop();
-                  },
-                  child: const Text('Create'),
-                ),
-              ],
+            final entry = JournalEntry(
+              id: entryId,
+              campaignId: _currentSession.campaignId,
+              sessionId: _currentSession.id,
+              authorRole: 'player',
+              authorName: characterName,
+              authorCharacterName: characterName,
+              authorCharacterPortraitPath: draft.character.portraitPath,
+              authorCharacterId: draft.character.id,
+              authorUserId: currentUserId,
+              content: draft.content,
+              imagePath: imagePath,
+              createdAt: DateTime.now(),
             );
+
+            await journalProvider.addEntry(entry);
+
+            if (mounted) {
+              messenger.showSnackBar(
+                const SnackBar(content: Text('Journal entry created')),
+              );
+            }
+
+            return true;
           },
         );
       },

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/compendium_entry.dart';
 import '../providers/compendium_provider.dart';
 import '../screens/compendium_entry_detail_screen.dart';
+import '../utils/compendium_linking.dart';
 
 class LinkedCompendiumText extends StatefulWidget {
   final String text;
@@ -85,46 +86,15 @@ class _LinkedCompendiumTextState extends State<LinkedCompendiumText> {
     required TextStyle defaultStyle,
     required TextStyle linkStyle,
   }) {
-    final sortedEntries = [...entries]
-      ..sort((a, b) => b.title.length.compareTo(a.title.length));
-
-    final matches = <_TextMatch>[];
-
-    for (final entry in sortedEntries) {
-      final rawTitle = entry.title.trim();
-      if (rawTitle.isEmpty) continue;
-
-      final escapedTitle = RegExp.escape(rawTitle);
-
-      final regex = RegExp(
-        '(?<!\\w)$escapedTitle(?!\\w)',
-        caseSensitive: false,
-      );
-
-      for (final match in regex.allMatches(text)) {
-        final overlaps = matches.any(
-          (existing) =>
-              match.start < existing.end && match.end > existing.start,
-        );
-
-        if (!overlaps) {
-          matches.add(
-            _TextMatch(
-              start: match.start,
-              end: match.end,
-              entry: entry,
-            ),
-          );
-        }
-      }
-    }
+    final matches = CompendiumLinking.findMentions(
+      text: text,
+      entries: entries,
+    );
 
     if (matches.isEmpty) {
       _cleanupUnusedRecognizers(const {});
       return [TextSpan(text: text, style: defaultStyle)];
     }
-
-    matches.sort((a, b) => a.start.compareTo(b.start));
 
     final usedEntryIds = <String>{};
     final spans = <InlineSpan>[];
@@ -192,16 +162,4 @@ class _LinkedCompendiumTextState extends State<LinkedCompendiumText> {
       _recognizersByEntryId.remove(key);
     }
   }
-}
-
-class _TextMatch {
-  final int start;
-  final int end;
-  final CompendiumEntry entry;
-
-  _TextMatch({
-    required this.start,
-    required this.end,
-    required this.entry,
-  });
 }

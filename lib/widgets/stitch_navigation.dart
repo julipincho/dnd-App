@@ -192,14 +192,17 @@ void stitchGoBackOrHome(BuildContext context) => _goBackOrHome(context);
 
 String _currentPath(BuildContext context) {
   final router = _routerOf(context);
-  final uri = router?.routeInformationProvider.value.uri;
-  return uri?.path ?? '';
+  try {
+    return router?.routeInformationProvider.value.uri.path ?? '';
+  } catch (_) {
+    return '';
+  }
 }
 
 bool _canPop(BuildContext context) {
   final router = _routerOf(context);
   if (router != null && router.canPop()) return true;
-  return Navigator.of(context).canPop();
+  return Navigator.maybeOf(context)?.canPop() ?? false;
 }
 
 void _goBackOrHome(BuildContext context) {
@@ -209,8 +212,8 @@ void _goBackOrHome(BuildContext context) {
     return;
   }
 
-  final navigator = Navigator.of(context);
-  if (navigator.canPop()) {
+  final navigator = Navigator.maybeOf(context);
+  if (navigator != null && navigator.canPop()) {
     navigator.maybePop();
     return;
   }
@@ -221,10 +224,15 @@ void _goBackOrHome(BuildContext context) {
 void _goHome(BuildContext context) {
   final router = _routerOf(context);
   if (router != null) {
-    router.go('/');
-    return;
+    try {
+      router.go('/');
+      return;
+    } catch (_) {
+      // Fall through to the nearest Navigator when this context belongs to an
+      // overlay that no longer has a stable GoRouter ancestor.
+    }
   }
-  Navigator.of(context).popUntil((route) => route.isFirst);
+  Navigator.maybeOf(context)?.popUntil((route) => route.isFirst);
 }
 
 GoRouter? _routerOf(BuildContext context) {

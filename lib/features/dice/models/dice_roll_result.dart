@@ -119,9 +119,9 @@ class DiceRollResult {
     if (sides == 20 && diceCount == 1 && (advantage || disadvantage)) {
       final mode = advantage ? 'ADV' : 'DIS';
       final modifierLabel = modifierText.isEmpty ? '' : ' $modifierText';
-      return '$label • $mode • d20$modifierLabel = $total';
+      return '$label - $mode - d20$modifierLabel = $total';
     }
 
-    return '$label • $formula = $total';
+    return '$label - $formula = $total';
   }
 }

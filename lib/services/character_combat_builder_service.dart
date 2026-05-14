@@ -10,6 +10,7 @@ import '../models/equipment_compendium_item.dart';
 import '../models/spell.dart';
 import '../utils/character_equipment_effects.dart';
 import 'character_inventory_service.dart';
+import 'character_spell_slot_service.dart';
 import 'character_weapon_attack_service.dart';
 
 class CharacterCombatBuild {
@@ -90,6 +91,7 @@ class CharacterCombatBuilderService {
       if (character.race.trim().isNotEmpty) character.race.trim(),
       character.classProgressionLabel,
     ].where((item) => item.trim().isNotEmpty).join(' - ');
+    final proficiencyBonus = _proficiencyBonus(character.level);
 
     final availableActions = _buildAvailableActions(
       character,
@@ -117,10 +119,12 @@ class CharacterCombatBuilderService {
           compendiumEntries,
         ),
         speed: (character.speed ?? 30) + character.featSpeedBonus,
-        resources: _resourceMap(character.resources),
+        resources: _resourceMap(character),
         effects: _passiveEffects(character),
         metadata: {
           'characterId': character.id,
+          if ((character.ownerUserId ?? '').trim().isNotEmpty)
+            'ownerUserId': character.ownerUserId!.trim(),
           if ((character.portraitPath ?? '').trim().isNotEmpty)
             'portraitPath': character.portraitPath!.trim(),
           'race': character.race,
@@ -134,6 +138,17 @@ class CharacterCombatBuilderService {
                 compendiumEntries,
               ),
           },
+          'savingThrowBonuses': {
+            for (final ability in ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'])
+              ability: _savingThrowBonus(
+                character,
+                ability,
+                equipmentItems,
+                compendiumEntries,
+                proficiencyBonus,
+              ),
+          },
+          'proficiencyBonus': proficiencyBonus,
           'availableActionCount': availableActions.length,
         },
       ),
@@ -1081,11 +1096,76 @@ class CharacterCombatBuilderService {
     return effects;
   }
 
-  static Map<String, int> _resourceMap(List<CharacterResource> resources) {
-    return {
-      for (final resource in resources)
+  static Map<String, int> _resourceMap(Character character) {
+    final result = {
+      for (final resource in character.resources)
         if (resource.id.trim().isNotEmpty) resource.id: resource.current,
     };
+
+    for (var level = 1; level <= 9; level++) {
+      if (CharacterSpellSlotService.slotMaxForLevel(character, level) > 0) {
+        result['spellSlot:$level'] =
+            CharacterSpellSlotService.slotRemainingForLevel(character, level);
+      }
+      if (CharacterSpellSlotService.pactMagicSlotMaxForLevel(
+            character,
+            level,
+          ) >
+          0) {
+        result['pactMagicSlot:$level'] =
+            CharacterSpellSlotService.pactMagicSlotRemainingForLevel(
+          character,
+          level,
+        );
+      }
+    }
+
+    return result;
+  }
+
+  static int _savingThrowBonus(
+    Character character,
+    String ability,
+    List<EquipmentCompendiumItem> equipmentItems,
+    List<CompendiumEntry> compendiumEntries,
+    int proficiencyBonus,
+  ) {
+    final normalizedAbility = ability.toUpperCase();
+    final score = _effectiveAbilityScore(
+      character,
+      normalizedAbility,
+      equipmentItems,
+      compendiumEntries,
+    );
+    final proficient = character.savingThrows.any(
+      (item) => _normalizeSavingThrowAbility(item) == normalizedAbility,
+    );
+    return _abilityModifier(score) + (proficient ? proficiencyBonus : 0);
+  }
+
+  static String _normalizeSavingThrowAbility(String value) {
+    final normalized = value.trim().toUpperCase();
+    if (normalized.contains('STRENGTH')) return 'STR';
+    if (normalized.contains('DEXTERITY')) return 'DEX';
+    if (normalized.contains('CONSTITUTION')) return 'CON';
+    if (normalized.contains('INTELLIGENCE')) return 'INT';
+    if (normalized.contains('WISDOM')) return 'WIS';
+    if (normalized.contains('CHARISMA')) return 'CHA';
+    if (normalized.contains('STR')) return 'STR';
+    if (normalized.contains('DEX')) return 'DEX';
+    if (normalized.contains('CON')) return 'CON';
+    if (normalized.contains('INT')) return 'INT';
+    if (normalized.contains('WIS')) return 'WIS';
+    if (normalized.contains('CHA')) return 'CHA';
+    const aliases = {
+      'STRENGTH': 'STR',
+      'DEXTERITY': 'DEX',
+      'CONSTITUTION': 'CON',
+      'INTELLIGENCE': 'INT',
+      'WISDOM': 'WIS',
+      'CHARISMA': 'CHA',
+    };
+    return aliases[normalized] ?? normalized;
   }
 
   static int _effectiveAbilityScore(

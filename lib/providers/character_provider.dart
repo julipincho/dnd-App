@@ -13,6 +13,7 @@ import '../services/character_feature_sync_service.dart';
 import '../services/character_infusion_service.dart';
 import '../services/character_pact_service.dart';
 import '../services/character_resource_factory.dart';
+import '../services/character_spell_slot_service.dart';
 import '../services/feat_data_service.dart';
 import '../services/feat_sync_service.dart';
 import '../services/race_sync_service.dart';
@@ -336,6 +337,53 @@ class CharacterProvider extends ChangeNotifier {
       infusion: infusion,
     );
 
+    await _saveAndRefreshCharacter(character);
+  }
+
+  void applyCombatSnapshotToCharacterById(
+    String characterId, {
+    required int currentHp,
+    required int tempHp,
+    required Map<String, int> resources,
+  }) {
+    var updated = false;
+    void apply(Character? character) {
+      if (character == null || character.id != characterId) return;
+      _applyCombatSnapshot(
+        character,
+        currentHp: currentHp,
+        tempHp: tempHp,
+        resources: resources,
+      );
+      updated = true;
+    }
+
+    apply(_character);
+    for (final character in _characters) {
+      apply(character);
+    }
+    for (final character in _campaignCharacters) {
+      apply(character);
+    }
+
+    if (updated) notifyListeners();
+  }
+
+  Future<void> saveCombatSnapshotToCharacterById(
+    String characterId, {
+    required int currentHp,
+    required int tempHp,
+    required Map<String, int> resources,
+  }) async {
+    final character = getCharacterById(characterId);
+    if (character == null) return;
+
+    _applyCombatSnapshot(
+      character,
+      currentHp: currentHp,
+      tempHp: tempHp,
+      resources: resources,
+    );
     await _saveAndRefreshCharacter(character);
   }
 
@@ -784,6 +832,68 @@ class CharacterProvider extends ChangeNotifier {
     if (character.equippedAccessory2ItemId == inventoryItemId) {
       character.equippedAccessory2ItemId = null;
     }
+  }
+
+  void _applyCombatSnapshot(
+    Character character, {
+    required int currentHp,
+    required int tempHp,
+    required Map<String, int> resources,
+  }) {
+    final maxHp = (character.maxHp ?? 0) > 0 ? character.maxHp! : currentHp;
+    character.currentHp = currentHp.clamp(0, maxHp).toInt();
+    character.tempHp = tempHp.clamp(0, 999).toInt();
+
+    for (final entry in resources.entries) {
+      final key = entry.key.trim();
+      if (key.isEmpty) continue;
+      final remaining = entry.value < 0 ? 0 : entry.value;
+
+      final spellSlotLevel = _resourceLevel(key, 'spellSlot:');
+      if (spellSlotLevel != null) {
+        _applySpellSlotRemaining(
+          character.spellSlots,
+          spellSlotLevel,
+          remaining,
+        );
+        continue;
+      }
+
+      final pactSlotLevel = _resourceLevel(key, 'pactMagicSlot:');
+      if (pactSlotLevel != null) {
+        _applySpellSlotRemaining(
+          character.pactMagicSlots,
+          pactSlotLevel,
+          remaining,
+        );
+        continue;
+      }
+
+      final index = character.resources.indexWhere((item) => item.id == key);
+      if (index == -1) continue;
+      final resource = character.resources[index];
+      resource.current = remaining.clamp(0, resource.max).toInt();
+    }
+  }
+
+  int? _resourceLevel(String key, String prefix) {
+    if (!key.startsWith(prefix)) return null;
+    final level = int.tryParse(key.substring(prefix.length));
+    if (level == null || level < 1 || level > 9) return null;
+    return level;
+  }
+
+  void _applySpellSlotRemaining(
+    Map<String, int> slots,
+    int level,
+    int remaining,
+  ) {
+    final max = CharacterSpellSlotService.slotMaxFromState(slots, level);
+    if (max <= 0) return;
+    final used = (max - remaining).clamp(0, max).toInt();
+    slots['${level}_max'] = max;
+    slots['${level}_used'] = used;
+    slots.remove('$level');
   }
 
   String? _resolveUserId(

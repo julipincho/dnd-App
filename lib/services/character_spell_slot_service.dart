@@ -10,6 +10,10 @@ class CharacterSpellSlotService {
     return _slotMaxForLevel(character.spellSlots, level);
   }
 
+  static int slotMaxFromState(Map<String, int> slots, int level) {
+    return _slotMaxForLevel(slots, level);
+  }
+
   static int pactMagicSlotMaxForLevel(Character character, int level) {
     return _slotMaxForLevel(character.pactMagicSlots, level);
   }
@@ -40,6 +44,13 @@ class CharacterSpellSlotService {
   static int slotRemainingForLevel(Character character, int level) {
     final max = slotMaxForLevel(character, level);
     final used = slotUsedForLevel(character, level);
+    final remaining = max - used;
+    return remaining < 0 ? 0 : remaining;
+  }
+
+  static int pactMagicSlotRemainingForLevel(Character character, int level) {
+    final max = pactMagicSlotMaxForLevel(character, level);
+    final used = pactMagicSlotUsedForLevel(character, level);
     final remaining = max - used;
     return remaining < 0 ? 0 : remaining;
   }

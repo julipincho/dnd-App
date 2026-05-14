@@ -13,6 +13,7 @@ import '../providers/app_role_provider.dart';
 import '../providers/campaign_event_provider.dart';
 import '../providers/journal_entry_provider.dart';
 import '../providers/session_provider.dart';
+import '../utils/compendium_linking.dart';
 import 'session_detail_screen.dart';
 
 class CompendiumEntryDetailScreen extends StatelessWidget {
@@ -469,12 +470,7 @@ class CompendiumEntryDetailScreen extends StatelessWidget {
     final cleanTitle = title.trim();
     if (cleanTitle.isEmpty || text.trim().isEmpty) return false;
 
-    final regex = RegExp(
-      '(?<!\\w)${RegExp.escape(cleanTitle)}(?!\\w)',
-      caseSensitive: false,
-    );
-
-    return regex.hasMatch(text);
+    return CompendiumLinking.containsTitle(text, cleanTitle);
   }
 
   String _clip(String text, {int max = 140}) {

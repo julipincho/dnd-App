@@ -9,9 +9,13 @@ import '../models/session.dart';
 import '../providers/app_role_provider.dart';
 import '../providers/campaign_event_provider.dart';
 import '../providers/campaign_provider.dart';
+import '../providers/compendium_provider.dart';
 import '../providers/journal_entry_provider.dart';
 import '../providers/session_provider.dart';
+import '../services/campaign_story_timeline_service.dart';
+import '../widgets/campaign_story_timeline.dart';
 import '../widgets/linked_compendium_text.dart';
+import 'session_detail_screen.dart';
 
 class TimelineScreen extends StatefulWidget {
   const TimelineScreen({super.key});
@@ -22,10 +26,13 @@ class TimelineScreen extends StatefulWidget {
 
 class _TimelineScreenState extends State<TimelineScreen> {
   String _recapMode = 'player'; // 'player' | 'dm'
+  String _viewMode = 'story'; // 'story' | 'sessions'
+  String _storyFilter = 'all'; // 'all' | 'note' | 'event' | 'session'
   bool _didLoad = false;
   String _searchQuery = '';
   bool _showPrivateNotes = true;
   final Set<String> _expandedRecaps = {};
+  final Set<String> _expandedStoryItems = {};
 
   @override
   void didChangeDependencies() {
@@ -40,6 +47,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
     context.read<CampaignEventProvider>().loadEvents(activeCampaign.id);
     context.read<SessionProvider>().loadSessions(activeCampaign.id);
     context.read<JournalEntryProvider>().loadEntries(activeCampaign.id);
+    context.read<CompendiumProvider>().loadEntries();
   }
 
   @override
@@ -48,6 +56,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
     final eventProvider = context.watch<CampaignEventProvider>();
     final sessionProvider = context.watch<SessionProvider>();
     final journalProvider = context.watch<JournalEntryProvider>();
+    final compendiumProvider = context.watch<CompendiumProvider>();
     final roleProvider = context.watch<AppRoleProvider>();
 
     final activeCampaign = campaignProvider.activeCampaign;
@@ -75,6 +84,9 @@ class _TimelineScreenState extends State<TimelineScreen> {
     final campaignJournalEntries = journalProvider.entries
         .where((e) => e.campaignId == activeCampaign.id)
         .toList();
+
+    final compendiumEntries =
+        compendiumProvider.getEntriesByCampaign(activeCampaign.id).toList();
 
     final query = _searchQuery.toLowerCase().trim();
 
@@ -128,9 +140,44 @@ class _TimelineScreenState extends State<TimelineScreen> {
         .toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
-    final hasContent = filteredSessions.isNotEmpty ||
+    final storyItems = CampaignStoryTimelineService.buildItems(
+      sessions: sessions,
+      events: campaignEvents,
+      entries: campaignJournalEntries,
+      isDm: isDm,
+      showPrivateNotes: _showPrivateNotes,
+      recapMode: _recapMode,
+    );
+
+    final filteredStoryItems = CampaignStoryTimelineService.filterItems(
+      items: storyItems,
+      query: query,
+      kindFilter: _storyFilter,
+      compendiumEntries: compendiumEntries,
+    );
+
+    final visibleJournalEntries =
+        CampaignStoryTimelineService.visibleJournalEntries(
+      entries: campaignJournalEntries,
+      isDm: isDm,
+      showPrivateNotes: _showPrivateNotes,
+    );
+
+    final storyStats = CampaignStoryTimelineService.buildStats(
+      sessions: sessions,
+      events: campaignEvents,
+      visibleJournalEntries: visibleJournalEntries,
+      items: storyItems,
+      compendiumEntries: compendiumEntries,
+    );
+
+    final hasSessionContent = filteredSessions.isNotEmpty ||
         orphanEvents.isNotEmpty ||
         (isDm && _showPrivateNotes && privateEntries.isNotEmpty);
+
+    final hasContent = _viewMode == 'story'
+        ? filteredStoryItems.isNotEmpty
+        : hasSessionContent;
 
     return Scaffold(
       appBar: StitchAppBar(
@@ -154,6 +201,69 @@ class _TimelineScreenState extends State<TimelineScreen> {
               },
             ),
           ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+            child: SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(
+                    value: 'story',
+                    label: Text('Story'),
+                    icon: Icon(Icons.route_outlined),
+                  ),
+                  ButtonSegment(
+                    value: 'sessions',
+                    label: Text('Sessions'),
+                    icon: Icon(Icons.view_agenda_outlined),
+                  ),
+                ],
+                selected: {_viewMode},
+                onSelectionChanged: (value) {
+                  setState(() {
+                    _viewMode = value.first;
+                  });
+                },
+              ),
+            ),
+          ),
+          if (_viewMode == 'story')
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(
+                      value: 'all',
+                      label: Text('All'),
+                      icon: Icon(Icons.all_inclusive),
+                    ),
+                    ButtonSegment(
+                      value: 'note',
+                      label: Text('Notes'),
+                      icon: Icon(Icons.edit_note),
+                    ),
+                    ButtonSegment(
+                      value: 'event',
+                      label: Text('Events'),
+                      icon: Icon(Icons.bolt_outlined),
+                    ),
+                    ButtonSegment(
+                      value: 'session',
+                      label: Text('Sessions'),
+                      icon: Icon(Icons.auto_stories_outlined),
+                    ),
+                  ],
+                  selected: {_storyFilter},
+                  onSelectionChanged: (value) {
+                    setState(() {
+                      _storyFilter = value.first;
+                    });
+                  },
+                ),
+              ),
+            ),
           if (isDm)
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
@@ -171,7 +281,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
                 },
               ),
             ),
-          if (isDm)
+          if (isDm && _viewMode == 'sessions')
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
               child: SegmentedButton<String>(
@@ -221,98 +331,134 @@ class _TimelineScreenState extends State<TimelineScreen> {
                 ? Center(
                     child: Text(
                       query.isEmpty
-                          ? 'No timeline content yet'
+                          ? (_viewMode == 'story'
+                              ? 'No story beats yet'
+                              : 'No timeline content yet')
                           : 'No matching timeline content found',
                     ),
                   )
-                : ListView(
-                    padding: const EdgeInsets.all(12),
-                    children: [
-                      if (isDm &&
-                          _showPrivateNotes &&
-                          privateEntries.isNotEmpty) ...[
-                        _buildSectionHeader(
-                          context,
-                          'Private reflections',
-                          subtitle:
-                              '${privateEntries.length} private note${privateEntries.length == 1 ? '' : 's'}',
-                        ),
-                        const SizedBox(height: 8),
-                        ...privateEntries.map(
-                          (entry) => Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: _buildJournalCard(context, entry),
+                : _viewMode == 'story'
+                    ? ListView(
+                        padding: const EdgeInsets.all(12),
+                        children: [
+                          CampaignStoryOverviewCard(
+                            stats: storyStats,
                           ),
-                        ),
-                        const SizedBox(height: 16),
-                      ],
-                      if (orphanEvents.isNotEmpty) ...[
-                        _buildSectionHeader(
-                          context,
-                          'Campaign-wide events',
-                          subtitle:
-                              '${orphanEvents.length} event${orphanEvents.length == 1 ? '' : 's'} not linked to a session',
-                        ),
-                        const SizedBox(height: 8),
-                        ...orphanEvents.map(
-                          (event) => Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: _buildEventCard(context, event, null),
+                          const SizedBox(height: 12),
+                          ...filteredStoryItems.map(
+                            (item) => CampaignStoryTimelineTile(
+                              item: item,
+                              compendiumEntries: compendiumEntries,
+                              isExpanded: _expandedStoryItems.contains(item.id),
+                              onToggleExpanded: () {
+                                setState(() {
+                                  if (_expandedStoryItems.contains(item.id)) {
+                                    _expandedStoryItems.remove(item.id);
+                                  } else {
+                                    _expandedStoryItems.add(item.id);
+                                  }
+                                });
+                              },
+                              onOpenSession: (session) {
+                                _openSession(context, session);
+                              },
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 16),
-                      ],
-                      ...filteredSessions.map((session) {
-                        final sessionEvents = campaignEvents
-                            .where((e) => e.sessionId == session.id)
-                            .toList()
-                          ..sort((a, b) => b.date.compareTo(a.date));
+                        ],
+                      )
+                    : ListView(
+                        padding: const EdgeInsets.all(12),
+                        children: [
+                          if (isDm &&
+                              _showPrivateNotes &&
+                              privateEntries.isNotEmpty) ...[
+                            _buildSectionHeader(
+                              context,
+                              'Private reflections',
+                              subtitle:
+                                  '${privateEntries.length} private note${privateEntries.length == 1 ? '' : 's'}',
+                            ),
+                            const SizedBox(height: 8),
+                            ...privateEntries.map(
+                              (entry) => Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: _buildJournalCard(context, entry),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                          ],
+                          if (orphanEvents.isNotEmpty) ...[
+                            _buildSectionHeader(
+                              context,
+                              'Campaign-wide events',
+                              subtitle:
+                                  '${orphanEvents.length} event${orphanEvents.length == 1 ? '' : 's'} not linked to a session',
+                            ),
+                            const SizedBox(height: 8),
+                            ...orphanEvents.map(
+                              (event) => Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: _buildEventCard(context, event, null),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                          ],
+                          ...filteredSessions.map((session) {
+                            final sessionEvents = campaignEvents
+                                .where((e) => e.sessionId == session.id)
+                                .toList()
+                              ..sort((a, b) => b.date.compareTo(a.date));
 
-                        final sessionEntries = campaignJournalEntries
-                            .where((e) => e.sessionId == session.id)
-                            .toList()
-                          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+                            final sessionEntries = campaignJournalEntries
+                                .where((e) => e.sessionId == session.id)
+                                .toList()
+                              ..sort(
+                                  (a, b) => b.createdAt.compareTo(a.createdAt));
 
-                        final visibleEvents = sessionEvents.where((event) {
-                          return query.isEmpty ||
-                              matchesSearch(event.title) ||
-                              matchesSearch(event.description) ||
-                              matchesSearch(event.type);
-                        }).toList();
+                            final visibleEvents = sessionEvents.where((event) {
+                              return query.isEmpty ||
+                                  matchesSearch(event.title) ||
+                                  matchesSearch(event.description) ||
+                                  matchesSearch(event.type);
+                            }).toList();
 
-                        final visibleEntries = sessionEntries.where((entry) {
-                          return query.isEmpty ||
-                              matchesSearch(entry.content) ||
-                              matchesSearch(entry.authorName) ||
-                              matchesSearch(entry.authorCharacterName ?? '');
-                        }).toList();
+                            final visibleEntries =
+                                sessionEntries.where((entry) {
+                              return query.isEmpty ||
+                                  matchesSearch(entry.content) ||
+                                  matchesSearch(entry.authorName) ||
+                                  matchesSearch(
+                                      entry.authorCharacterName ?? '');
+                            }).toList();
 
-                        final sessionTitleMatches = query.isEmpty ||
-                            matchesSearch(session.title) ||
-                            matchesSearch(session.summary ?? '') ||
-                            matchesSearch(session.playerNarrativeRecap ?? '') ||
-                            (isDm && matchesSearch(session.rawNotes)) ||
-                            (isDm &&
-                                matchesSearch(session.dmNarrativeRecap ?? ''));
+                            final sessionTitleMatches = query.isEmpty ||
+                                matchesSearch(session.title) ||
+                                matchesSearch(session.summary ?? '') ||
+                                matchesSearch(
+                                    session.playerNarrativeRecap ?? '') ||
+                                (isDm && matchesSearch(session.rawNotes)) ||
+                                (isDm &&
+                                    matchesSearch(
+                                        session.dmNarrativeRecap ?? ''));
 
-                        if (!sessionTitleMatches &&
-                            visibleEvents.isEmpty &&
-                            visibleEntries.isEmpty) {
-                          return const SizedBox.shrink();
-                        }
+                            if (!sessionTitleMatches &&
+                                visibleEvents.isEmpty &&
+                                visibleEntries.isEmpty) {
+                              return const SizedBox.shrink();
+                            }
 
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 16),
-                          child: _buildSessionBlock(
-                            context,
-                            session,
-                            visibleEvents,
-                            visibleEntries,
-                          ),
-                        );
-                      }),
-                    ],
-                  ),
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 16),
+                              child: _buildSessionBlock(
+                                context,
+                                session,
+                                visibleEvents,
+                                visibleEntries,
+                              ),
+                            );
+                          }),
+                        ],
+                      ),
           ),
         ],
       ),
@@ -323,6 +469,14 @@ class _TimelineScreenState extends State<TimelineScreen> {
               child: const Icon(Icons.add),
             )
           : null,
+    );
+  }
+
+  void _openSession(BuildContext context, Session session) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => SessionDetailScreen(session: session),
+      ),
     );
   }
 
@@ -504,10 +658,10 @@ class _TimelineScreenState extends State<TimelineScreen> {
               margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: Colors.deepPurpleAccent.withOpacity(0.08),
+                color: Colors.deepPurpleAccent.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(
-                  color: Colors.deepPurpleAccent.withOpacity(0.25),
+                  color: Colors.deepPurpleAccent.withValues(alpha: 0.25),
                 ),
               ),
               child: Column(
