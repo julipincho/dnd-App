@@ -34,9 +34,10 @@ import 'screens/level_up_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
 import 'screens/combat_mode_screen.dart';
+import 'screens/battle_board_screen.dart';
+import 'screens/battle_board_demo_screen.dart';
 
 final GoRouter appRouter = GoRouter(
-  initialLocation: '/',
   refreshListenable: CharacterStorage.refreshNotifier,
   routes: [
     // ---------------------------------------------------------
@@ -228,6 +229,26 @@ final GoRouter appRouter = GoRouter(
           characterId: id,
           campaignId: state.uri.queryParameters['campaignId'],
         );
+      },
+    ),
+    GoRoute(
+      path: '/board/:campaignId/:sceneId',
+      builder: (_, state) {
+        final campaignId = state.pathParameters['campaignId']!;
+        final sceneId = state.pathParameters['sceneId']!;
+        final mode = state.uri.queryParameters['mode'];
+        return BattleBoardScreen(
+          campaignId: campaignId,
+          sceneId: sceneId,
+          readOnly: mode == 'display',
+        );
+      },
+    ),
+    GoRoute(
+      path: '/board-demo',
+      builder: (_, state) {
+        final mode = state.uri.queryParameters['mode'];
+        return BattleBoardDemoScreen(readOnly: mode == 'display');
       },
     ),
 

@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 import '../features/dice/models/dice_roll_result.dart';
 import '../features/dice/services/dice_roller_service.dart';
 import '../models/character.dart';
+import '../models/board_token.dart';
 import '../models/combat_encounter.dart' as encounter_models;
 import '../models/custom_monster.dart';
 import '../providers/campaign_provider.dart';
@@ -18,11 +19,13 @@ import '../providers/character_provider.dart';
 import '../providers/equipment_provider.dart';
 import '../providers/spell_provider.dart';
 import '../providers/auth_provider.dart';
+import '../providers/battle_board_provider.dart';
 import '../services/character_combat_builder_service.dart';
 import '../services/combat_encounter_engine.dart';
 import '../services/custom_monster_repository.dart';
 import '../services/monster_repository.dart';
 import '../theme.dart';
+import '../utils/external_url_launcher.dart';
 import '../utils/image_path_utils.dart';
 import '../widgets/stitch_navigation.dart';
 
@@ -68,6 +71,11 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
   bool _dmView = true;
   bool _seededMonsters = false;
   bool _combatStarted = false;
+  bool _openingBattleBoard = false;
+  bool _showBattleBoardController = false;
+  bool _battleBoardControllerExpanded = true;
+  String? _activeBattleBoardSceneId;
+  String? _selectedBattleBoardCombatantId;
   bool _monsterCatalogLoading = false;
   final Map<String, int> _stagedMonsterCounts = {
     'hobgoblin': 1,
@@ -4904,9 +4912,289 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     });
   }
 
+  Future<String?> _ensureBattleBoardScene() async {
+    if (_openingBattleBoard) return null;
+
+    final campaignId = _resolvedCampaignId(listen: false);
+    if (campaignId == null || campaignId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Select a campaign before opening the battle board.'),
+        ),
+      );
+      return null;
+    }
+
+    setState(() {
+      _openingBattleBoard = true;
+    });
+
+    try {
+      final boardProvider = context.read<BattleBoardProvider>();
+      final sceneId = _activeBattleBoardSceneId;
+      if (sceneId != null) {
+        boardProvider.watchScene(campaignId: campaignId, sceneId: sceneId);
+        return sceneId;
+      }
+
+      final scene = await boardProvider.createScene(
+        campaignId: campaignId,
+        name: 'Combat Board - Round $_round',
+        mapImageUrl: 'assets/images/combat/dungeon_battlefield.png',
+        combatActive: _combatStarted,
+      );
+
+      for (final token in _boardTokensForScene(scene.id)) {
+        await boardProvider.saveToken(campaignId: campaignId, token: token);
+      }
+
+      boardProvider.watchScene(campaignId: campaignId, sceneId: scene.id);
+      _activeBattleBoardSceneId = scene.id;
+      _selectedBattleBoardCombatantId ??= _activeCombatant.id;
+      return scene.id;
+    } catch (error) {
+      if (!mounted) return null;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not prepare the battle board: $error'),
+        ),
+      );
+      return null;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _openingBattleBoard = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _openBattleBoardController() async {
+    await _activateBattleBoardController(openDisplay: false);
+  }
+
+  Future<void> _activateBattleBoardController({
+    required bool openDisplay,
+  }) async {
+    final campaignId = _resolvedCampaignId(listen: false);
+    if (campaignId == null || campaignId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Select a campaign before opening the battle board.'),
+        ),
+      );
+      return;
+    }
+    final sceneId = await _ensureBattleBoardScene();
+    if (!mounted || sceneId == null) return;
+
+    setState(() {
+      _showBattleBoardController = true;
+      _battleBoardControllerExpanded = true;
+      _selectedBattleBoardCombatantId ??= _activeCombatant.id;
+    });
+
+    await _syncBattleBoardTokensFromCombatState();
+
+    if (openDisplay) {
+      await _openBattleBoardDisplayWindow();
+    }
+  }
+
+  Future<void> _showBattleBoardControls() async {
+    final pendingWindow = openPendingExternalWindow();
+    await _activateBattleBoardController(openDisplay: false);
+
+    final campaignId = _resolvedCampaignId(listen: false);
+    final sceneId = _activeBattleBoardSceneId;
+    if (campaignId == null || sceneId == null) {
+      pendingWindow?.close();
+      return;
+    }
+
+    pendingWindow?.navigate(_displayBoardUrl(campaignId, sceneId));
+  }
+
+  Future<void> _openBattleBoardDisplayWindow() async {
+    final campaignId = _resolvedCampaignId(listen: false);
+    final sceneId = _activeBattleBoardSceneId;
+    if (campaignId == null || sceneId == null) return;
+
+    final displayUrl = _displayBoardUrl(campaignId, sceneId);
+    final opened = await openExternalUrl(displayUrl);
+    if (!mounted) return;
+
+    if (opened) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Battle board display opened in another window.'),
+        ),
+      );
+      return;
+    }
+
+    await Clipboard.setData(ClipboardData(text: displayUrl));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Display URL copied. Open it in another browser window.'),
+      ),
+    );
+  }
+
+  String _displayBoardUrl(String campaignId, String sceneId) {
+    final baseUri = Uri.base;
+    if (baseUri.hasScheme &&
+        (baseUri.scheme == 'http' || baseUri.scheme == 'https')) {
+      return Uri.parse(baseUri.origin).replace(
+        path: '/',
+        queryParameters: {
+          'boardCampaignId': campaignId,
+          'boardSceneId': sceneId,
+          'mode': 'display',
+        },
+      ).toString();
+    }
+
+    return Uri(
+      path: '/',
+      queryParameters: {
+        'boardCampaignId': campaignId,
+        'boardSceneId': sceneId,
+        'mode': 'display',
+      },
+    ).toString();
+  }
+
+  Future<void> _moveBattleBoardToken(String combatantId, int dx, int dy) async {
+    final campaignId = _resolvedCampaignId(listen: false);
+    final sceneId = _activeBattleBoardSceneId;
+    if (campaignId == null || sceneId == null) return;
+
+    final boardProvider = context.read<BattleBoardProvider>();
+    final scene = boardProvider.activeScene;
+    final matchingTokens = boardProvider.tokens.where(
+      (token) => token.sceneId == sceneId && token.refId == combatantId,
+    );
+    if (scene == null || matchingTokens.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Board token is still loading.')),
+      );
+      return;
+    }
+
+    final token = matchingTokens.first;
+    final nextX = (token.x + dx).clamp(0, scene.gridColumns - token.size);
+    final nextY = (token.y + dy).clamp(0, scene.gridRows - token.size);
+    await boardProvider.moveToken(
+      campaignId: campaignId,
+      token: token,
+      x: nextX,
+      y: nextY,
+    );
+  }
+
+  Future<void> _syncBattleBoardTokensFromCombatState() async {
+    final campaignId = _resolvedCampaignId(listen: false);
+    final sceneId = _activeBattleBoardSceneId;
+    if (campaignId == null || sceneId == null) return;
+
+    final boardProvider = context.read<BattleBoardProvider>();
+    final tokenByRefId = {
+      for (final token in boardProvider.tokens.where(
+        (token) => token.sceneId == sceneId,
+      ))
+        token.refId: token,
+    };
+
+    for (final combatant in _combatants) {
+      final token = tokenByRefId[combatant.id];
+      if (token == null) continue;
+      if (token.currentHp == combatant.hp &&
+          token.maxHp == combatant.maxHp &&
+          _stringListsMatch(token.conditions, combatant.conditions)) {
+        continue;
+      }
+
+      await boardProvider.saveToken(
+        campaignId: campaignId,
+        token: token.copyWith(
+          currentHp: combatant.hp,
+          maxHp: combatant.maxHp,
+          conditions: combatant.conditions,
+        ),
+      );
+    }
+  }
+
+  bool _stringListsMatch(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    for (var index = 0; index < a.length; index++) {
+      if (a[index] != b[index]) return false;
+    }
+    return true;
+  }
+
+  List<BoardToken> _boardTokensForScene(String sceneId) {
+    final party = _combatants
+        .where((combatant) => combatant.team == _CombatTeam.party)
+        .toList(growable: false);
+    final enemies = _combatants
+        .where((combatant) => combatant.team == _CombatTeam.enemy)
+        .toList(growable: false);
+    final tokens = <BoardToken>[];
+
+    for (var index = 0; index < party.length; index++) {
+      final combatant = party[index];
+      tokens.add(
+        BoardToken.create(
+          id: '${sceneId}_${combatant.id}',
+          sceneId: sceneId,
+          refId: combatant.id,
+          type: 'character',
+          name: combatant.name,
+          imageUrl: combatant.portraitAsset ?? '',
+          x: 3 + (index % 3),
+          y: 4 + (index ~/ 3) * 2,
+          size: 1,
+          currentHp: combatant.hp,
+          maxHp: combatant.maxHp,
+          conditions: combatant.conditions,
+        ),
+      );
+    }
+
+    for (var index = 0; index < enemies.length; index++) {
+      final combatant = enemies[index];
+      tokens.add(
+        BoardToken.create(
+          id: '${sceneId}_${combatant.id}',
+          sceneId: sceneId,
+          refId: combatant.id,
+          type: 'monster',
+          name: combatant.name,
+          imageUrl: combatant.portraitAsset ?? '',
+          x: 16 + (index % 4),
+          y: 4 + (index ~/ 4) * 2,
+          size: 1,
+          currentHp: combatant.hp,
+          maxHp: combatant.maxHp,
+          conditions: combatant.conditions,
+        ),
+      );
+    }
+
+    return tokens;
+  }
+
   @override
   Widget build(BuildContext context) {
     final tokens = context.stitch;
+    final boardCampaignId = _resolvedCampaignId(listen: false);
+    final boardSceneId = _activeBattleBoardSceneId;
+    final boardDisplayUrl = boardCampaignId != null && boardSceneId != null
+        ? _displayBoardUrl(boardCampaignId, boardSceneId)
+        : null;
 
     return PopScope(
       canPop: false,
@@ -5098,6 +5386,65 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
                 },
               ),
             ),
+            if (_combatStarted &&
+                _showBattleBoardController &&
+                boardDisplayUrl != null)
+              Positioned(
+                top: 78,
+                right: 16,
+                child: SafeArea(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 360),
+                    child: _BattleBoardFloatingController(
+                      displayUrl: boardDisplayUrl,
+                      sceneId: boardSceneId!,
+                      combatants: _combatants,
+                      selectedCombatantId: _selectedBattleBoardCombatantId ??
+                          _activeCombatant.id,
+                      expanded: _battleBoardControllerExpanded,
+                      onToggleExpanded: () {
+                        setState(() {
+                          _battleBoardControllerExpanded =
+                              !_battleBoardControllerExpanded;
+                        });
+                      },
+                      onClose: () {
+                        setState(() {
+                          _showBattleBoardController = false;
+                        });
+                      },
+                      onSelectCombatant: (combatantId) {
+                        setState(() {
+                          _selectedBattleBoardCombatantId = combatantId;
+                        });
+                      },
+                      onMove: _moveBattleBoardToken,
+                      onOpenDisplay: _openBattleBoardDisplayWindow,
+                      onSyncState: _syncBattleBoardTokensFromCombatState,
+                    ),
+                  ),
+                ),
+              ),
+            if (_combatStarted)
+              Positioned(
+                top: 14,
+                right: 16,
+                child: SafeArea(
+                  child: FloatingActionButton.extended(
+                    heroTag: 'battle-board-controller',
+                    onPressed: _openingBattleBoard
+                        ? null
+                        : () => unawaited(_showBattleBoardControls()),
+                    icon: _openingBattleBoard
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.grid_view_rounded),
+                    label: const Text('Board'),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -21274,6 +21621,439 @@ class _Combatant {
       team: team,
       portraitAsset: portraitAsset ?? this.portraitAsset,
       conditions: conditions ?? this.conditions,
+    );
+  }
+}
+
+class _BattleBoardFloatingController extends StatefulWidget {
+  final String sceneId;
+  final String displayUrl;
+  final List<_Combatant> combatants;
+  final String selectedCombatantId;
+  final bool expanded;
+  final VoidCallback onToggleExpanded;
+  final VoidCallback onClose;
+  final ValueChanged<String> onSelectCombatant;
+  final Future<void> Function(String combatantId, int dx, int dy) onMove;
+  final Future<void> Function() onOpenDisplay;
+  final Future<void> Function() onSyncState;
+
+  const _BattleBoardFloatingController({
+    required this.sceneId,
+    required this.displayUrl,
+    required this.combatants,
+    required this.selectedCombatantId,
+    required this.expanded,
+    required this.onToggleExpanded,
+    required this.onClose,
+    required this.onSelectCombatant,
+    required this.onMove,
+    required this.onOpenDisplay,
+    required this.onSyncState,
+  });
+
+  @override
+  State<_BattleBoardFloatingController> createState() =>
+      _BattleBoardFloatingControllerState();
+}
+
+class _BattleBoardFloatingControllerState
+    extends State<_BattleBoardFloatingController> {
+  late String _selectedCombatantId;
+  bool _moving = false;
+  bool _openingDisplay = false;
+  bool _syncing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedCombatantId = widget.selectedCombatantId;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final boardProvider = context.watch<BattleBoardProvider>();
+    if (widget.combatants.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final selectedCombatant = widget.combatants.firstWhere(
+      (combatant) => combatant.id == _selectedCombatantId,
+      orElse: () => widget.combatants.first,
+    );
+    final boardToken = boardProvider.tokens.where(
+      (token) =>
+          token.sceneId == widget.sceneId &&
+          token.refId == selectedCombatant.id,
+    );
+    final positionLabel = boardToken.isEmpty
+        ? 'Loading position'
+        : 'Grid ${boardToken.first.x}, ${boardToken.first.y}';
+    final canMove = !_moving && boardToken.isNotEmpty;
+
+    return Material(
+      color: Colors.transparent,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        width: widget.expanded ? 360 : 250,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: tokens.panel.withValues(alpha: 0.96),
+          borderRadius: BorderRadius.circular(tokens.radiusMd),
+          border: Border.all(color: tokens.border.withValues(alpha: 0.65)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.35),
+              blurRadius: 22,
+              offset: const Offset(0, 14),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.grid_view_rounded, color: tokens.accentAction),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    widget.expanded
+                        ? 'Board controller'
+                        : selectedCombatant.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Open display',
+                  onPressed: _openingDisplay ? null : _openDisplay,
+                  icon: _openingDisplay
+                      ? const SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.open_in_new_rounded),
+                ),
+                IconButton(
+                  tooltip: widget.expanded ? 'Minimize' : 'Expand',
+                  onPressed: widget.onToggleExpanded,
+                  icon: Icon(
+                    widget.expanded
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Hide board controls',
+                  onPressed: widget.onClose,
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ],
+            ),
+            if (!widget.expanded) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      positionLabel,
+                      style: TextStyle(
+                        color: tokens.textSecondary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  _MovementStrip(
+                    enabled: canMove,
+                    onMove: _move,
+                  ),
+                ],
+              ),
+            ] else ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: tokens.surface,
+                  borderRadius: BorderRadius.circular(tokens.radiusSm),
+                  border: Border.all(color: tokens.border),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Virtual monitor URL',
+                      style: TextStyle(
+                        color: tokens.textSecondary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    SelectableText(
+                      widget.displayUrl,
+                      maxLines: 2,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              DropdownButtonFormField<String>(
+                value: _selectedCombatantId,
+                decoration: const InputDecoration(
+                  labelText: 'Token',
+                  prefixIcon: Icon(Icons.adjust_rounded),
+                ),
+                items: [
+                  for (final combatant in widget.combatants)
+                    DropdownMenuItem<String>(
+                      value: combatant.id,
+                      child: Text(
+                        combatant.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                ],
+                onChanged: (combatantId) {
+                  if (combatantId == null) return;
+                  setState(() {
+                    _selectedCombatantId = combatantId;
+                  });
+                  widget.onSelectCombatant(combatantId);
+                },
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          selectedCombatant.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '$positionLabel - 1 square = 5 ft',
+                          style: TextStyle(
+                            color: tokens.textSecondary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _MovementPad(
+                    enabled: canMove,
+                    onMove: _move,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _syncing ? null : _syncState,
+                      icon: _syncing
+                          ? const SizedBox.square(
+                              dimension: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.sync_rounded),
+                      label: const Text('Sync HP'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: _openingDisplay ? null : _openDisplay,
+                      icon: const Icon(Icons.tv_rounded),
+                      label: const Text('Display'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openDisplay() async {
+    if (_openingDisplay) return;
+    setState(() {
+      _openingDisplay = true;
+    });
+    try {
+      await widget.onOpenDisplay();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _openingDisplay = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _syncState() async {
+    if (_syncing) return;
+    setState(() {
+      _syncing = true;
+    });
+    try {
+      await widget.onSyncState();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _syncing = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _move(int dx, int dy) async {
+    if (_moving) return;
+    setState(() {
+      _moving = true;
+    });
+    try {
+      await widget.onMove(_selectedCombatantId, dx, dy);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _moving = false;
+        });
+      }
+    }
+  }
+}
+
+class _MovementStrip extends StatelessWidget {
+  final bool enabled;
+  final void Function(int dx, int dy) onMove;
+
+  const _MovementStrip({
+    required this.enabled,
+    required this.onMove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _MoveButton(
+          icon: Icons.keyboard_arrow_left_rounded,
+          enabled: enabled,
+          onPressed: () => onMove(-1, 0),
+        ),
+        _MoveButton(
+          icon: Icons.keyboard_arrow_up_rounded,
+          enabled: enabled,
+          onPressed: () => onMove(0, -1),
+        ),
+        _MoveButton(
+          icon: Icons.keyboard_arrow_down_rounded,
+          enabled: enabled,
+          onPressed: () => onMove(0, 1),
+        ),
+        _MoveButton(
+          icon: Icons.keyboard_arrow_right_rounded,
+          enabled: enabled,
+          onPressed: () => onMove(1, 0),
+        ),
+      ],
+    );
+  }
+}
+
+class _MovementPad extends StatelessWidget {
+  final bool enabled;
+  final void Function(int dx, int dy) onMove;
+
+  const _MovementPad({
+    required this.enabled,
+    required this.onMove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 128,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _MoveButton(
+            icon: Icons.keyboard_arrow_up_rounded,
+            enabled: enabled,
+            onPressed: () => onMove(0, -1),
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _MoveButton(
+                icon: Icons.keyboard_arrow_left_rounded,
+                enabled: enabled,
+                onPressed: () => onMove(-1, 0),
+              ),
+              const SizedBox(width: 40, height: 40),
+              _MoveButton(
+                icon: Icons.keyboard_arrow_right_rounded,
+                enabled: enabled,
+                onPressed: () => onMove(1, 0),
+              ),
+            ],
+          ),
+          _MoveButton(
+            icon: Icons.keyboard_arrow_down_rounded,
+            enabled: enabled,
+            onPressed: () => onMove(0, 1),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MoveButton extends StatelessWidget {
+  final IconData icon;
+  final bool enabled;
+  final VoidCallback onPressed;
+
+  const _MoveButton({
+    required this.icon,
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton.filledTonal(
+      onPressed: enabled ? onPressed : null,
+      icon: Icon(icon),
     );
   }
 }
