@@ -20,6 +20,7 @@ import '../providers/journal_entry_provider.dart';
 import '../providers/session_provider.dart';
 import '../services/supabase_storage_service.dart';
 import '../utils/image_path_utils.dart';
+import '../widgets/campaign_event_composer_sheet.dart';
 import '../widgets/compendium_aware_text_field.dart';
 import '../widgets/journal_entry_composer_dialog.dart';
 import '../widgets/linked_compendium_text.dart';
@@ -1433,8 +1434,10 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     final journalProvider = context.read<JournalEntryProvider>();
     final messenger = ScaffoldMessenger.of(context);
 
-    showDialog(
+    showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
       builder: (_) {
         return JournalEntryComposerDialog(
           title: 'Edit journal entry',
@@ -1500,107 +1503,36 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
   }
 
   void _showEditEventDialog(BuildContext context, CampaignEvent event) {
-    final titleController = TextEditingController(text: event.title);
-    final descriptionController =
-        TextEditingController(text: event.description);
-    String selectedType = event.type;
+    final eventProvider = context.read<CampaignEventProvider>();
+    final messenger = ScaffoldMessenger.of(context);
 
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Edit event'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: titleController,
-                      decoration: const InputDecoration(
-                        labelText: 'Event title',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: descriptionController,
-                      decoration: const InputDecoration(
-                        labelText: 'Description',
-                      ),
-                      maxLines: 4,
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      value: selectedType,
-                      decoration: const InputDecoration(
-                        labelText: 'Event type',
-                      ),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'combat',
-                          child: Text('Combat'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'dialogue',
-                          child: Text('Dialogue'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'discovery',
-                          child: Text('Discovery'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'travel',
-                          child: Text('Travel'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'quest',
-                          child: Text('Quest'),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setDialogState(() {
-                          selectedType = value;
-                        });
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () async {
-                    final title = titleController.text.trim();
-                    final description = descriptionController.text.trim();
-
-                    if (title.isEmpty || description.isEmpty) return;
-
-                    final updatedEvent = event.copyWith(
-                      title: title,
-                      description: description,
-                      type: selectedType,
-                    );
-
-                    await dialogContext
-                        .read<CampaignEventProvider>()
-                        .updateEvent(updatedEvent);
-
-                    if (!dialogContext.mounted) return;
-                    Navigator.of(dialogContext).pop();
-
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Event updated')),
-                    );
-                  },
-                  child: const Text('Save'),
-                ),
-              ],
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) {
+        return CampaignEventComposerSheet(
+          title: 'Edit event',
+          actionLabel: 'Save event',
+          campaignId: event.campaignId,
+          initialTitle: event.title,
+          initialDescription: event.description,
+          initialType: event.type,
+          initialDate: event.date,
+          onSubmit: (draft) async {
+            final updatedEvent = event.copyWith(
+              title: draft.title,
+              description: draft.description,
+              type: draft.type,
+              date: draft.date,
             );
+            await eventProvider.updateEvent(updatedEvent);
+            if (mounted) {
+              messenger.showSnackBar(
+                const SnackBar(content: Text('Event updated')),
+              );
+            }
+            return true;
           },
         );
       },
@@ -1698,8 +1630,10 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     final journalProvider = context.read<JournalEntryProvider>();
     final messenger = ScaffoldMessenger.of(context);
 
-    showDialog(
+    showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
       builder: (_) {
         return JournalEntryComposerDialog(
           title: 'Create journal entry',
@@ -1987,108 +1921,31 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
   }
 
   void _showCreateEventDialog(BuildContext context) {
-    final titleController = TextEditingController();
-    final descriptionController = TextEditingController();
-    String selectedType = 'discovery';
+    final eventProvider = context.read<CampaignEventProvider>();
 
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Create event'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: titleController,
-                      decoration: const InputDecoration(
-                        labelText: 'Event title',
-                        hintText: 'Example: The party found the hidden vault',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: descriptionController,
-                      decoration: const InputDecoration(
-                        labelText: 'Description',
-                        hintText: 'Describe what happened...',
-                      ),
-                      maxLines: 4,
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      value: selectedType,
-                      decoration: const InputDecoration(
-                        labelText: 'Event type',
-                      ),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'combat',
-                          child: Text('Combat'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'dialogue',
-                          child: Text('Dialogue'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'discovery',
-                          child: Text('Discovery'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'travel',
-                          child: Text('Travel'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'quest',
-                          child: Text('Quest'),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setDialogState(() {
-                          selectedType = value;
-                        });
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () async {
-                    final title = titleController.text.trim();
-                    final description = descriptionController.text.trim();
-
-                    if (title.isEmpty || description.isEmpty) return;
-
-                    final event = CampaignEvent(
-                      id: DateTime.now().millisecondsSinceEpoch.toString(),
-                      campaignId: _currentSession.campaignId,
-                      sessionId: _currentSession.id,
-                      title: title,
-                      description: description,
-                      date: DateTime.now(),
-                      type: selectedType,
-                    );
-
-                    await dialogContext
-                        .read<CampaignEventProvider>()
-                        .addEvent(event);
-
-                    if (!dialogContext.mounted) return;
-                    Navigator.of(dialogContext).pop();
-                  },
-                  child: const Text('Create'),
-                ),
-              ],
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) {
+        return CampaignEventComposerSheet(
+          title: 'Create event',
+          actionLabel: 'Create event',
+          campaignId: _currentSession.campaignId,
+          initialDate: DateTime.now(),
+          onSubmit: (draft) async {
+            final event = CampaignEvent(
+              id: DateTime.now().millisecondsSinceEpoch.toString(),
+              campaignId: _currentSession.campaignId,
+              sessionId: _currentSession.id,
+              title: draft.title,
+              description: draft.description,
+              date: draft.date,
+              type: draft.type,
             );
+
+            await eventProvider.addEvent(event);
+            return true;
           },
         );
       },
@@ -2110,113 +1967,40 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     final suggestedTitle = _titleController.text.trim().isNotEmpty
         ? '${_titleController.text.trim()} event'
         : 'New event';
+    final eventProvider = context.read<CampaignEventProvider>();
+    final messenger = ScaffoldMessenger.of(context);
 
-    final titleController = TextEditingController(text: suggestedTitle);
-    final descriptionController = TextEditingController(text: summaryText);
-    String selectedType = 'discovery';
-
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Create event from summary'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: titleController,
-                      decoration: const InputDecoration(
-                        labelText: 'Event title',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: descriptionController,
-                      decoration: const InputDecoration(
-                        labelText: 'Description',
-                      ),
-                      maxLines: 5,
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      value: selectedType,
-                      decoration: const InputDecoration(
-                        labelText: 'Event type',
-                      ),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'combat',
-                          child: Text('Combat'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'dialogue',
-                          child: Text('Dialogue'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'discovery',
-                          child: Text('Discovery'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'travel',
-                          child: Text('Travel'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'quest',
-                          child: Text('Quest'),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setDialogState(() {
-                          selectedType = value;
-                        });
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () async {
-                    final title = titleController.text.trim();
-                    final description = descriptionController.text.trim();
-
-                    if (title.isEmpty || description.isEmpty) return;
-
-                    final event = CampaignEvent(
-                      id: DateTime.now().millisecondsSinceEpoch.toString(),
-                      campaignId: _currentSession.campaignId,
-                      sessionId: _currentSession.id,
-                      title: title,
-                      description: description,
-                      date: DateTime.now(),
-                      type: selectedType,
-                    );
-
-                    await dialogContext
-                        .read<CampaignEventProvider>()
-                        .addEvent(event);
-
-                    if (!dialogContext.mounted) return;
-                    Navigator.of(dialogContext).pop();
-
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Event created from summary'),
-                      ),
-                    );
-                  },
-                  child: const Text('Create'),
-                ),
-              ],
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) {
+        return CampaignEventComposerSheet(
+          title: 'Create event from summary',
+          actionLabel: 'Create event',
+          campaignId: _currentSession.campaignId,
+          initialTitle: suggestedTitle,
+          initialDescription: summaryText,
+          initialDate: DateTime.now(),
+          onSubmit: (draft) async {
+            final event = CampaignEvent(
+              id: DateTime.now().millisecondsSinceEpoch.toString(),
+              campaignId: _currentSession.campaignId,
+              sessionId: _currentSession.id,
+              title: draft.title,
+              description: draft.description,
+              date: draft.date,
+              type: draft.type,
             );
+            await eventProvider.addEvent(event);
+
+            if (mounted) {
+              messenger.showSnackBar(
+                const SnackBar(content: Text('Event created from summary')),
+              );
+            }
+
+            return true;
           },
         );
       },

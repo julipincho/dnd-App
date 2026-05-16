@@ -86,6 +86,7 @@ class CampaignStoryTimelineTile extends StatelessWidget {
   final List<CompendiumEntry> compendiumEntries;
   final bool isExpanded;
   final VoidCallback onToggleExpanded;
+  final VoidCallback onOpenDay;
   final ValueChanged<Session> onOpenSession;
 
   const CampaignStoryTimelineTile({
@@ -94,6 +95,7 @@ class CampaignStoryTimelineTile extends StatelessWidget {
     required this.compendiumEntries,
     required this.isExpanded,
     required this.onToggleExpanded,
+    required this.onOpenDay,
     required this.onOpenSession,
   });
 
@@ -203,44 +205,49 @@ class CampaignStoryTimelineTile extends StatelessWidget {
                         maxItems: isExpanded ? null : 4,
                       ),
                     ],
-                    if (item.linkedSession != null ||
-                        item.kind == 'session') ...[
-                      const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          if (item.linkedSession != null &&
-                              item.kind != 'session')
-                            ActionChip(
-                              avatar: const Icon(
-                                Icons.menu_book_outlined,
-                                size: 16,
-                              ),
-                              label: Text(
-                                item.linkedSession!.title.isEmpty
-                                    ? 'Open session'
-                                    : item.linkedSession!.title,
-                              ),
-                              onPressed: () {
-                                onOpenSession(item.linkedSession!);
-                              },
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        ActionChip(
+                          avatar: const Icon(
+                            Icons.travel_explore_outlined,
+                            size: 16,
+                          ),
+                          label: const Text('Open day'),
+                          onPressed: onOpenDay,
+                        ),
+                        if (item.linkedSession != null &&
+                            item.kind != 'session')
+                          ActionChip(
+                            avatar: const Icon(
+                              Icons.menu_book_outlined,
+                              size: 16,
                             ),
-                          if (item.kind == 'session' &&
-                              item.linkedSession != null)
-                            ActionChip(
-                              avatar: const Icon(
-                                Icons.open_in_new,
-                                size: 16,
-                              ),
-                              label: const Text('Open session'),
-                              onPressed: () {
-                                onOpenSession(item.linkedSession!);
-                              },
+                            label: Text(
+                              item.linkedSession!.title.isEmpty
+                                  ? 'Open session'
+                                  : item.linkedSession!.title,
                             ),
-                        ],
-                      ),
-                    ],
+                            onPressed: () {
+                              onOpenSession(item.linkedSession!);
+                            },
+                          ),
+                        if (item.kind == 'session' &&
+                            item.linkedSession != null)
+                          ActionChip(
+                            avatar: const Icon(
+                              Icons.open_in_new,
+                              size: 16,
+                            ),
+                            label: const Text('Open session'),
+                            onPressed: () {
+                              onOpenSession(item.linkedSession!);
+                            },
+                          ),
+                      ],
+                    ),
                   ],
                 ),
               ),

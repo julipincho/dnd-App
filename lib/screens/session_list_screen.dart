@@ -8,11 +8,13 @@ import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 
 import '../providers/auth_provider.dart';
+import '../providers/app_role_provider.dart';
 import '../providers/campaign_provider.dart';
 import '../providers/session_provider.dart';
 import '../models/session.dart';
 import '../services/supabase_storage_service.dart';
 import '../utils/image_path_utils.dart';
+import '../widgets/session_composer_sheet.dart';
 
 class SessionListScreen extends StatefulWidget {
   const SessionListScreen({super.key});
@@ -41,6 +43,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
   Widget build(BuildContext context) {
     final campaignProvider = context.watch<CampaignProvider>();
     final sessionProvider = context.watch<SessionProvider>();
+    final roleProvider = context.watch<AppRoleProvider>();
     final currentUserId = context.watch<AuthProvider>().userId;
     final activeCampaign = campaignProvider.activeCampaign;
 
@@ -59,16 +62,35 @@ class _SessionListScreenState extends State<SessionListScreen> {
         .getSessionsByCampaign(activeCampaign.id)
         .toList()
       ..sort((a, b) => b.date.compareTo(a.date));
-    final isDm =
+    final isOwner =
         currentUserId != null && activeCampaign.ownerUserId == currentUserId;
+    final canManageSessions = isOwner || roleProvider.isDm;
+    final ownerUserId = currentUserId ?? activeCampaign.ownerUserId;
 
     return Scaffold(
       appBar: StitchAppBar(
         title: Text('${activeCampaign.name} Sessions'),
+        actions: [
+          if (canManageSessions)
+            IconButton(
+              onPressed: () => _showCreateSessionSheet(
+                context,
+                activeCampaign.id,
+                ownerUserId,
+              ),
+              icon: const Icon(Icons.add),
+              tooltip: 'Create session',
+            ),
+        ],
       ),
       body: sessions.isEmpty
-          ? const Center(
-              child: Text('No sessions yet'),
+          ? _EmptySessionsState(
+              canManageSessions: canManageSessions,
+              onCreateSession: () => _showCreateSessionSheet(
+                context,
+                activeCampaign.id,
+                ownerUserId,
+              ),
             )
           : ListView.separated(
               itemCount: sessions.length,
@@ -127,7 +149,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
                               ],
                             ),
                           ),
-                          trailing: isDm
+                          trailing: canManageSessions
                               ? PopupMenuButton<String>(
                                   onSelected: (value) async {
                                     if (value == 'delete') {
@@ -152,12 +174,12 @@ class _SessionListScreenState extends State<SessionListScreen> {
                 );
               },
             ),
-      floatingActionButton: isDm
+      floatingActionButton: canManageSessions
           ? FloatingActionButton.extended(
-              onPressed: () => _showCreateSessionDialog(
+              onPressed: () => _showCreateSessionSheet(
                 context,
                 activeCampaign.id,
-                currentUserId,
+                ownerUserId,
               ),
               icon: const Icon(Icons.add),
               label: const Text('Session'),
@@ -255,147 +277,64 @@ class _SessionListScreenState extends State<SessionListScreen> {
     );
   }
 
-  void _showCreateSessionDialog(
+  void _showCreateSessionSheet(
     BuildContext context,
     String campaignId,
     String ownerUserId,
   ) {
-    final titleController = TextEditingController();
-    final notesController = TextEditingController();
-    String? selectedImagePath;
+    final sessionProvider = context.read<SessionProvider>();
+    final messenger = ScaffoldMessenger.of(context);
 
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Create session'),
-              content: SingleChildScrollView(
-                child: SizedBox(
-                  width: 320,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      TextField(
-                        controller: titleController,
-                        decoration: const InputDecoration(
-                          labelText: 'Session title',
-                          hintText: 'Example: Session 1 - The Broken Gate',
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: notesController,
-                        decoration: const InputDecoration(
-                          labelText: 'Initial notes',
-                          hintText: 'Write the session notes...',
-                        ),
-                        maxLines: 5,
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () async {
-                                final path = await _pickSessionImage();
-                                if (path == null) return;
-
-                                setDialogState(() {
-                                  selectedImagePath = path;
-                                });
-                              },
-                              icon: const Icon(Icons.image_outlined),
-                              label: Text(
-                                selectedImagePath == null
-                                    ? 'Attach image'
-                                    : 'Change image',
-                              ),
-                            ),
-                          ),
-                          if (selectedImagePath != null) ...[
-                            const SizedBox(width: 8),
-                            IconButton(
-                              onPressed: () {
-                                setDialogState(() {
-                                  selectedImagePath = null;
-                                });
-                              },
-                              icon: const Icon(Icons.close),
-                              tooltip: 'Remove image',
-                            ),
-                          ],
-                        ],
-                      ),
-                      if (selectedImagePath != null) ...[
-                        const SizedBox(height: 12),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: buildImageFromPath(
-                            selectedImagePath!,
-                            height: 150,
-                            width: 320,
-                            fit: BoxFit.cover,
-                          ),
-                        ),
-                      ],
-                    ],
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) {
+        return SessionComposerSheet(
+          title: 'Create session',
+          actionLabel: 'Create session',
+          campaignId: campaignId,
+          initialDate: DateTime.now(),
+          onPickImage: _pickSessionImage,
+          onSubmit: (draft) async {
+            final sessionId = DateTime.now().millisecondsSinceEpoch.toString();
+            String? imagePath;
+            try {
+              imagePath = await _uploadSessionImageIfNeeded(
+                draft.imagePath,
+                ownerUserId: ownerUserId,
+                sessionId: sessionId,
+              );
+            } catch (e) {
+              if (mounted) {
+                messenger.showSnackBar(
+                  const SnackBar(
+                    content: Text('Could not upload the cover image.'),
                   ),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () async {
-                    final title = titleController.text.trim();
-                    final notes = notesController.text.trim();
+                );
+              }
+              return false;
+            }
 
-                    if (title.isEmpty) return;
-
-                    final sessionId =
-                        DateTime.now().millisecondsSinceEpoch.toString();
-                    String? imagePath;
-                    try {
-                      imagePath = await _uploadSessionImageIfNeeded(
-                        selectedImagePath,
-                        ownerUserId: ownerUserId,
-                        sessionId: sessionId,
-                      );
-                    } catch (e) {
-                      if (!dialogContext.mounted) return;
-                      ScaffoldMessenger.of(dialogContext).showSnackBar(
-                        const SnackBar(
-                          content: Text('Could not upload the cover image.'),
-                        ),
-                      );
-                      return;
-                    }
-
-                    final session = Session(
-                      id: sessionId,
-                      campaignId: campaignId,
-                      title: title,
-                      date: DateTime.now(),
-                      rawNotes: notes,
-                      summary: null,
-                      imagePath: imagePath,
-                    );
-
-                    await dialogContext
-                        .read<SessionProvider>()
-                        .addSession(session);
-
-                    if (!dialogContext.mounted) return;
-                    Navigator.of(dialogContext).pop();
-                  },
-                  child: const Text('Create'),
-                ),
-              ],
+            final session = Session(
+              id: sessionId,
+              campaignId: campaignId,
+              title: draft.title,
+              date: draft.date,
+              rawNotes: draft.rawNotes,
+              summary: null,
+              imagePath: imagePath,
             );
+
+            await sessionProvider.addSession(session);
+
+            if (mounted) {
+              messenger.showSnackBar(
+                const SnackBar(content: Text('Session created')),
+              );
+            }
+
+            return true;
           },
         );
       },
@@ -407,5 +346,52 @@ class _SessionListScreenState extends State<SessionListScreen> {
     final month = date.month.toString().padLeft(2, '0');
     final year = date.year.toString();
     return '$day/$month/$year';
+  }
+}
+
+class _EmptySessionsState extends StatelessWidget {
+  final bool canManageSessions;
+  final VoidCallback onCreateSession;
+
+  const _EmptySessionsState({
+    required this.canManageSessions,
+    required this.onCreateSession,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.auto_stories_outlined,
+              size: 48,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'No sessions yet',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Sessions are the anchor points for notes, events and the shared timeline.',
+              textAlign: TextAlign.center,
+            ),
+            if (canManageSessions) ...[
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: onCreateSession,
+                icon: const Icon(Icons.add),
+                label: const Text('Create first session'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 }

@@ -133,170 +133,183 @@ class _JournalEntryComposerDialogState
   Widget build(BuildContext context) {
     final canSubmit = _contentController.text.trim().isNotEmpty && !_isSaving;
 
-    return Dialog(
-      insetPadding: const EdgeInsets.all(16),
-      clipBehavior: Clip.antiAlias,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 560),
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: 16,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        ),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 640),
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _CharacterAvatar(character: _selectedCharacter),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            widget.title,
-                            style: Theme.of(context).textTheme.titleLarge,
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _CharacterAvatar(character: _selectedCharacter),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                widget.title,
+                                style: Theme.of(context).textTheme.titleLarge,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _characterName(_selectedCharacter),
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _characterName(_selectedCharacter),
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      onPressed:
-                          _isSaving ? null : () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.close),
-                      tooltip: 'Close',
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                DropdownButtonFormField<Character>(
-                  value: _selectedCharacter,
-                  decoration: const InputDecoration(
-                    labelText: 'Character',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: widget.characters.map((character) {
-                    return DropdownMenuItem<Character>(
-                      value: character,
-                      child: Row(
-                        children: [
-                          _CharacterAvatar(character: character, radius: 14),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              _characterName(character),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }).toList(),
-                  onChanged: _isSaving
-                      ? null
-                      : (value) {
-                          if (value == null) return;
-                          setState(() {
-                            _selectedCharacter = value;
-                          });
-                        },
-                ),
-                const SizedBox(height: 14),
-                CompendiumAwareTextField(
-                  controller: _contentController,
-                  campaignId: widget.campaignId,
-                  decoration: InputDecoration(
-                    labelText: 'Note',
-                    hintText: 'What did your character notice or decide?',
-                    border: const OutlineInputBorder(),
-                    errorText: _showContentError
-                        ? 'Write a note before saving.'
-                        : null,
-                  ),
-                  minLines: 7,
-                  maxLines: 12,
-                  keyboardType: TextInputType.multiline,
-                ),
-                if (_contentController.text.trim().isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  CompendiumMentionChips(
-                    text: _contentController.text,
-                    campaignId: widget.campaignId,
-                    maxItems: 5,
-                  ),
-                ],
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _isSaving ? null : _pickImage,
-                        icon: const Icon(Icons.image_outlined),
-                        label: Text(
-                          _selectedImagePath == null
-                              ? 'Attach image'
-                              : 'Change image',
                         ),
-                      ),
+                        IconButton(
+                          onPressed: _isSaving
+                              ? null
+                              : () => Navigator.of(context).pop(),
+                          icon: const Icon(Icons.close),
+                          tooltip: 'Close',
+                        ),
+                      ],
                     ),
-                    if (_selectedImagePath != null) ...[
-                      const SizedBox(width: 8),
-                      IconButton(
-                        onPressed: _isSaving
-                            ? null
-                            : () {
-                                setState(() {
-                                  _selectedImagePath = null;
-                                });
-                              },
-                        icon: const Icon(Icons.close),
-                        tooltip: 'Remove image',
+                    const SizedBox(height: 18),
+                    DropdownButtonFormField<Character>(
+                      value: _selectedCharacter,
+                      decoration: const InputDecoration(
+                        labelText: 'Character',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: widget.characters.map((character) {
+                        return DropdownMenuItem<Character>(
+                          value: character,
+                          child: Row(
+                            children: [
+                              _CharacterAvatar(
+                                  character: character, radius: 14),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  _characterName(character),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                      onChanged: _isSaving
+                          ? null
+                          : (value) {
+                              if (value == null) return;
+                              setState(() {
+                                _selectedCharacter = value;
+                              });
+                            },
+                    ),
+                    const SizedBox(height: 14),
+                    CompendiumAwareTextField(
+                      controller: _contentController,
+                      campaignId: widget.campaignId,
+                      decoration: InputDecoration(
+                        labelText: 'Note',
+                        hintText: 'What did your character notice or decide?',
+                        border: const OutlineInputBorder(),
+                        errorText: _showContentError
+                            ? 'Write a note before saving.'
+                            : null,
+                      ),
+                      minLines: 7,
+                      maxLines: 12,
+                      keyboardType: TextInputType.multiline,
+                    ),
+                    if (_contentController.text.trim().isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      CompendiumMentionChips(
+                        text: _contentController.text,
+                        campaignId: widget.campaignId,
+                        maxItems: 5,
                       ),
                     ],
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _isSaving ? null : _pickImage,
+                            icon: const Icon(Icons.image_outlined),
+                            label: Text(
+                              _selectedImagePath == null
+                                  ? 'Attach image'
+                                  : 'Change image',
+                            ),
+                          ),
+                        ),
+                        if (_selectedImagePath != null) ...[
+                          const SizedBox(width: 8),
+                          IconButton(
+                            onPressed: _isSaving
+                                ? null
+                                : () {
+                                    setState(() {
+                                      _selectedImagePath = null;
+                                    });
+                                  },
+                            icon: const Icon(Icons.close),
+                            tooltip: 'Remove image',
+                          ),
+                        ],
+                      ],
+                    ),
+                    if (_selectedImagePath != null) ...[
+                      const SizedBox(height: 12),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: buildImageFromPath(
+                          _selectedImagePath!,
+                          width: double.infinity,
+                          height: 180,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: _isSaving
+                              ? null
+                              : () => Navigator.of(context).pop(),
+                          child: const Text('Cancel'),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton.icon(
+                          onPressed: canSubmit ? _submit : null,
+                          icon: _isSaving
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.publish_outlined),
+                          label:
+                              Text(_isSaving ? 'Saving' : widget.actionLabel),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
-                if (_selectedImagePath != null) ...[
-                  const SizedBox(height: 12),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: buildImageFromPath(
-                      _selectedImagePath!,
-                      width: double.infinity,
-                      height: 180,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 20),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
-                      onPressed:
-                          _isSaving ? null : () => Navigator.of(context).pop(),
-                      child: const Text('Cancel'),
-                    ),
-                    const SizedBox(width: 8),
-                    FilledButton.icon(
-                      onPressed: canSubmit ? _submit : null,
-                      icon: _isSaving
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.publish_outlined),
-                      label: Text(_isSaving ? 'Saving' : widget.actionLabel),
-                    ),
-                  ],
-                ),
-              ],
+              ),
             ),
           ),
         ),

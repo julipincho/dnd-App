@@ -4,8 +4,10 @@ import '../widgets/stitch_navigation.dart';
 import 'package:provider/provider.dart';
 
 import '../models/campaign_event.dart';
+import '../models/compendium_entry.dart';
 import '../models/journal_entry.dart';
 import '../models/session.dart';
+import '../models/story_timeline_item.dart';
 import '../providers/app_role_provider.dart';
 import '../providers/campaign_event_provider.dart';
 import '../providers/campaign_provider.dart';
@@ -13,9 +15,12 @@ import '../providers/compendium_provider.dart';
 import '../providers/journal_entry_provider.dart';
 import '../providers/session_provider.dart';
 import '../services/campaign_story_timeline_service.dart';
+import '../services/demo_campaign_story_seed_service.dart';
 import '../widgets/campaign_story_timeline.dart';
+import '../widgets/campaign_event_composer_sheet.dart';
 import '../widgets/linked_compendium_text.dart';
 import 'session_detail_screen.dart';
+import 'story_day_detail_screen.dart';
 
 class TimelineScreen extends StatefulWidget {
   const TimelineScreen({super.key});
@@ -182,6 +187,38 @@ class _TimelineScreenState extends State<TimelineScreen> {
     return Scaffold(
       appBar: StitchAppBar(
         title: Text('${activeCampaign.name} Timeline'),
+        actions: [
+          PopupMenuButton<String>(
+            onSelected: (value) async {
+              if (value == 'seed-demo') {
+                await _seedDemoStory(context, activeCampaign.id);
+              } else if (value == 'clear-demo') {
+                await _clearDemoStory(context, activeCampaign.id);
+              }
+            },
+            itemBuilder: (context) {
+              final hasDemoData = DemoCampaignStorySeedService.hasDemoData(
+                campaignId: activeCampaign.id,
+                sessionProvider: sessionProvider,
+                eventProvider: eventProvider,
+                journalProvider: journalProvider,
+                compendiumProvider: compendiumProvider,
+              );
+
+              return [
+                const PopupMenuItem(
+                  value: 'seed-demo',
+                  child: Text('Load demo story'),
+                ),
+                if (hasDemoData)
+                  const PopupMenuItem(
+                    value: 'clear-demo',
+                    child: Text('Remove demo story'),
+                  ),
+              ];
+            },
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -359,6 +396,15 @@ class _TimelineScreenState extends State<TimelineScreen> {
                                   }
                                 });
                               },
+                              onOpenDay: () {
+                                _openStoryDay(
+                                  context,
+                                  campaignName: activeCampaign.name,
+                                  itemDate: item.date,
+                                  storyItems: storyItems,
+                                  compendiumEntries: compendiumEntries,
+                                );
+                              },
                               onOpenSession: (session) {
                                 _openSession(context, session);
                               },
@@ -478,6 +524,76 @@ class _TimelineScreenState extends State<TimelineScreen> {
         builder: (_) => SessionDetailScreen(session: session),
       ),
     );
+  }
+
+  void _openStoryDay(
+    BuildContext context, {
+    required String campaignName,
+    required DateTime itemDate,
+    required List<StoryTimelineItem> storyItems,
+    required List<CompendiumEntry> compendiumEntries,
+  }) {
+    final dayItems =
+        storyItems.where((item) => _isSameDay(item.date, itemDate)).toList();
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => StoryDayDetailScreen(
+          campaignName: campaignName,
+          date: itemDate,
+          items: dayItems,
+          compendiumEntries: compendiumEntries,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _seedDemoStory(BuildContext context, String campaignId) async {
+    final sessionProvider = context.read<SessionProvider>();
+    final eventProvider = context.read<CampaignEventProvider>();
+    final journalProvider = context.read<JournalEntryProvider>();
+    final compendiumProvider = context.read<CompendiumProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+
+    await DemoCampaignStorySeedService.seed(
+      campaignId: campaignId,
+      sessionProvider: sessionProvider,
+      eventProvider: eventProvider,
+      journalProvider: journalProvider,
+      compendiumProvider: compendiumProvider,
+    );
+
+    if (!mounted) return;
+
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Demo story loaded')),
+    );
+  }
+
+  Future<void> _clearDemoStory(BuildContext context, String campaignId) async {
+    final sessionProvider = context.read<SessionProvider>();
+    final eventProvider = context.read<CampaignEventProvider>();
+    final journalProvider = context.read<JournalEntryProvider>();
+    final compendiumProvider = context.read<CompendiumProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+
+    await DemoCampaignStorySeedService.clear(
+      campaignId: campaignId,
+      sessionProvider: sessionProvider,
+      eventProvider: eventProvider,
+      journalProvider: journalProvider,
+      compendiumProvider: compendiumProvider,
+    );
+
+    if (!mounted) return;
+
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Demo story removed')),
+    );
+  }
+
+  bool _isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
   Widget _buildSectionHeader(
@@ -1048,108 +1164,31 @@ class _TimelineScreenState extends State<TimelineScreen> {
   }
 
   void _showCreateEventDialog(BuildContext context, String campaignId) {
-    final titleController = TextEditingController();
-    final descriptionController = TextEditingController();
-    String selectedType = 'discovery';
+    final eventProvider = context.read<CampaignEventProvider>();
 
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Create event'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: titleController,
-                      decoration: const InputDecoration(
-                        labelText: 'Event title',
-                        hintText: 'Example: The gate was broken',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: descriptionController,
-                      decoration: const InputDecoration(
-                        labelText: 'Description',
-                        hintText: 'Describe what happened...',
-                      ),
-                      maxLines: 4,
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      value: selectedType,
-                      decoration: const InputDecoration(
-                        labelText: 'Event type',
-                      ),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'combat',
-                          child: Text('Combat'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'dialogue',
-                          child: Text('Dialogue'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'discovery',
-                          child: Text('Discovery'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'travel',
-                          child: Text('Travel'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'quest',
-                          child: Text('Quest'),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setDialogState(() {
-                          selectedType = value;
-                        });
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () async {
-                    final title = titleController.text.trim();
-                    final description = descriptionController.text.trim();
-
-                    if (title.isEmpty || description.isEmpty) return;
-
-                    final event = CampaignEvent(
-                      id: DateTime.now().millisecondsSinceEpoch.toString(),
-                      campaignId: campaignId,
-                      sessionId: null,
-                      title: title,
-                      description: description,
-                      date: DateTime.now(),
-                      type: selectedType,
-                    );
-
-                    await dialogContext
-                        .read<CampaignEventProvider>()
-                        .addEvent(event);
-
-                    if (!dialogContext.mounted) return;
-                    Navigator.of(dialogContext).pop();
-                  },
-                  child: const Text('Create'),
-                ),
-              ],
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) {
+        return CampaignEventComposerSheet(
+          title: 'Create event',
+          actionLabel: 'Create event',
+          campaignId: campaignId,
+          initialDate: DateTime.now(),
+          onSubmit: (draft) async {
+            final event = CampaignEvent(
+              id: DateTime.now().millisecondsSinceEpoch.toString(),
+              campaignId: campaignId,
+              sessionId: null,
+              title: draft.title,
+              description: draft.description,
+              date: draft.date,
+              type: draft.type,
             );
+
+            await eventProvider.addEvent(event);
+            return true;
           },
         );
       },
@@ -1157,103 +1196,30 @@ class _TimelineScreenState extends State<TimelineScreen> {
   }
 
   void _showEditEventDialog(BuildContext context, CampaignEvent event) {
-    final titleController = TextEditingController(text: event.title);
-    final descriptionController =
-        TextEditingController(text: event.description);
-    String selectedType = event.type;
+    final eventProvider = context.read<CampaignEventProvider>();
 
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Edit event'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: titleController,
-                      decoration: const InputDecoration(
-                        labelText: 'Event title',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: descriptionController,
-                      decoration: const InputDecoration(
-                        labelText: 'Description',
-                      ),
-                      maxLines: 4,
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      value: selectedType,
-                      decoration: const InputDecoration(
-                        labelText: 'Event type',
-                      ),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'combat',
-                          child: Text('Combat'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'dialogue',
-                          child: Text('Dialogue'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'discovery',
-                          child: Text('Discovery'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'travel',
-                          child: Text('Travel'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'quest',
-                          child: Text('Quest'),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setDialogState(() {
-                          selectedType = value;
-                        });
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () async {
-                    final title = titleController.text.trim();
-                    final description = descriptionController.text.trim();
-
-                    if (title.isEmpty || description.isEmpty) return;
-
-                    final updatedEvent = event.copyWith(
-                      title: title,
-                      description: description,
-                      type: selectedType,
-                    );
-
-                    await dialogContext
-                        .read<CampaignEventProvider>()
-                        .updateEvent(updatedEvent);
-
-                    if (!dialogContext.mounted) return;
-                    Navigator.of(dialogContext).pop();
-                  },
-                  child: const Text('Save'),
-                ),
-              ],
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) {
+        return CampaignEventComposerSheet(
+          title: 'Edit event',
+          actionLabel: 'Save event',
+          campaignId: event.campaignId,
+          initialTitle: event.title,
+          initialDescription: event.description,
+          initialType: event.type,
+          initialDate: event.date,
+          onSubmit: (draft) async {
+            final updatedEvent = event.copyWith(
+              title: draft.title,
+              description: draft.description,
+              type: draft.type,
+              date: draft.date,
             );
+            await eventProvider.updateEvent(updatedEvent);
+            return true;
           },
         );
       },
