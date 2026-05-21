@@ -2,7 +2,42 @@ import '../models/character.dart';
 import '../models/character_resource.dart';
 
 class CharacterResourceFactory {
-  static String _norm(String value) => value.trim().toLowerCase();
+  static String _norm(String value) {
+    return value
+        .trim()
+        .toLowerCase()
+        .replaceAll('á', 'a')
+        .replaceAll('é', 'e')
+        .replaceAll('í', 'i')
+        .replaceAll('ó', 'o')
+        .replaceAll('ú', 'u')
+        .replaceAll('ñ', 'n')
+        .replaceAll('Ã¡', 'a')
+        .replaceAll('Ã©', 'e')
+        .replaceAll('Ã­', 'i')
+        .replaceAll('Ã³', 'o')
+        .replaceAll('Ãº', 'u')
+        .replaceAll('Ã±', 'n');
+  }
+
+  static const Map<String, List<String>> _classAliases = {
+    'artificer': ['artificer', 'artifice', 'artificiero'],
+    'barbarian': ['barbarian', 'barbaro'],
+    'bard': ['bard', 'bardo'],
+    'cleric': ['cleric', 'clerigo'],
+    'druid': ['druid', 'druida'],
+    'fighter': ['fighter', 'guerrero'],
+    'monk': ['monk', 'monje'],
+    'paladin': ['paladin'],
+    'sorcerer': ['sorcerer', 'hechicero'],
+  };
+
+  static bool _classMatches(String actual, String target) {
+    final normalizedActual = _norm(actual);
+    final normalizedTarget = _norm(target);
+    final aliases = _classAliases[normalizedTarget] ?? [normalizedTarget];
+    return aliases.contains(normalizedActual);
+  }
 
   static List<CharacterResource> buildResources(Character character) {
     final result = <CharacterResource>[];
@@ -15,11 +50,27 @@ class CharacterResourceFactory {
     }
 
     int classLevel(String className) {
-      return character.levelForClass(className);
+      var result = 0;
+      for (final entry in character.classLevels.entries) {
+        if (!_classMatches(entry.key, className)) continue;
+        if (entry.value > result) result = entry.value;
+      }
+      return result;
     }
 
     bool hasClassLevel(String className, int minimumLevel) {
       return classLevel(className) >= minimumLevel;
+    }
+
+    String? subclassForClass(String className) {
+      for (final entry in character.normalizedProgression.levels.reversed) {
+        if (!_classMatches(entry.className, className)) continue;
+        final subclassName = entry.subclassName?.trim();
+        if (subclassName != null && subclassName.isNotEmpty) {
+          return subclassName;
+        }
+      }
+      return null;
     }
 
     void addResource({
@@ -157,7 +208,7 @@ class CharacterResourceFactory {
     String? superiorityDiceNotes;
 
     final fighterLevel = classLevel('fighter');
-    final fighterSubclass = _norm(character.subclassForClass('fighter') ?? '');
+    final fighterSubclass = _norm(subclassForClass('fighter') ?? '');
     if (fighterSubclass == 'battle master' && fighterLevel >= 3) {
       superiorityDiceMax = fighterLevel >= 15 ? 6 : (fighterLevel >= 7 ? 5 : 4);
       superiorityDiceNotes = fighterLevel >= 18

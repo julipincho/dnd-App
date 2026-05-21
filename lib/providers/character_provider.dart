@@ -870,7 +870,21 @@ class CharacterProvider extends ChangeNotifier {
       }
 
       final index = character.resources.indexWhere((item) => item.id == key);
-      if (index == -1) continue;
+      if (index == -1) {
+        final generatedResources =
+            CharacterResourceFactory.buildResources(character);
+        CharacterResource? generated;
+        for (final resource in generatedResources) {
+          if (resource.id == key) {
+            generated = resource;
+            break;
+          }
+        }
+        if (generated == null) continue;
+        generated.current = remaining.clamp(0, generated.max).toInt();
+        character.resources = [...character.resources, generated];
+        continue;
+      }
       final resource = character.resources[index];
       resource.current = remaining.clamp(0, resource.max).toInt();
     }

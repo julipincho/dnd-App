@@ -91,6 +91,7 @@ class BattleBoardProvider extends ChangeNotifier {
     int gridColumns = 24,
     int gridRows = 16,
     bool combatActive = true,
+    Map<String, dynamic> combatState = const {},
   }) async {
     final scene = BattleScene.create(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -101,6 +102,7 @@ class BattleBoardProvider extends ChangeNotifier {
       gridColumns: gridColumns,
       gridRows: gridRows,
       combatActive: combatActive,
+      combatState: combatState,
     );
 
     await saveScene(scene);
@@ -179,5 +181,18 @@ class BattleBoardProvider extends ChangeNotifier {
     _sceneSubscription?.cancel();
     _tokenSubscription?.cancel();
     super.dispose();
+  }
+
+  void addTemporaryToken(BoardToken token) {
+    final existingIndex = _tokens.indexWhere((t) => t.id == token.id);
+    if (existingIndex == -1) {
+      _tokens = [..._tokens, token];
+    } else {
+      _tokens = [
+        for (var index = 0; index < _tokens.length; index++)
+          if (index == existingIndex) token else _tokens[index],
+      ];
+    }
+    notifyListeners();
   }
 }

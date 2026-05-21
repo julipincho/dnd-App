@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import '../features/characters/models/resolved_inventory_item.dart';
 import '../logic/character_option_effects.dart';
 import '../models/character.dart';
@@ -10,6 +12,7 @@ import '../models/equipment_compendium_item.dart';
 import '../models/spell.dart';
 import '../utils/character_equipment_effects.dart';
 import 'character_inventory_service.dart';
+import 'character_resource_factory.dart';
 import 'character_spell_slot_service.dart';
 import 'character_weapon_attack_service.dart';
 
@@ -148,6 +151,7 @@ class CharacterCombatBuilderService {
                 proficiencyBonus,
               ),
           },
+          'classLevels': Map<String, int>.from(character.classLevels),
           'proficiencyBonus': proficiencyBonus,
           'availableActionCount': availableActions.length,
         },
@@ -170,6 +174,7 @@ class CharacterCombatBuilderService {
       compendiumEntries,
     );
     final attackActionCount = _extraAttackCount(character);
+    final criticalThreshold = _weaponCriticalThreshold(character);
 
     for (final resolvedWeapon in weapons.take(6)) {
       final weapon = resolvedWeapon.effectiveItem;
@@ -216,6 +221,9 @@ class CharacterCombatBuilderService {
             if (weapon.isEquipped) 'Equipped',
             if (weapon.isFinesse) 'Finesse',
             if (weapon.isRanged) 'Ranged' else 'Melee',
+            if (attackActionCount > 1) 'Extra Attack',
+            if (attackActionCount > 1) '$attackActionCount Action attacks',
+            if (criticalThreshold < 20) 'Crit $criticalThreshold-20',
             if (resolvedWeapon.equipmentItem?.isMagic == true) 'Magic',
             if (weapon.hasInfusion) 'Infused',
             if (damageType != null && damageType.isNotEmpty) damageType,
@@ -225,6 +233,9 @@ class CharacterCombatBuilderService {
             'inventoryItemId': weapon.id,
             'weaponType': weapon.isRanged ? 'ranged' : 'melee',
             'damageType': damageType,
+            'usesAttackAction': true,
+            'attackSlotCount': attackActionCount,
+            if (criticalThreshold < 20) 'criticalThreshold': criticalThreshold,
             'criticalDamageFormula': damageDice.isEmpty
                 ? null
                 : _formatRollFormula(
@@ -234,56 +245,6 @@ class CharacterCombatBuilderService {
           },
         ),
       );
-
-      if (attackActionCount > 1) {
-        actions.add(
-          PreparedCombatAction(
-            id: _actionId(
-              character,
-              'weapon_multi',
-              '${weapon.id}_x$attackActionCount',
-            ),
-            name:
-                '${weapon.name.trim().isEmpty ? 'Weapon' : weapon.name} x$attackActionCount',
-            timing: CombatActionTiming.action,
-            rollKind: CombatActionRollKind.attack,
-            tags: [
-              abilityLabel,
-              'Extra Attack',
-              '$attackActionCount attacks',
-              if (weapon.isRanged) 'Ranged' else 'Melee',
-              if (damageType != null && damageType.isNotEmpty) damageType,
-            ],
-            metadata: {
-              'source': 'weaponMultiattack',
-              'baseWeaponActionId': weapon.id,
-              'attackCount': attackActionCount,
-              'multiattack': true,
-              'multiAttackSteps': [
-                for (var index = 0; index < attackActionCount; index++)
-                  {
-                    'name': weapon.name.trim().isEmpty
-                        ? 'Weapon Attack'
-                        : weapon.name,
-                    'attackFormula': _formatRollFormula('d20', attackBonus),
-                    'damageFormula': damageFormula,
-                    if (damageFormula != null)
-                      'criticalDamageFormula': _formatRollFormula(
-                        _doubleDiceFormula(damageDice),
-                        damageBonus,
-                      ),
-                    'tags': [
-                      abilityLabel,
-                      if (weapon.isRanged) 'Ranged' else 'Melee',
-                      if (damageType != null && damageType.isNotEmpty)
-                        damageType,
-                    ],
-                  },
-              ],
-            },
-          ),
-        );
-      }
     }
 
     actions.addAll(
@@ -293,6 +254,23 @@ class CharacterCombatBuilderService {
         compendiumEntries,
         proficiencyBonus,
         attackActionCount,
+      ),
+    );
+    actions.addAll(_coreTurnActions(character));
+    actions.addAll(
+      _classCombatActions(
+        character,
+        equipmentItems,
+        compendiumEntries,
+        proficiencyBonus,
+      ),
+    );
+    actions.addAll(
+      _monkTechniqueActions(
+        character,
+        equipmentItems,
+        compendiumEntries,
+        proficiencyBonus,
       ),
     );
 
@@ -315,7 +293,7 @@ class CharacterCombatBuilderService {
     actions.addAll(_featureActions(character));
     actions.addAll(_resourceActions(character));
 
-    return actions;
+    return _dedupeCombatActions(actions);
   }
 
   static List<ResolvedInventoryItem> _prioritizedCombatWeapons(
@@ -385,7 +363,7 @@ class CharacterCombatBuilderService {
         compendiumEntries,
       ),
     );
-    final monkLevel = _classLevel(character, const ['monk', 'monje']);
+    final monkLevel = _effectiveMonkLevel(character);
     final bestMartialMod = dexMod > strMod ? dexMod : strMod;
     final bestMartialAbility = dexMod > strMod ? 'DEX' : 'STR';
     final baseUnarmedDamage = 1 + strMod;
@@ -424,20 +402,9 @@ class CharacterCombatBuilderService {
         character,
         spec,
         proficiencyBonus,
+        attackActionCount,
       );
       actions.add(action);
-
-      if (attackActionCount > 1) {
-        actions.add(
-          _intrinsicMultiattackAction(
-            character,
-            spec,
-            proficiencyBonus,
-            attackActionCount,
-            action,
-          ),
-        );
-      }
     }
 
     return actions;
@@ -447,10 +414,12 @@ class CharacterCombatBuilderService {
     Character character,
     _IntrinsicAttackSpec spec,
     int proficiencyBonus,
+    int attackActionCount,
   ) {
     final attackBonus = spec.abilityModifier + proficiencyBonus;
     final damageFormula = _intrinsicDamageFormula(spec);
     final criticalDamageFormula = _intrinsicCriticalDamageFormula(spec);
+    final criticalThreshold = _weaponCriticalThreshold(character);
 
     return PreparedCombatAction(
       id: _actionId(character, spec.source, spec.idSuffix),
@@ -464,70 +433,21 @@ class CharacterCombatBuilderService {
         ...spec.tags,
         'Melee',
         spec.damageType,
+        if (attackActionCount > 1) 'Extra Attack',
+        if (attackActionCount > 1) '$attackActionCount Action attacks',
+        if (criticalThreshold < 20) 'Crit $criticalThreshold-20',
       ],
       metadata: {
         'source': spec.source,
         'weaponType': 'melee',
         'damageType': spec.damageType,
         'intrinsicAttack': true,
+        'usesAttackAction': true,
+        'attackSlotCount': attackActionCount,
+        if (criticalThreshold < 20) 'criticalThreshold': criticalThreshold,
         ...spec.metadata,
         if (criticalDamageFormula != null)
           'criticalDamageFormula': criticalDamageFormula,
-      },
-    );
-  }
-
-  static PreparedCombatAction _intrinsicMultiattackAction(
-    Character character,
-    _IntrinsicAttackSpec spec,
-    int proficiencyBonus,
-    int attackActionCount,
-    PreparedCombatAction baseAction,
-  ) {
-    final attackBonus = spec.abilityModifier + proficiencyBonus;
-    final damageFormula = _intrinsicDamageFormula(spec);
-    final criticalDamageFormula = _intrinsicCriticalDamageFormula(spec);
-
-    return PreparedCombatAction(
-      id: _actionId(
-        character,
-        '${spec.source}_multi',
-        '${spec.idSuffix}_x$attackActionCount',
-      ),
-      name: '${spec.name} x$attackActionCount',
-      timing: CombatActionTiming.action,
-      rollKind: CombatActionRollKind.attack,
-      tags: [
-        spec.abilityLabel,
-        'Extra Attack',
-        '$attackActionCount attacks',
-        ...spec.tags,
-        'Melee',
-        spec.damageType,
-      ],
-      metadata: {
-        'source': '${spec.source}Multiattack',
-        'baseActionId': baseAction.id,
-        'attackCount': attackActionCount,
-        'multiattack': true,
-        'intrinsicAttack': true,
-        ...spec.metadata,
-        'multiAttackSteps': [
-          for (var index = 0; index < attackActionCount; index++)
-            {
-              'name': spec.name,
-              'attackFormula': _formatRollFormula('d20', attackBonus),
-              'damageFormula': damageFormula,
-              if (criticalDamageFormula != null)
-                'criticalDamageFormula': criticalDamageFormula,
-              'tags': [
-                spec.abilityLabel,
-                ...spec.tags,
-                'Melee',
-                spec.damageType,
-              ],
-            },
-        ],
       },
     );
   }
@@ -657,6 +577,989 @@ class CharacterCombatBuilderService {
       _doubleDiceFormula(spec.damageDice!),
       spec.abilityModifier,
     );
+  }
+
+  static List<PreparedCombatAction> _coreTurnActions(Character character) {
+    return [
+      PreparedCombatAction(
+        id: _actionId(character, 'combat_rule', 'dash'),
+        name: 'Dash',
+        timing: CombatActionTiming.action,
+        rollKind: CombatActionRollKind.none,
+        tags: const ['Core Action', 'Dash', 'Movement'],
+        metadata: const {
+          'source': 'combatRule',
+          'targetsSelf': true,
+          'combatEffect': 'dash',
+          'grantsMovement': true,
+        },
+      ),
+      PreparedCombatAction(
+        id: _actionId(character, 'combat_rule', 'disengage'),
+        name: 'Disengage',
+        timing: CombatActionTiming.action,
+        rollKind: CombatActionRollKind.none,
+        tags: const ['Core Action', 'Disengage', 'Movement'],
+        metadata: const {
+          'source': 'combatRule',
+          'targetsSelf': true,
+          'combatEffect': 'disengage',
+        },
+      ),
+      PreparedCombatAction(
+        id: _actionId(character, 'combat_rule', 'dodge'),
+        name: 'Dodge',
+        timing: CombatActionTiming.action,
+        rollKind: CombatActionRollKind.none,
+        tags: const ['Core Action', 'Dodge', 'Defense'],
+        metadata: const {
+          'source': 'combatRule',
+          'targetsSelf': true,
+          'combatEffect': 'dodge',
+        },
+      ),
+    ];
+  }
+
+  static List<PreparedCombatAction> _classCombatActions(
+    Character character,
+    List<EquipmentCompendiumItem> equipmentItems,
+    List<CompendiumEntry> compendiumEntries,
+    int proficiencyBonus,
+  ) {
+    return [
+      ..._barbarianActions(character),
+      ..._fighterActions(
+        character,
+        equipmentItems,
+        compendiumEntries,
+        proficiencyBonus,
+      ),
+      ..._rogueActions(character),
+      ..._paladinActions(character),
+      ..._bardActions(character),
+      ..._clericActions(
+        character,
+        equipmentItems,
+        compendiumEntries,
+        proficiencyBonus,
+      ),
+      ..._druidActions(character),
+      ..._artificerActions(character),
+    ];
+  }
+
+  static List<PreparedCombatAction> _barbarianActions(Character character) {
+    final barbarianLevel =
+        _classLevel(character, const ['barbarian', 'barbaro', 'bárbaro']);
+    if (barbarianLevel <= 0) return const [];
+
+    final rageBonus = _rageDamageBonus(barbarianLevel);
+    return [
+      PreparedCombatAction(
+        id: _actionId(character, 'class_action', 'rage'),
+        name: 'Rage',
+        timing: CombatActionTiming.bonusAction,
+        rollKind: CombatActionRollKind.none,
+        resourceKey:
+            _resourceIdMatching(character, const ['rage', 'furia', 'rabia']) ??
+                'rage',
+        resourceCost: 1,
+        tags: [
+          'Barbarian',
+          'Bonus Action',
+          'Rage',
+          '+$rageBonus melee STR damage',
+          'STR save advantage',
+          'Resist B/P/S',
+        ],
+        metadata: {
+          'source': 'classMechanic',
+          'class': 'barbarian',
+          'targetsSelf': true,
+          'combatEffect': 'rage',
+          'rageDamageBonus': rageBonus,
+          'resistances': const ['bludgeoning', 'piercing', 'slashing'],
+        },
+      ),
+    ];
+  }
+
+  static int _rageDamageBonus(int barbarianLevel) {
+    if (barbarianLevel >= 16) return 4;
+    if (barbarianLevel >= 9) return 3;
+    return 2;
+  }
+
+  static List<PreparedCombatAction> _fighterActions(
+    Character character,
+    List<EquipmentCompendiumItem> equipmentItems,
+    List<CompendiumEntry> compendiumEntries,
+    int proficiencyBonus,
+  ) {
+    final fighterLevel = _classLevel(character, const ['fighter', 'guerrero']);
+    final secondWindResource = _resourceIdMatching(
+        character, const ['second wind', 'segundo aliento']);
+    final actionSurgeResource = _resourceIdMatching(character,
+        const ['action surge', 'action sourge', 'oleada de accion', 'oleada']);
+    final hasSecondWindFeature = _hasFeatureMatching(
+      character,
+      (feature) => _isSecondWindText('${feature.name} ${feature.description}'),
+    );
+    final hasActionSurgeFeature = _hasFeatureMatching(
+      character,
+      (feature) => _isActionSurgeText('${feature.name} ${feature.description}'),
+    );
+    final hasFighterMechanic = fighterLevel > 0 ||
+        secondWindResource != null ||
+        actionSurgeResource != null ||
+        hasSecondWindFeature ||
+        hasActionSurgeFeature ||
+        _hasFeatureMatching(character, _isBattleMasterFeature);
+    if (!hasFighterMechanic) return const [];
+
+    final effectiveFighterLevel = fighterLevel > 0
+        ? fighterLevel
+        : character.level > 0
+            ? character.level
+            : 1;
+    final superiorityDie = _superiorityDie(character, effectiveFighterLevel);
+    final actions = <PreparedCombatAction>[];
+
+    if (fighterLevel >= 1 ||
+        secondWindResource != null ||
+        hasSecondWindFeature) {
+      actions.add(
+        PreparedCombatAction(
+          id: _actionId(character, 'class_action', 'second_wind'),
+          name: 'Second Wind',
+          timing: CombatActionTiming.bonusAction,
+          rollKind: CombatActionRollKind.healing,
+          healingFormula: _formatRollFormula('1d10', effectiveFighterLevel),
+          resourceKey: secondWindResource ?? 'second_wind',
+          resourceCost: secondWindResource == null && fighterLevel < 1 ? 0 : 1,
+          tags: const ['Fighter', 'Bonus Action', 'Self Healing'],
+          metadata: const {
+            'source': 'classMechanic',
+            'class': 'fighter',
+            'targetsSelf': true,
+          },
+        ),
+      );
+    }
+
+    if (fighterLevel >= 2 ||
+        actionSurgeResource != null ||
+        hasActionSurgeFeature) {
+      actions.add(
+        PreparedCombatAction(
+          id: _actionId(character, 'class_action', 'action_surge'),
+          name: 'Action Surge',
+          timing: CombatActionTiming.free,
+          rollKind: CombatActionRollKind.none,
+          resourceKey: actionSurgeResource ?? 'action_surge',
+          resourceCost: actionSurgeResource == null && fighterLevel < 2 ? 0 : 1,
+          tags: const ['Fighter', 'Free', 'Extra Action'],
+          metadata: const {
+            'source': 'classMechanic',
+            'class': 'fighter',
+            'targetsSelf': true,
+            'combatEffect': 'actionSurge',
+            'grantsAction': true,
+          },
+        ),
+      );
+    }
+
+    if (superiorityDie != null) {
+      actions.addAll(
+        _battleMasterManeuverActions(
+          character,
+          equipmentItems,
+          compendiumEntries,
+          proficiencyBonus,
+          superiorityDie,
+        ),
+      );
+    }
+
+    return actions;
+  }
+
+  static String? _superiorityDie(Character character, int fighterLevel) {
+    final subclass = _normalizedSearchText(
+      character.subclassForClass('fighter') ?? '',
+    );
+    final hasBattleMaster = subclass.contains('battle master') ||
+        subclass.contains('battlemeister') ||
+        subclass.contains('maestro de batalla') ||
+        _hasFeatureMatching(character, _isBattleMasterFeature);
+    if (!hasBattleMaster || fighterLevel < 3) return null;
+    if (fighterLevel >= 18) return '1d12';
+    if (fighterLevel >= 10) return '1d10';
+    return '1d8';
+  }
+
+  static List<PreparedCombatAction> _battleMasterManeuverActions(
+    Character character,
+    List<EquipmentCompendiumItem> equipmentItems,
+    List<CompendiumEntry> compendiumEntries,
+    int proficiencyBonus,
+    String superiorityDie,
+  ) {
+    final selectedManeuvers =
+        CharacterOptionEffects.getSelectedManeuvers(character);
+    if (selectedManeuvers.isEmpty) {
+      return [
+        PreparedCombatAction(
+          id: _actionId(character, 'subclass_action', 'battle_master_maneuver'),
+          name: 'Battle Master Maneuver',
+          timing: CombatActionTiming.free,
+          rollKind: CombatActionRollKind.damage,
+          damageFormula: superiorityDie,
+          resourceKey: _resourceIdMatching(character, const [
+                'superiority',
+                'superioridad',
+                'dado de superioridad',
+                'dados de superioridad',
+              ]) ??
+              'superiority_dice',
+          resourceCost: 1,
+          tags: [
+            'Battle Master',
+            'On Hit',
+            'Superiority Die',
+            superiorityDie,
+          ],
+          metadata: const {
+            'source': 'subclassMechanic',
+            'class': 'fighter',
+            'targetPolicy': 'hostile',
+          },
+        ),
+      ];
+    }
+
+    final maneuverSaveDc = _maneuverSaveDc(
+      character,
+      equipmentItems,
+      compendiumEntries,
+      proficiencyBonus,
+    );
+    return selectedManeuvers.take(12).map((maneuver) {
+      final description = maneuver.description ?? '';
+      final text = _normalizedSearchText('${maneuver.name} $description');
+      final requiresSave = _firstSaveAbility(description) != null;
+      final damageFormula =
+          _maneuverRollsSuperiorityDie(text) ? superiorityDie : null;
+      final timing = _timingForManeuver(text);
+      final rollKind = requiresSave
+          ? CombatActionRollKind.savingThrow
+          : damageFormula == null
+              ? CombatActionRollKind.none
+              : CombatActionRollKind.damage;
+      final saveAbility = _firstSaveAbility(description);
+      final condition = _maneuverFailureCondition(text);
+
+      return PreparedCombatAction(
+        id: _actionId(character, 'maneuver', maneuver.id),
+        name: maneuver.name.trim().isEmpty
+            ? 'Battle Master Maneuver'
+            : maneuver.name.trim(),
+        timing: timing,
+        rollKind: rollKind,
+        damageFormula: damageFormula,
+        saveAbility: saveAbility,
+        saveDc: saveAbility == null ? null : maneuverSaveDc,
+        resourceKey: _resourceIdMatching(character, const [
+              'superiority',
+              'superioridad',
+              'dado de superioridad',
+              'dados de superioridad',
+            ]) ??
+            'superiority_dice',
+        resourceCost: 1,
+        tags: [
+          'Battle Master',
+          'Maneuver',
+          superiorityDie,
+          _timingTag(timing),
+          if (text.contains('when you hit')) 'On Hit',
+          if (text.contains('attack roll')) 'Attack Roll',
+          if (saveAbility != null) '$saveAbility save',
+          if (condition != null) condition,
+        ],
+        metadata: {
+          'source': 'subclassMechanic',
+          'class': 'fighter',
+          'subclass': 'battleMaster',
+          'maneuverId': maneuver.id,
+          'description': description,
+          'targetPolicy': text.contains('willing creature') ||
+                  text.contains('friendly creature') ||
+                  text.contains('companion')
+              ? 'ally'
+              : 'hostile',
+          if (condition != null) 'appliesConditionOnFail': condition,
+        },
+      );
+    }).toList(growable: false);
+  }
+
+  static int _maneuverSaveDc(
+    Character character,
+    List<EquipmentCompendiumItem> equipmentItems,
+    List<CompendiumEntry> compendiumEntries,
+    int proficiencyBonus,
+  ) {
+    final strMod = _abilityModifier(
+      _effectiveAbilityScore(
+        character,
+        'STR',
+        equipmentItems,
+        compendiumEntries,
+      ),
+    );
+    final dexMod = _abilityModifier(
+      _effectiveAbilityScore(
+        character,
+        'DEX',
+        equipmentItems,
+        compendiumEntries,
+      ),
+    );
+    return 8 + proficiencyBonus + math.max(strMod, dexMod);
+  }
+
+  static CombatActionTiming _timingForManeuver(String normalizedText) {
+    if (normalizedText.contains('reaction')) return CombatActionTiming.reaction;
+    if (normalizedText.contains('bonus action')) {
+      return CombatActionTiming.bonusAction;
+    }
+    return CombatActionTiming.free;
+  }
+
+  static String _timingTag(CombatActionTiming timing) {
+    return switch (timing) {
+      CombatActionTiming.bonusAction => 'Bonus Action',
+      CombatActionTiming.reaction => 'Reaction',
+      CombatActionTiming.free => 'Free',
+      CombatActionTiming.action => 'Action',
+      _ => 'Special',
+    };
+  }
+
+  static bool _maneuverRollsSuperiorityDie(String normalizedText) {
+    return normalizedText.contains('superiority die') &&
+        (normalizedText.contains('damage') ||
+            normalizedText.contains('damage roll') ||
+            normalizedText.contains('takes damage'));
+  }
+
+  static String? _maneuverFailureCondition(String normalizedText) {
+    if (normalizedText.contains('trip attack')) return 'Prone';
+    if (normalizedText.contains('menacing attack')) return 'Frightened';
+    if (normalizedText.contains('goading attack')) return 'Goaded';
+    if (normalizedText.contains('disarming attack')) return 'Disarmed';
+    if (normalizedText.contains('pushing attack')) return 'Pushed';
+    return null;
+  }
+
+  static int _weaponCriticalThreshold(Character character) {
+    final fighterLevel = _classLevel(character, const ['fighter', 'guerrero']);
+    if (fighterLevel < 3) return 20;
+    final subclass = _normalizedSearchText(
+      character.subclassForClass('fighter') ?? character.subclass ?? '',
+    );
+    if (!subclass.contains('champion') && !subclass.contains('campeon')) {
+      return 20;
+    }
+    return fighterLevel >= 15 ? 18 : 19;
+  }
+
+  static List<PreparedCombatAction> _rogueActions(Character character) {
+    final rogueLevel = _classLevel(character, const ['rogue', 'picaro']);
+    if (rogueLevel <= 0) return const [];
+
+    final diceCount = ((rogueLevel + 1) / 2).floor().clamp(1, 10).toInt();
+    final formula = '${diceCount}d6';
+    final actions = <PreparedCombatAction>[
+      PreparedCombatAction(
+        id: _actionId(character, 'class_action', 'sneak_attack'),
+        name: 'Sneak Attack',
+        timing: CombatActionTiming.free,
+        rollKind: CombatActionRollKind.damage,
+        damageFormula: formula,
+        tags: [
+          'Rogue',
+          'On Hit',
+          'Once per turn',
+          formula,
+          'Finesse/Ranged',
+        ],
+        metadata: const {
+          'source': 'classMechanic',
+          'class': 'rogue',
+          'targetPolicy': 'hostile',
+          'combatWindow': 'onHit',
+        },
+      ),
+    ];
+    if (rogueLevel >= 2) {
+      actions.addAll([
+        PreparedCombatAction(
+          id: _actionId(character, 'class_action', 'cunning_action_dash'),
+          name: 'Cunning Action: Dash',
+          timing: CombatActionTiming.bonusAction,
+          rollKind: CombatActionRollKind.none,
+          tags: const ['Rogue', 'Cunning Action', 'Bonus Action', 'Dash'],
+          metadata: const {
+            'source': 'classMechanic',
+            'class': 'rogue',
+            'targetsSelf': true,
+            'combatEffect': 'dash',
+            'grantsMovement': true,
+          },
+        ),
+        PreparedCombatAction(
+          id: _actionId(character, 'class_action', 'cunning_action_disengage'),
+          name: 'Cunning Action: Disengage',
+          timing: CombatActionTiming.bonusAction,
+          rollKind: CombatActionRollKind.none,
+          tags: const [
+            'Rogue',
+            'Cunning Action',
+            'Bonus Action',
+            'Disengage',
+          ],
+          metadata: const {
+            'source': 'classMechanic',
+            'class': 'rogue',
+            'targetsSelf': true,
+            'combatEffect': 'disengage',
+          },
+        ),
+        PreparedCombatAction(
+          id: _actionId(character, 'class_action', 'cunning_action_hide'),
+          name: 'Cunning Action: Hide',
+          timing: CombatActionTiming.bonusAction,
+          rollKind: CombatActionRollKind.none,
+          tags: const ['Rogue', 'Cunning Action', 'Bonus Action', 'Hide'],
+          metadata: const {
+            'source': 'classMechanic',
+            'class': 'rogue',
+            'targetsSelf': true,
+            'combatEffect': 'hide',
+          },
+        ),
+      ]);
+    }
+    if (rogueLevel >= 5) {
+      actions.add(
+        PreparedCombatAction(
+          id: _actionId(character, 'class_action', 'uncanny_dodge'),
+          name: 'Uncanny Dodge',
+          timing: CombatActionTiming.reaction,
+          rollKind: CombatActionRollKind.none,
+          tags: const [
+            'Rogue',
+            'Reaction',
+            'Halve incoming damage',
+            'Visible attacker',
+          ],
+          metadata: const {
+            'source': 'classMechanic',
+            'class': 'rogue',
+            'targetsSelf': true,
+            'combatEffect': 'uncannyDodge',
+            'damageReduction': 'half',
+          },
+        ),
+      );
+    }
+    return actions;
+  }
+
+  static List<PreparedCombatAction> _paladinActions(Character character) {
+    final paladinLevel = _classLevel(character, const ['paladin', 'paladin']);
+    if (paladinLevel <= 0) return const [];
+
+    final actions = <PreparedCombatAction>[
+      PreparedCombatAction(
+        id: _actionId(character, 'class_action', 'lay_on_hands_5'),
+        name: 'Lay on Hands (5 HP)',
+        timing: CombatActionTiming.action,
+        rollKind: CombatActionRollKind.healing,
+        healingFormula: '5',
+        resourceKey: _resourceIdMatching(
+                character, const ['lay on hands', 'imposicion de manos']) ??
+            'lay_on_hands',
+        resourceCost: 5,
+        tags: const ['Paladin', 'Action', 'Touch', 'Healing', '5 HP'],
+        metadata: const {
+          'source': 'classMechanic',
+          'class': 'paladin',
+          'targetPolicy': 'ally',
+        },
+      ),
+    ];
+    if (paladinLevel < 2) return actions;
+
+    for (var level = 1; level <= 5; level++) {
+      if (CharacterSpellSlotService.slotMaxForLevel(character, level) <= 0) {
+        continue;
+      }
+      final diceCount = math.min(5, level + 1);
+      final formula = '${diceCount}d8';
+      actions.add(
+        PreparedCombatAction(
+          id: _actionId(character, 'class_action', 'divine_smite_$level'),
+          name: 'Divine Smite (${_ordinalSpellLevel(level)})',
+          timing: CombatActionTiming.free,
+          rollKind: CombatActionRollKind.damage,
+          damageFormula: formula,
+          resourceKey: 'spellSlot:$level',
+          resourceCost: 1,
+          tags: [
+            'Paladin',
+            'On Hit',
+            'Melee weapon',
+            'Slot $level',
+            'Radiant',
+            formula,
+          ],
+          metadata: const {
+            'source': 'classMechanic',
+            'class': 'paladin',
+            'targetPolicy': 'hostile',
+            'combatWindow': 'onHit',
+            'damageType': 'Radiant',
+          },
+        ),
+      );
+    }
+    return actions;
+  }
+
+  static List<PreparedCombatAction> _bardActions(Character character) {
+    final bardLevel = _classLevel(character, const ['bard', 'bardo']);
+    if (bardLevel <= 0) return const [];
+
+    final die = _bardicInspirationDie(bardLevel);
+    return [
+      PreparedCombatAction(
+        id: _actionId(character, 'class_action', 'bardic_inspiration'),
+        name: 'Bardic Inspiration',
+        timing: CombatActionTiming.bonusAction,
+        rollKind: CombatActionRollKind.none,
+        resourceKey: _resourceIdMatching(character, const [
+              'bardic inspiration',
+              'inspiracion bardica',
+            ]) ??
+            'bardic_inspiration',
+        resourceCost: 1,
+        tags: ['Bard', 'Bonus Action', 'Ally', '60 ft', die],
+        metadata: {
+          'source': 'classMechanic',
+          'class': 'bard',
+          'targetPolicy': 'ally',
+          'combatEffect': 'bardicInspiration',
+          'inspirationDie': die,
+        },
+      ),
+    ];
+  }
+
+  static String _bardicInspirationDie(int bardLevel) {
+    if (bardLevel >= 15) return '1d12';
+    if (bardLevel >= 10) return '1d10';
+    if (bardLevel >= 5) return '1d8';
+    return '1d6';
+  }
+
+  static List<PreparedCombatAction> _clericActions(
+    Character character,
+    List<EquipmentCompendiumItem> equipmentItems,
+    List<CompendiumEntry> compendiumEntries,
+    int proficiencyBonus,
+  ) {
+    final clericLevel = _classLevel(character, const ['cleric', 'clerigo']);
+    if (clericLevel < 2) return const [];
+
+    final saveDc = _spellSaveDc(
+      character,
+      equipmentItems,
+      compendiumEntries,
+      proficiencyBonus,
+    );
+    return [
+      PreparedCombatAction(
+        id: _actionId(character, 'class_action', 'turn_undead'),
+        name: 'Channel Divinity: Turn Undead',
+        timing: CombatActionTiming.action,
+        rollKind: CombatActionRollKind.savingThrow,
+        saveAbility: 'WIS',
+        saveDc: saveDc,
+        resourceKey: _resourceIdMatching(character, const [
+              'channel divinity',
+              'canalizar divinidad',
+            ]) ??
+            'channel_divinity',
+        resourceCost: 1,
+        tags: const ['Cleric', 'Channel Divinity', 'Undead', '30 ft'],
+        metadata: const {
+          'source': 'classMechanic',
+          'class': 'cleric',
+          'targetPolicy': 'hostile',
+          'areaShape': 'sphere',
+          'areaFeet': 30,
+          'appliesConditionOnFail': 'Turned',
+        },
+      ),
+    ];
+  }
+
+  static List<PreparedCombatAction> _druidActions(Character character) {
+    final druidLevel = _classLevel(character, const ['druid', 'druida']);
+    if (druidLevel < 2) return const [];
+
+    return [
+      PreparedCombatAction(
+        id: _actionId(character, 'class_action', 'wild_shape'),
+        name: 'Wild Shape',
+        timing: CombatActionTiming.action,
+        rollKind: CombatActionRollKind.none,
+        resourceKey: _resourceIdMatching(
+              character,
+              const ['wild shape', 'forma salvaje'],
+            ) ??
+            'wild_shape',
+        resourceCost: 1,
+        tags: const ['Druid', 'Action', 'Shapechange'],
+        metadata: const {
+          'source': 'classMechanic',
+          'class': 'druid',
+          'targetsSelf': true,
+          'combatEffect': 'wildShape',
+        },
+      ),
+    ];
+  }
+
+  static List<PreparedCombatAction> _artificerActions(Character character) {
+    final artificerLevel =
+        _classLevel(character, const ['artificer', 'artifice']);
+    if (artificerLevel < 7) return const [];
+
+    final intMod =
+        _abilityModifier(_characterBaseAbilityScore(character, 'INT'));
+    final bonus = intMod < 1 ? 1 : intMod;
+    return [
+      PreparedCombatAction(
+        id: _actionId(character, 'class_action', 'flash_of_genius'),
+        name: 'Flash of Genius',
+        timing: CombatActionTiming.reaction,
+        rollKind: CombatActionRollKind.none,
+        resourceKey: _resourceIdMatching(character, const [
+              'flash of genius',
+              'destello de genialidad',
+            ]) ??
+            'flash_of_genius',
+        resourceCost: 1,
+        tags: ['Artificer', 'Reaction', '+$bonus check/save', '30 ft'],
+        metadata: {
+          'source': 'classMechanic',
+          'class': 'artificer',
+          'targetPolicy': 'ally',
+          'rollBonus': bonus,
+        },
+      ),
+    ];
+  }
+
+  static List<PreparedCombatAction> _monkTechniqueActions(
+    Character character,
+    List<EquipmentCompendiumItem> equipmentItems,
+    List<CompendiumEntry> compendiumEntries,
+    int proficiencyBonus,
+  ) {
+    final monkLevel = _effectiveMonkLevel(character);
+    if (monkLevel <= 0) return const [];
+
+    final strMod = _abilityModifier(
+      _effectiveAbilityScore(
+        character,
+        'STR',
+        equipmentItems,
+        compendiumEntries,
+      ),
+    );
+    final dexMod = _abilityModifier(
+      _effectiveAbilityScore(
+        character,
+        'DEX',
+        equipmentItems,
+        compendiumEntries,
+      ),
+    );
+    final abilityLabel = dexMod > strMod ? 'DEX' : 'STR';
+    final abilityModifier = dexMod > strMod ? dexMod : strMod;
+    final attackFormula = _formatRollFormula(
+      'd20',
+      abilityModifier + proficiencyBonus,
+    );
+    final damageFormula = _formatRollFormula(
+      _martialArtsDie(monkLevel),
+      abilityModifier,
+    );
+    final criticalFormula = _formatRollFormula(
+      _doubleDiceFormula(_martialArtsDie(monkLevel)),
+      abilityModifier,
+    );
+    final actions = <PreparedCombatAction>[
+      PreparedCombatAction(
+        id: _actionId(character, 'class_action', 'martial_arts_bonus_strike'),
+        name: 'Martial Arts: Bonus Unarmed Strike',
+        timing: CombatActionTiming.bonusAction,
+        rollKind: CombatActionRollKind.attack,
+        attackFormula: attackFormula,
+        damageFormula: damageFormula,
+        tags: [
+          'Monk',
+          'Martial Arts',
+          'Bonus Action',
+          'Unarmed',
+          'Melee',
+          'Requires Attack action',
+          abilityLabel,
+        ],
+        metadata: {
+          'source': 'classMechanic',
+          'class': 'monk',
+          'targetPolicy': 'hostile',
+          'combatPrerequisite': 'attackActionThisTurn',
+          'usesAttackAction': false,
+          'damageType': 'Bludgeoning',
+          'criticalDamageFormula': criticalFormula,
+        },
+      ),
+    ];
+    if (monkLevel < 2) return actions;
+
+    final flurryFeature =
+        _firstFeatureWhere(character, _isFlurryOfBlowsFeature);
+    final patientDefenseFeature =
+        _firstFeatureWhere(character, _isPatientDefenseFeature);
+    final stepOfTheWindFeature =
+        _firstFeatureWhere(character, _isStepOfTheWindFeature);
+    final resourceKey = _monkKiResourceKey(character, flurryFeature);
+
+    actions.addAll([
+      PreparedCombatAction(
+        id: _actionId(character, 'feature', 'flurry_of_blows'),
+        name: flurryFeature?.name.trim().isNotEmpty == true
+            ? flurryFeature!.name.trim()
+            : 'Rafaga de golpes',
+        timing: CombatActionTiming.bonusAction,
+        rollKind: CombatActionRollKind.attack,
+        resourceKey: resourceKey,
+        resourceCost: 1,
+        tags: [
+          'Monk',
+          'Ki',
+          'Bonus Action',
+          '2 attacks',
+          'Unarmed',
+          'Melee',
+          'Bludgeoning',
+        ],
+        metadata: {
+          'source': 'feature',
+          if (flurryFeature != null) 'featureId': flurryFeature.id,
+          if (flurryFeature != null) 'featureSource': flurryFeature.source,
+          'flurryOfBlows': true,
+          'multiattack': true,
+          'targetPolicy': 'hostile',
+          'usesAttackAction': false,
+          'multiAttackSteps': [
+            for (var index = 0; index < 2; index++)
+              {
+                'name': 'Unarmed Strike',
+                'attackFormula': attackFormula,
+                'damageFormula': damageFormula,
+                'criticalDamageFormula': criticalFormula,
+                'tags': [
+                  abilityLabel,
+                  'Martial Arts',
+                  'Unarmed',
+                  'Melee',
+                  'Bludgeoning',
+                ],
+              },
+          ],
+        },
+      ),
+      PreparedCombatAction(
+        id: _actionId(character, 'feature', 'patient_defense'),
+        name: patientDefenseFeature?.name.trim().isNotEmpty == true
+            ? patientDefenseFeature!.name.trim()
+            : 'Patient Defense',
+        timing: CombatActionTiming.bonusAction,
+        rollKind: CombatActionRollKind.none,
+        resourceKey: resourceKey,
+        resourceCost: 1,
+        tags: const ['Monk', 'Ki', 'Bonus Action', 'Dodge', 'Defense'],
+        metadata: {
+          'source': 'feature',
+          if (patientDefenseFeature != null)
+            'featureId': patientDefenseFeature.id,
+          if (patientDefenseFeature != null)
+            'featureSource': patientDefenseFeature.source,
+          'targetsSelf': true,
+          'combatEffect': 'dodge',
+        },
+      ),
+      PreparedCombatAction(
+        id: _actionId(character, 'feature', 'step_of_the_wind_dash'),
+        name: stepOfTheWindFeature?.name.trim().isNotEmpty == true
+            ? '${stepOfTheWindFeature!.name.trim()}: Dash'
+            : 'Step of the Wind: Dash',
+        timing: CombatActionTiming.bonusAction,
+        rollKind: CombatActionRollKind.none,
+        resourceKey: resourceKey,
+        resourceCost: 1,
+        tags: const ['Monk', 'Ki', 'Bonus Action', 'Dash', 'Movement'],
+        metadata: {
+          'source': 'feature',
+          if (stepOfTheWindFeature != null)
+            'featureId': stepOfTheWindFeature.id,
+          if (stepOfTheWindFeature != null)
+            'featureSource': stepOfTheWindFeature.source,
+          'targetsSelf': true,
+          'combatEffect': 'dash',
+          'grantsMovement': true,
+        },
+      ),
+      PreparedCombatAction(
+        id: _actionId(character, 'feature', 'step_of_the_wind_disengage'),
+        name: stepOfTheWindFeature?.name.trim().isNotEmpty == true
+            ? '${stepOfTheWindFeature!.name.trim()}: Disengage'
+            : 'Step of the Wind: Disengage',
+        timing: CombatActionTiming.bonusAction,
+        rollKind: CombatActionRollKind.none,
+        resourceKey: resourceKey,
+        resourceCost: 1,
+        tags: const ['Monk', 'Ki', 'Bonus Action', 'Disengage', 'Movement'],
+        metadata: {
+          'source': 'feature',
+          if (stepOfTheWindFeature != null)
+            'featureId': stepOfTheWindFeature.id,
+          if (stepOfTheWindFeature != null)
+            'featureSource': stepOfTheWindFeature.source,
+          'targetsSelf': true,
+          'combatEffect': 'disengage',
+        },
+      ),
+    ]);
+    if (monkLevel >= 3) {
+      actions.add(
+        PreparedCombatAction(
+          id: _actionId(character, 'class_action', 'deflect_missiles'),
+          name: 'Deflect Missiles',
+          timing: CombatActionTiming.reaction,
+          rollKind: CombatActionRollKind.none,
+          tags: [
+            'Monk',
+            'Reaction',
+            'Ranged weapon',
+            'Reduce 1d10+$abilityLabel+$monkLevel',
+          ],
+          metadata: {
+            'source': 'classMechanic',
+            'class': 'monk',
+            'targetsSelf': true,
+            'combatEffect': 'deflectMissiles',
+            'damageReductionFormula':
+                _formatRollFormula('1d10', abilityModifier + monkLevel),
+          },
+        ),
+      );
+    }
+    if (monkLevel >= 5) {
+      final wisdomMod = _abilityModifier(
+        _effectiveAbilityScore(
+          character,
+          'WIS',
+          equipmentItems,
+          compendiumEntries,
+        ),
+      );
+      actions.add(
+        PreparedCombatAction(
+          id: _actionId(character, 'class_action', 'stunning_strike'),
+          name: 'Stunning Strike',
+          timing: CombatActionTiming.free,
+          rollKind: CombatActionRollKind.savingThrow,
+          saveAbility: 'CON',
+          saveDc: 8 + proficiencyBonus + wisdomMod,
+          resourceKey: resourceKey,
+          resourceCost: 1,
+          tags: const [
+            'Monk',
+            'Ki',
+            'On Hit',
+            'CON save',
+            'Stunned',
+          ],
+          metadata: const {
+            'source': 'classMechanic',
+            'class': 'monk',
+            'targetPolicy': 'hostile',
+            'combatWindow': 'onHit',
+            'appliesConditionOnFail': 'Stunned',
+          },
+        ),
+      );
+    }
+    return actions;
+  }
+
+  static int _effectiveMonkLevel(Character character) {
+    final explicitMonkLevel = _classLevel(character, const [
+      'monk',
+      'monje',
+      'monk 5e',
+      'monje 5e',
+    ]);
+    if (explicitMonkLevel > 0) return explicitMonkLevel;
+
+    final hasKiResource = _resourceIdMatching(character, const [
+          'ki',
+          'focus point',
+          'focus points',
+          'puntos de ki',
+          'punto de ki',
+          'puntos de enfoque',
+          'punto de enfoque',
+        ]) !=
+        null;
+    final hasMonkFeature = character.features.any((feature) {
+      final text = _normalizedSearchText(
+        '${feature.name} ${feature.description} ${feature.source}',
+      );
+      return _isRawMonkKiFeature(feature) ||
+          _isFlurryOfBlowsFeature(feature) ||
+          _isPatientDefenseFeature(feature) ||
+          _isStepOfTheWindFeature(feature) ||
+          text.contains('stunning strike') ||
+          text.contains('golpe aturdidor') ||
+          text.contains('martial arts') ||
+          text.contains('artes marciales') ||
+          text.contains('monk') ||
+          text.contains('monje');
+    });
+    if (!hasKiResource && !hasMonkFeature) return 0;
+    return character.level > 0 ? character.level : 2;
   }
 
   static int _weaponAttackBonus(
@@ -834,6 +1737,16 @@ class CharacterCombatBuilderService {
               compendiumEntries,
               proficiencyBonus,
             );
+      final areaMetadata = _spellAreaMetadata(spell);
+      final targetsOnlySelf = _spellTargetsOnlySelf(spell, areaMetadata);
+      final targetPolicy = _spellTargetPolicy(
+        spell,
+        healingSpell: healingSpell,
+        targetsOnlySelf: targetsOnlySelf,
+        usesAttackRoll: usesAttackRoll,
+        saveAbility: saveAbility,
+        damageFormula: damageFormula,
+      );
       final spellFlow = usesAttackRoll
           ? 'attack'
           : saveAbility != null
@@ -876,6 +1789,8 @@ class CharacterCombatBuilderService {
               '$saveAbility DC $saveDc',
             if (usesAttackRoll) 'Spell Attack',
             if (healingSpell) 'Healing',
+            if (targetPolicy == 'ally') 'Ally',
+            if (targetsOnlySelf) 'Self',
           ],
           metadata: {
             'source': 'spell',
@@ -884,6 +1799,9 @@ class CharacterCombatBuilderService {
             'level': spell.level,
             'castingTime': spell.castingTime,
             'duration': spell.duration,
+            if (targetsOnlySelf) 'targetsSelf': true,
+            if (targetPolicy.isNotEmpty) 'targetPolicy': targetPolicy,
+            ...areaMetadata,
             'halfDamageOnSave': _spellDealsHalfDamageOnSave(spell.description),
             'criticalDamageFormula': usesAttackRoll && damageFormula != null
                 ? _doubleDamageFormula(damageFormula)
@@ -896,8 +1814,12 @@ class CharacterCombatBuilderService {
   }
 
   static List<PreparedCombatAction> _featureActions(Character character) {
-    return character.features.where(_isUsableCombatFeature).map((feature) {
+    return character.features.where((feature) {
+      return _isUsableCombatFeature(feature) &&
+          !_isSpecificModeledCombatFeature(feature);
+    }).map((feature) {
       final diceFormula = _firstDiceFormula(feature.description);
+      final healing = _looksLikeHealing(feature.description);
       final grantsActionSurge = _isActionSurgeText(
         '${feature.name} ${feature.description}',
       );
@@ -907,13 +1829,11 @@ class CharacterCombatBuilderService {
         timing: _timingForFeature(feature),
         rollKind: diceFormula == null
             ? CombatActionRollKind.none
-            : _looksLikeHealing(feature.description)
+            : healing
                 ? CombatActionRollKind.healing
                 : CombatActionRollKind.damage,
-        damageFormula:
-            _looksLikeHealing(feature.description) ? null : diceFormula,
-        healingFormula:
-            _looksLikeHealing(feature.description) ? diceFormula : null,
+        damageFormula: healing ? null : diceFormula,
+        healingFormula: healing ? diceFormula : null,
         resourceKey: (feature.linkedResourceId ?? '').trim().isEmpty
             ? null
             : feature.linkedResourceId!.trim(),
@@ -932,9 +1852,50 @@ class CharacterCombatBuilderService {
           'description': feature.description,
           if (grantsActionSurge) 'combatEffect': 'actionSurge',
           if (grantsActionSurge) 'grantsAction': true,
+          if (healing) 'targetPolicy': 'ally',
+          if (grantsActionSurge) 'targetsSelf': true,
         },
       );
     }).toList();
+  }
+
+  static bool _isSpecificModeledCombatFeature(CharacterFeature feature) {
+    final text =
+        _normalizedSearchText('${feature.name} ${feature.description}');
+    return _isFlurryOfBlowsFeature(feature) ||
+        _isPatientDefenseFeature(feature) ||
+        _isStepOfTheWindFeature(feature) ||
+        _isRawMonkKiFeature(feature) ||
+        _isSecondWindText(text) ||
+        _isActionSurgeText(text) ||
+        text.contains('martial arts') ||
+        text.contains('ki-fueled attack') ||
+        text.contains('ki fueled attack') ||
+        text.contains('ataque potenciado por ki') ||
+        text.contains('stunning strike') ||
+        text.contains('deflect missiles') ||
+        text.contains('cunning action') ||
+        text.contains('uncanny dodge') ||
+        text.contains('rage') ||
+        text.contains('sneak attack') ||
+        text.contains('lay on hands') ||
+        text.contains('imposicion de manos') ||
+        text.contains('divine smite') ||
+        text.contains('improved divine smite') ||
+        text.contains('radiant strikes') ||
+        text.contains('bardic inspiration') ||
+        text.contains('inspiracion bardica') ||
+        text.contains('channel divinity') ||
+        text.contains('canalizar divinidad') ||
+        text.contains('turn undead') ||
+        text.contains('wild shape') ||
+        text.contains('forma salvaje') ||
+        text.contains('flash of genius') ||
+        text.contains('destello de genialidad') ||
+        text.contains('combat superiority') ||
+        text.contains('superiority die') ||
+        text.contains('dado de superioridad') ||
+        text.contains('battle master');
   }
 
   static bool _isUsableCombatFeature(CharacterFeature feature) {
@@ -958,14 +1919,24 @@ class CharacterCombatBuilderService {
       'you can spend',
       'activate',
       'rage',
+      'furia',
+      'rabia',
       'bardic inspiration',
+      'inspiracion bardica',
       'channel divinity',
+      'canalizar divinidad',
       'lay on hands',
+      'imposicion de manos',
       'second wind',
       'action surge',
+      'oleada de accion',
       'wild shape',
+      'forma salvaje',
       'superiority die',
+      'dado de superioridad',
       'ki point',
+      'puntos de ki',
+      'focus point',
     ];
     if (activeSignals.any(text.contains)) return true;
 
@@ -993,8 +1964,112 @@ class CharacterCombatBuilderService {
     return false;
   }
 
+  static CharacterFeature? _firstFeatureWhere(
+    Character character,
+    bool Function(CharacterFeature feature) test,
+  ) {
+    for (final feature in character.features) {
+      if (test(feature)) return feature;
+    }
+    return null;
+  }
+
+  static bool _isFlurryOfBlowsFeature(CharacterFeature feature) {
+    final text =
+        _normalizedSearchText('${feature.name} ${feature.description}');
+    return text.contains('flurry of blows') ||
+        text.contains('rafaga de golpes') ||
+        text.contains('rafaga de golpe');
+  }
+
+  static bool _isPatientDefenseFeature(CharacterFeature feature) {
+    final text =
+        _normalizedSearchText('${feature.name} ${feature.description}');
+    return text.contains('patient defense') ||
+        text.contains('defensa paciente');
+  }
+
+  static bool _isStepOfTheWindFeature(CharacterFeature feature) {
+    final text =
+        _normalizedSearchText('${feature.name} ${feature.description}');
+    return text.contains('step of the wind') ||
+        text.contains('paso del viento');
+  }
+
+  static bool _isRawMonkKiFeature(CharacterFeature feature) {
+    final name = _normalizedSearchText(feature.name);
+    final text =
+        _normalizedSearchText('${feature.name} ${feature.description}');
+    final isKiTitle = name == 'ki' ||
+        name == 'ki points' ||
+        name == 'puntos de ki' ||
+        name == 'monk ki' ||
+        name == 'monastic discipline' ||
+        name == 'disciplina monastica';
+    if (!isKiTitle) return false;
+    return text.contains('ki point') ||
+        text.contains('ki points') ||
+        text.contains('puntos de ki') ||
+        text.contains('punto de ki') ||
+        text.contains('focus point') ||
+        text.contains('focus points') ||
+        text.contains('puntos de enfoque') ||
+        text.contains('punto de enfoque');
+  }
+
+  static bool _isBattleMasterFeature(CharacterFeature feature) {
+    final text =
+        _normalizedSearchText('${feature.name} ${feature.description}');
+    return text.contains('combat superiority') ||
+        text.contains('superiority die') ||
+        text.contains('battle master') ||
+        text.contains('maestro de batalla');
+  }
+
+  static bool _hasFeatureMatching(
+    Character character,
+    bool Function(CharacterFeature feature) test,
+  ) {
+    return _firstFeatureWhere(character, test) != null;
+  }
+
+  static String _monkKiResourceKey(
+    Character character,
+    CharacterFeature? feature,
+  ) {
+    final linkedResource = (feature?.linkedResourceId ?? '').trim();
+    if (linkedResource.isNotEmpty) return linkedResource;
+    return _resourceIdMatching(character, const [
+          'ki',
+          'focus point',
+          'focus points',
+          'puntos de ki',
+          'punto de ki',
+          'puntos de enfoque',
+          'punto de enfoque',
+        ]) ??
+        'ki_points';
+  }
+
+  static String? _resourceIdMatching(
+    Character character,
+    List<String> needles,
+  ) {
+    for (final resource in character.resources) {
+      final text = _normalizedSearchText('${resource.id} ${resource.name}');
+      for (final needle in needles) {
+        if (text.contains(_normalizedSearchText(needle))) {
+          return resource.id;
+        }
+      }
+    }
+    return null;
+  }
+
   static List<PreparedCombatAction> _resourceActions(Character character) {
-    return character.resources.map((resource) {
+    return character.resources.where((resource) {
+      return !_isSpecificCombatResource(resource);
+    }).map((resource) {
       final diceFormula = _firstDiceFormula(resource.notes ?? '');
       final healing =
           _looksLikeHealing('${resource.name} ${resource.notes ?? ''}');
@@ -1026,9 +2101,81 @@ class CharacterCombatBuilderService {
           'notes': resource.notes,
           if (grantsActionSurge) 'combatEffect': 'actionSurge',
           if (grantsActionSurge) 'grantsAction': true,
+          if (healing) 'targetPolicy': 'ally',
+          if (grantsActionSurge) 'targetsSelf': true,
         },
       );
     }).toList();
+  }
+
+  static List<PreparedCombatAction> _dedupeCombatActions(
+    List<PreparedCombatAction> actions,
+  ) {
+    final seen = <String>{};
+    final result = <PreparedCombatAction>[];
+    for (final action in actions) {
+      final key = _actionDedupeKey(action);
+      if (!seen.add(key)) continue;
+      result.add(action);
+    }
+    return result;
+  }
+
+  static String _actionDedupeKey(PreparedCombatAction action) {
+    final source = action.metadata['source']?.toString() ?? '';
+    final slotLevel = action.metadata['level']?.toString() ?? '';
+    final inventoryItemId =
+        action.metadata['inventoryItemId']?.toString() ?? '';
+    final maneuverId = action.metadata['maneuverId']?.toString() ?? '';
+    final stableSpecificity = maneuverId.isNotEmpty
+        ? maneuverId
+        : slotLevel.isNotEmpty
+            ? 'slot:$slotLevel'
+            : inventoryItemId.isNotEmpty
+                ? 'item:$inventoryItemId'
+                : '';
+    return [
+      _normalizedSearchText(action.name),
+      action.timing.name,
+      action.rollKind.name,
+      _normalizedSearchText(action.resourceKey ?? ''),
+      _normalizedSearchText(action.attackFormula ?? ''),
+      _normalizedSearchText(action.damageFormula ?? ''),
+      _normalizedSearchText(action.healingFormula ?? ''),
+      _normalizedSearchText(action.saveAbility ?? ''),
+      action.saveDc?.toString() ?? '',
+      if (source == 'spell') source,
+      stableSpecificity,
+    ].join('|');
+  }
+
+  static bool _isSpecificCombatResource(CharacterResource resource) {
+    final text = _normalizedSearchText('${resource.id} ${resource.name}');
+    return text.contains('ki') ||
+        text.contains('focus point') ||
+        text.contains('punto de ki') ||
+        text.contains('puntos de ki') ||
+        text.contains('punto de enfoque') ||
+        text.contains('puntos de enfoque') ||
+        text.contains('rage') ||
+        text.contains('furia') ||
+        text.contains('rabia') ||
+        text.contains('second wind') ||
+        text.contains('segundo aliento') ||
+        text.contains('action surge') ||
+        text.contains('oleada de accion') ||
+        text.contains('bardic inspiration') ||
+        text.contains('inspiracion bardica') ||
+        text.contains('channel divinity') ||
+        text.contains('canalizar divinidad') ||
+        text.contains('wild shape') ||
+        text.contains('forma salvaje') ||
+        text.contains('flash of genius') ||
+        text.contains('destello de genialidad') ||
+        text.contains('superiority') ||
+        text.contains('superioridad') ||
+        text.contains('lay on hands') ||
+        text.contains('imposicion de manos');
   }
 
   static List<CombatEffect> _passiveEffects(Character character) {
@@ -1093,6 +2240,50 @@ class CharacterCombatBuilderService {
       );
     }
 
+    final rogueLevel = _classLevel(character, const ['rogue', 'picaro']);
+    final monkLevel = _classLevel(character, const ['monk', 'monje']);
+    final hasEvasion = rogueLevel >= 7 ||
+        monkLevel >= 7 ||
+        character.features.any((feature) {
+          final text = _normalizedSearchText(
+            '${feature.name} ${feature.description}',
+          );
+          return text.contains('evasion');
+        });
+    if (hasEvasion) {
+      addEffect(
+        id: 'evasion',
+        name: 'Evasion',
+        kind: CombatEffectKind.buff,
+        mechanics: const {
+          'savingThrow': 'DEX',
+          'halfDamageOnSuccess': 'none',
+          'damageOnFailedHalfSave': 'half',
+        },
+      );
+    }
+
+    final paladinLevel = _classLevel(character, const ['paladin', 'paladin']);
+    final hasRadiantStrikeFeature = character.features.any((feature) {
+      final text = _normalizedSearchText(
+        '${feature.name} ${feature.description}',
+      );
+      return text.contains('radiant strikes') ||
+          text.contains('improved divine smite');
+    });
+    if (paladinLevel >= 11 || hasRadiantStrikeFeature) {
+      addEffect(
+        id: 'radiant_strikes',
+        name: 'Radiant Strikes',
+        kind: CombatEffectKind.buff,
+        mechanics: const {
+          'extraDamageOnHit': '1d8',
+          'damageType': 'Radiant',
+          'requiresMeleeWeaponAttack': true,
+        },
+      );
+    }
+
     return effects;
   }
 
@@ -1101,6 +2292,20 @@ class CharacterCombatBuilderService {
       for (final resource in character.resources)
         if (resource.id.trim().isNotEmpty) resource.id: resource.current,
     };
+
+    for (final resource in CharacterResourceFactory.buildResources(character)) {
+      final resourceId = resource.id.trim();
+      if (resourceId.isEmpty) continue;
+      result.putIfAbsent(resourceId, () => resource.current);
+    }
+
+    final fighterLevel = _classLevel(character, const ['fighter', 'guerrero']);
+    if (fighterLevel >= 1) {
+      result.putIfAbsent('second_wind', () => 1);
+    }
+    if (fighterLevel >= 2) {
+      result.putIfAbsent('action_surge', () => 1);
+    }
 
     for (var level = 1; level <= 9; level++) {
       if (CharacterSpellSlotService.slotMaxForLevel(character, level) > 0) {
@@ -1314,6 +2519,22 @@ class CharacterCombatBuilderService {
 
   static int _abilityModifier(int score) => ((score - 10) / 2).floor();
 
+  static int _characterBaseAbilityScore(Character character, String ability) {
+    final normalized = ability.trim().toUpperCase();
+    return (character.stats[normalized] ?? 10) +
+        (character.racialBonuses[normalized] ?? 0) +
+        (character.featAbilityBonuses[normalized] ?? 0);
+  }
+
+  static String _ordinalSpellLevel(int level) {
+    return switch (level) {
+      1 => '1st',
+      2 => '2nd',
+      3 => '3rd',
+      _ => '${level}th',
+    };
+  }
+
   static int _classLevel(Character character, List<String> classNames) {
     final normalizedNames = classNames.map(_normalizedSearchText).toSet();
     var result = 0;
@@ -1327,10 +2548,10 @@ class CharacterCombatBuilderService {
   }
 
   static String _martialArtsDie(int monkLevel) {
-    if (monkLevel >= 17) return '1d10';
-    if (monkLevel >= 11) return '1d8';
-    if (monkLevel >= 5) return '1d6';
-    return '1d4';
+    if (monkLevel >= 17) return '1d12';
+    if (monkLevel >= 11) return '1d10';
+    if (monkLevel >= 5) return '1d8';
+    return '1d6';
   }
 
   static int _proficiencyBonus(int level) {
@@ -1409,12 +2630,115 @@ class CharacterCombatBuilderService {
         normalized.contains('half the damage');
   }
 
+  static Map<String, dynamic> _spellAreaMetadata(Spell spell) {
+    final text = '${spell.range} ${spell.description}'.toLowerCase();
+    String? shape;
+    if (text.contains('cone')) {
+      shape = 'cone';
+    } else if (text.contains('line')) {
+      shape = 'line';
+    } else if (text.contains('cube')) {
+      shape = 'cube';
+    } else if (text.contains('sphere') ||
+        text.contains('radius') ||
+        text.contains('cylinder')) {
+      shape = 'sphere';
+    }
+
+    if (shape == null) return const {};
+
+    final size = _firstAreaFeet(text, shape);
+    if (size == null || size <= 0) return const {};
+
+    return {
+      'areaShape': shape,
+      'areaFeet': size,
+    };
+  }
+
+  static int? _firstAreaFeet(String text, String shape) {
+    final patterns = <RegExp>[
+      RegExp(
+        '(\\d+)[-\\s]*(?:foot|feet|ft)[-\\s]*(?:radius[-\\s]*)?$shape',
+      ),
+      RegExp(
+        '(\\d+)[-\\s]*(?:foot|feet|ft)[-\\s]*(?:long[-,\\s]*)?.{0,24}$shape',
+      ),
+      RegExp('$shape.{0,24}?(\\d+)[-\\s]*(?:foot|feet|ft)'),
+      RegExp('(\\d+)[-\\s]*(?:foot|feet|ft)[-\\s]*radius'),
+    ];
+
+    for (final pattern in patterns) {
+      final match = pattern.firstMatch(text);
+      if (match == null) continue;
+      final value = int.tryParse(match.group(1) ?? '');
+      if (value != null && value > 0) return value;
+    }
+    return null;
+  }
+
   static bool _spellLooksLikeHealing(String text) {
     final lower = text.toLowerCase();
     return lower.contains('regain') ||
         lower.contains('healing') ||
         lower.contains('heals') ||
         lower.contains('restore');
+  }
+
+  static bool _spellTargetsOnlySelf(
+    Spell spell,
+    Map<String, dynamic> areaMetadata,
+  ) {
+    final range = spell.range.trim().toLowerCase();
+    if (!range.startsWith('self')) return false;
+    return areaMetadata.isEmpty;
+  }
+
+  static String _spellTargetPolicy(
+    Spell spell, {
+    required bool healingSpell,
+    required bool targetsOnlySelf,
+    required bool usesAttackRoll,
+    required String? saveAbility,
+    required String? damageFormula,
+  }) {
+    if (targetsOnlySelf) return 'self';
+    if (healingSpell) return 'ally';
+    if (usesAttackRoll || saveAbility != null || damageFormula != null) {
+      return 'hostile';
+    }
+    if (_spellLooksLikeAllySupport(spell)) return 'ally';
+    return '';
+  }
+
+  static bool _spellLooksLikeAllySupport(Spell spell) {
+    final text = _normalizedSearchText(
+        '${spell.name} ${spell.range} ${spell.description}');
+    if (text.contains('willing creature') ||
+        text.contains('friendly creature') ||
+        text.contains('allied creature') ||
+        text.contains('ally') ||
+        text.contains('creature you touch') ||
+        text.contains('creature of your choice') ||
+        text.contains('target creature') && _spellSupportVerb(text)) {
+      return true;
+    }
+    return _spellSupportVerb(text) &&
+        (text.contains('one creature') ||
+            text.contains('a creature') ||
+            text.contains('creatures of your choice'));
+  }
+
+  static bool _spellSupportVerb(String normalizedText) {
+    return normalizedText.contains('gains') ||
+        normalizedText.contains('gain ') ||
+        normalizedText.contains('advantage') ||
+        normalizedText.contains('bonus') ||
+        normalizedText.contains('increase') ||
+        normalizedText.contains('protect') ||
+        normalizedText.contains('ward') ||
+        normalizedText.contains('resistance') ||
+        normalizedText.contains('temporary hit points');
   }
 
   static String? _firstSaveAbility(String text) {
@@ -1455,7 +2779,7 @@ class CharacterCombatBuilderService {
   static CombatActionTiming _timingForFeature(CharacterFeature feature) {
     final text = '${feature.name} ${feature.description}'.toLowerCase();
     if (text.contains('reaction')) return CombatActionTiming.reaction;
-    if (_isActionSurgeText(text)) return CombatActionTiming.bonusAction;
+    if (_isActionSurgeText(text)) return CombatActionTiming.free;
     if (text.contains('bonus action') ||
         text.contains('rage') ||
         text.contains('second wind') ||
@@ -1485,7 +2809,11 @@ class CharacterCombatBuilderService {
   static CombatActionTiming _timingForResource(CharacterResource resource) {
     final text = '${resource.name} ${resource.notes ?? ''}'.toLowerCase();
     if (text.contains('reaction')) return CombatActionTiming.reaction;
-    if (_isActionSurgeText(text)) return CombatActionTiming.bonusAction;
+    if (_isActionSurgeText(text)) return CombatActionTiming.free;
+    if (text.contains('bardic inspiration')) {
+      return CombatActionTiming.bonusAction;
+    }
+    if (text.contains('inspiration')) return CombatActionTiming.free;
     if (text.contains('bonus')) return CombatActionTiming.bonusAction;
     return CombatActionTiming.action;
   }
@@ -1504,6 +2832,12 @@ class CharacterCombatBuilderService {
         lower.contains('regain') ||
         lower.contains('recover') ||
         lower.contains('hit points');
+  }
+
+  static bool _isSecondWindText(String text) {
+    final normalized = _normalizedSearchText(text);
+    return normalized.contains('second wind') ||
+        normalized.contains('segundo aliento');
   }
 
   static bool _isActionSurgeText(String text) {

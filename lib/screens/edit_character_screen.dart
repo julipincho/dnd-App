@@ -923,11 +923,9 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
 
                       if (needsVariantChoice) {
                         final currentChosenVariant =
-                            existingSelection['chosenVariant'] != null
-                                ? existingSelection['chosenVariant']
-                                    .toString()
-                                    .trim()
-                                : null;
+                            existingSelection['chosenVariant']
+                                ?.toString()
+                                .trim();
 
                         final chosenVariant =
                             await _showFeatVariantChoiceDialog(
@@ -943,12 +941,10 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                       }
                       if (needsAbilityChoice) {
                         final currentChosenAbility =
-                            existingSelection['chosenAbility'] != null
-                                ? existingSelection['chosenAbility']
-                                    .toString()
-                                    .trim()
-                                    .toUpperCase()
-                                : null;
+                            existingSelection['chosenAbility']
+                                ?.toString()
+                                .trim()
+                                .toUpperCase();
 
                         final chosenAbility =
                             await _showFeatAbilityChoiceDialog(
@@ -964,12 +960,10 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                       }
                       if (needsDamageTypeChoice) {
                         final currentChosenDamageType =
-                            existingSelection['chosenDamageType'] != null
-                                ? existingSelection['chosenDamageType']
-                                    .toString()
-                                    .trim()
-                                    .toLowerCase()
-                                : null;
+                            existingSelection['chosenDamageType']
+                                ?.toString()
+                                .trim()
+                                .toLowerCase();
 
                         final chosenDamageType =
                             await _showFeatDamageTypeChoiceDialog(
@@ -987,13 +981,10 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
 
                       if (needsSpellcastingAbilityChoice) {
                         final currentChosenSpellcastingAbility =
-                            existingSelection['chosenSpellcastingAbility'] !=
-                                    null
-                                ? existingSelection['chosenSpellcastingAbility']
-                                    .toString()
-                                    .trim()
-                                    .toUpperCase()
-                                : null;
+                            existingSelection['chosenSpellcastingAbility']
+                                ?.toString()
+                                .trim()
+                                .toUpperCase();
 
                         final chosenSpellcastingAbility =
                             await _showFeatSpellcastingAbilityChoiceDialog(

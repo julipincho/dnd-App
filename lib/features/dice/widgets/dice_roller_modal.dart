@@ -1,29 +1,37 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../../services/dice_color_preferences_service.dart';
 import '../../../theme.dart';
 import '../models/dice_roll_result.dart';
 import '../services/dice_roller_service.dart';
 
 class DiceRollerModal extends StatefulWidget {
   final void Function(DiceRollResult result)? onRoll;
+  final ValueChanged<Color>? onDiceColorChanged;
   final String initialLabel;
   final int initialModifier;
   final int initialSides;
   final int initialDiceCount;
   final bool initialAdvantage;
   final bool initialDisadvantage;
+  final Color initialDiceColor;
+  final String diceColorPreferenceKey;
 
   const DiceRollerModal({
     super.key,
     this.onRoll,
+    this.onDiceColorChanged,
     this.initialLabel = 'Dice Roll',
     this.initialModifier = 0,
     this.initialSides = 20,
     this.initialDiceCount = 1,
     this.initialAdvantage = false,
     this.initialDisadvantage = false,
+    this.initialDiceColor = DiceColorPreferencesService.defaultColor,
+    this.diceColorPreferenceKey = DiceColorPreferencesService.defaultKey,
   });
 
   @override
@@ -36,6 +44,7 @@ class _DiceRollerModalState extends State<DiceRollerModal> {
 
   late bool _advantage;
   late bool _disadvantage;
+  late Color _diceColor;
 
   final List<DiceRollResult> _history = [];
   DiceRollResult? _featuredResult;
@@ -60,6 +69,8 @@ class _DiceRollerModalState extends State<DiceRollerModal> {
 
     _advantage = widget.initialAdvantage;
     _disadvantage = widget.initialDisadvantage;
+    _diceColor = widget.initialDiceColor;
+    _loadDiceColorPreference();
   }
 
   bool get _shouldStartBlank {
@@ -115,6 +126,28 @@ class _DiceRollerModalState extends State<DiceRollerModal> {
     final match = RegExp(r'^1?d20([+-]\d+)?$').firstMatch(normalized);
     if (match == null) return 0;
     return int.tryParse(match.group(1) ?? '0') ?? 0;
+  }
+
+  Future<void> _loadDiceColorPreference() async {
+    final color = await DiceColorPreferencesService.loadColor(
+      key: widget.diceColorPreferenceKey,
+    );
+    if (!mounted) return;
+    setState(() {
+      _diceColor = color;
+    });
+    widget.onDiceColorChanged?.call(color);
+  }
+
+  Future<void> _selectDiceColor(Color color) async {
+    setState(() {
+      _diceColor = color;
+    });
+    widget.onDiceColorChanged?.call(color);
+    await DiceColorPreferencesService.saveColor(
+      color,
+      key: widget.diceColorPreferenceKey,
+    );
   }
 
   void _rollDice() {
@@ -238,6 +271,11 @@ class _DiceRollerModalState extends State<DiceRollerModal> {
                     spacing: 8,
                     runSpacing: 8,
                     children: _diceOptions.map(_buildDiceChoice).toList(),
+                  ),
+                  const SizedBox(height: 12),
+                  _DiceColorSelector(
+                    selectedColor: _diceColor,
+                    onChanged: (color) => unawaited(_selectDiceColor(color)),
                   ),
                   const SizedBox(height: 12),
                   AnimatedOpacity(
@@ -508,6 +546,123 @@ class _DiceIconButton extends StatelessWidget {
               style: const TextStyle(fontWeight: FontWeight.w900),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DiceColorSelector extends StatelessWidget {
+  final Color selectedColor;
+  final ValueChanged<Color> onChanged;
+
+  const _DiceColorSelector({
+    required this.selectedColor,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: tokens.surface,
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(color: tokens.accentRead.withValues(alpha: 0.16)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            Icon(
+              Icons.palette_outlined,
+              color: selectedColor,
+              size: 20,
+            ),
+            const SizedBox(width: 10),
+            Text(
+              'DICE COLOR',
+              style: TextStyle(
+                color: tokens.accentReadSoft.withValues(alpha: 0.88),
+                fontSize: 11,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Wrap(
+                alignment: WrapAlignment.end,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final color in DiceColorPreferencesService.palette)
+                    _DiceColorSwatch(
+                      color: color,
+                      selected:
+                          DiceColorPreferencesService.colorToArgb(color) ==
+                              DiceColorPreferencesService.colorToArgb(
+                                selectedColor,
+                              ),
+                      onTap: () => onChanged(color),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DiceColorSwatch extends StatelessWidget {
+  final Color color;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _DiceColorSwatch({
+    required this.color,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: DiceColorPreferencesService.colorToHex(color),
+      child: InkResponse(
+        onTap: onTap,
+        radius: 18,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          width: 30,
+          height: 30,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: color,
+            border: Border.all(
+              color: selected
+                  ? Colors.white
+                  : Colors.white.withValues(alpha: 0.28),
+              width: selected ? 3 : 1,
+            ),
+            boxShadow: [
+              if (selected)
+                BoxShadow(
+                  color: color.withValues(alpha: 0.42),
+                  blurRadius: 12,
+                ),
+            ],
+          ),
+          child: selected
+              ? const Icon(
+                  Icons.check_rounded,
+                  color: Colors.black,
+                  size: 17,
+                )
+              : null,
         ),
       ),
     );

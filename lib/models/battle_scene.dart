@@ -7,6 +7,7 @@ class BattleScene {
   final int gridColumns;
   final int gridRows;
   final bool combatActive;
+  final Map<String, dynamic> combatState;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -19,6 +20,7 @@ class BattleScene {
     required this.gridColumns,
     required this.gridRows,
     required this.combatActive,
+    required this.combatState,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -32,6 +34,7 @@ class BattleScene {
     int gridColumns = 24,
     int gridRows = 16,
     bool combatActive = false,
+    Map<String, dynamic> combatState = const {},
     DateTime? now,
   }) {
     final timestamp = now ?? DateTime.now();
@@ -45,6 +48,7 @@ class BattleScene {
       gridColumns: gridColumns,
       gridRows: gridRows,
       combatActive: combatActive,
+      combatState: combatState,
       createdAt: timestamp,
       updatedAt: timestamp,
     );
@@ -60,6 +64,7 @@ class BattleScene {
       gridColumns: (json['gridColumns'] as num?)?.toInt() ?? 24,
       gridRows: (json['gridRows'] as num?)?.toInt() ?? 16,
       combatActive: json['combatActive'] as bool? ?? false,
+      combatState: _mapFromJson(json['combatState']),
       createdAt: _dateFromJson(json['createdAt']),
       updatedAt: _dateFromJson(json['updatedAt']),
     );
@@ -75,6 +80,7 @@ class BattleScene {
       'gridColumns': gridColumns,
       'gridRows': gridRows,
       'combatActive': combatActive,
+      'combatState': combatState,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
     };
@@ -89,6 +95,7 @@ class BattleScene {
     int? gridColumns,
     int? gridRows,
     bool? combatActive,
+    Map<String, dynamic>? combatState,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -101,6 +108,7 @@ class BattleScene {
       gridColumns: gridColumns ?? this.gridColumns,
       gridRows: gridRows ?? this.gridRows,
       combatActive: combatActive ?? this.combatActive,
+      combatState: combatState ?? this.combatState,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -109,4 +117,9 @@ class BattleScene {
 
 DateTime _dateFromJson(dynamic value) {
   return DateTime.tryParse(value?.toString() ?? '') ?? DateTime.now();
+}
+
+Map<String, dynamic> _mapFromJson(dynamic value) {
+  if (value is! Map) return const {};
+  return Map<String, dynamic>.from(value);
 }

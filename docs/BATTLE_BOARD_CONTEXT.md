@@ -1,5 +1,9 @@
 # Stitch Battle Board System - Context
 
+Priority roadmap:
+
+- `docs/ROADMAP_COMBAT_DEFINITIVO.md`
+
 ## Vision
 
 The Battle Board is a lightweight synchronized tactical layer for Stitch.
@@ -105,3 +109,64 @@ Recommended web-only development loop:
 ## Design Principle
 
 Keep the tactical board visual and synchronized. Do not duplicate the combat engine. The board should consume combat state and send tactical intent, while existing Stitch systems remain the source of rules truth.
+
+## Current Tactical Board Upgrade
+
+The board is now becoming the main combat surface rather than a passive map.
+
+Implemented direction:
+
+- The board owns the visual combat HUD: active actor card, selected target card, dice/result toast, allies rail and enemies rail.
+- Initiative is mirrored onto board tokens and rendered on the board side rails.
+- Tokens are round tactical icons with HP bars and active/target feedback.
+- The HUD can be hidden so movement and positioning have clean board space.
+- Controller/display state continues to sync through scene/token streams.
+- Board token selection can update the visual target, and Combat Mode listens for board target changes when the controller is active.
+- Movement budget now uses the turn origin. Backtracking toward the origin lowers used movement instead of spending additional feet.
+- Setup mode exists on the board for changing map background, grid size, grid dimensions and initial token positions.
+- Battle scenes can carry a `combatState` snapshot so active combat can be resumed while the scene remains `combatActive`.
+
+Important model additions:
+
+- `BoardToken.initiative`
+- `BoardToken.role`
+- `BoardToken.movementOriginX`
+- `BoardToken.movementOriginY`
+- `BattleScene.combatState`
+
+Next polish targets:
+
+- Replace placeholder map presets with uploaded Firebase Storage map choices.
+- Make target selection fully bidirectional for support/healing and hostile actions.
+- Add spell/area templates on board for cones, lines, spheres and cubes.
+- Add an explicit "End Combat" command that marks `combatActive = false`.
+- Move more dice resolution and combat log feedback from Combat Mode onto the board HUD.
+
+## Tactical Roadmap - May 2026
+
+### Current Slice
+
+- Combat Mode bottom dock is becoming an action hand: timing tabs, readable cards, roll mode, resource state and turn confirmation live together.
+- Board HUD overlap is being cleaned up so active actor, target and initiative rails can coexist.
+- Dice/result feedback is moving onto the board as animated falling dice to make the TV display feel alive.
+- Combat state persistence now includes turn economy, pending damage and attack-slot usage, not only HP and token positions.
+- Combat Mode has a direct target saving throw menu for STR/DEX/CON/INT/WIS/CHA saves.
+- Spell actions can carry first-pass area metadata (`areaShape`, `areaFeet`) so the board can preview spheres, cubes, cones and lines.
+- Display boards can be temporarily unlocked for direct token dragging during DM/local testing while staying read-only by default.
+
+### Rules In Progress
+
+- Extra Attack is tracked as Action attack slots. A character can keep using individual attack cards until those slots are gone.
+- Bonus-action techniques such as Flurry of Blows are modeled separately and do not consume Action attack slots.
+- Inspiration-style resources can be surfaced as Free actions and spent from the controller.
+- Movement remains origin-based for the turn, so retracing a route does not spend extra feet.
+- Saving throws currently resolve per selected target; group saves for area templates are the next rules layer.
+
+### Next
+
+- Add board-native area templates: radius, cone, line and cube previews with affected target highlighting.
+- Add group saving throw resolution for AoE spells: request saves, roll/save per target, then apply half/full damage.
+- Make map selection use user-uploaded Firebase Storage images instead of only preset URLs.
+- Add a setup wizard for map scale, grid alignment and initial token placement before initiative begins.
+- Expand target selection rules so the board can safely choose hostile, support, self and area targets depending on the selected action.
+- Persist and expose an explicit End Combat command that closes the resumable scene cleanly.

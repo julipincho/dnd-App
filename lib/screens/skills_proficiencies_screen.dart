@@ -211,7 +211,7 @@ class _SkillsProficienciesScreenState extends State<SkillsProficienciesScreen> {
                               },
                       ),
                     );
-                  }).toList(),
+                  }),
                 ],
               ),
             );

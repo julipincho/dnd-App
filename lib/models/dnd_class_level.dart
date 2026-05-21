@@ -66,14 +66,14 @@ class SpellcastingData {
   bool get hasSlots => spellSlots.any((s) => s > 0);
 
   factory SpellcastingData.fromJson(Map<String, dynamic> json) {
-    int _int(dynamic v) => (v is num) ? v.toInt() : 0;
+    int asInt(dynamic value) => (value is num) ? value.toInt() : 0;
 
     return SpellcastingData(
-      cantripsKnown: _int(json["cantrips_known"]),
-      spellsKnown: _int(json["spells_known"]),
+      cantripsKnown: asInt(json["cantrips_known"]),
+      spellsKnown: asInt(json["spells_known"]),
       spellSlots: List<int>.generate(
         9,
-        (i) => _int(json["spell_slots_level_${i + 1}"]),
+        (i) => asInt(json["spell_slots_level_${i + 1}"]),
       ),
     );
   }

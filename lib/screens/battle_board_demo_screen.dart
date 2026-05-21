@@ -20,6 +20,7 @@ class BattleBoardDemoScreen extends StatefulWidget {
 class _BattleBoardDemoScreenState extends State<BattleBoardDemoScreen> {
   late final BattleScene _scene;
   late List<BoardToken> _tokens;
+  String? _selectedTokenId;
 
   @override
   void initState() {
@@ -117,6 +118,15 @@ class _BattleBoardDemoScreenState extends State<BattleBoardDemoScreen> {
               scene: _scene,
               tokens: _tokens,
               readOnly: widget.readOnly,
+              selectedTokenId: widget.readOnly ? null : _selectedTokenId,
+              onTokenTap: widget.readOnly
+                  ? null
+                  : (token) {
+                      setState(() {
+                        _selectedTokenId = token.id;
+                      });
+                    },
+              onBoardCellTap: widget.readOnly ? null : _moveSelectedToken,
               onMoveToken: widget.readOnly ? null : _moveToken,
             ),
           ),
@@ -135,7 +145,7 @@ class _BattleBoardDemoScreenState extends State<BattleBoardDemoScreen> {
                 child: Text(
                   widget.readOnly
                       ? 'Display local: /board-demo?mode=display'
-                      : 'Demo local: arrastra tokens para probar movimiento',
+                      : 'Demo local: selecciona una ficha y toca una casilla',
                   style: const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w700,
@@ -156,5 +166,13 @@ class _BattleBoardDemoScreenState extends State<BattleBoardDemoScreen> {
           if (item.id == token.id) item.copyWith(x: x, y: y) else item,
       ];
     });
+  }
+
+  Future<void> _moveSelectedToken(int x, int y) async {
+    final selectedId = _selectedTokenId;
+    if (selectedId == null) return;
+    final matching = _tokens.where((token) => token.id == selectedId);
+    if (matching.isEmpty) return;
+    await _moveToken(matching.first, x, y);
   }
 }
