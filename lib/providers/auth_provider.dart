@@ -61,7 +61,10 @@ class AuthProvider extends ChangeNotifier {
       _isInitialized = true;
     } catch (e) {
       _errorMessage = 'Failed to initialize authentication.';
-      rethrow;
+      _user = null;
+      _profile = null;
+      _isInitialized = true;
+      debugPrint('AuthProvider init ERROR: $e');
     } finally {
       _isLoading = false;
       notifyListeners();

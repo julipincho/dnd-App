@@ -8,9 +8,8 @@ import '../models/battle_scene.dart';
 import '../models/board_token.dart';
 import '../utils/image_path_utils.dart';
 import 'battle_board_dice_box_overlay.dart';
-import 'battle_board_dice_fall_overlay.dart';
 
-class BattleBoardView extends StatelessWidget {
+class BattleBoardView extends StatefulWidget {
   final BattleScene scene;
   final List<BoardToken> tokens;
   final bool readOnly;
@@ -18,7 +17,13 @@ class BattleBoardView extends StatelessWidget {
   final Future<void> Function(int x, int y)? onBoardCellTap;
   final ValueChanged<BoardToken>? onTokenTap;
   final String? selectedTokenId;
+  final Set<String> selectedTokenIds;
+  final bool selectionEnabled;
+  final ValueChanged<Set<String>>? onSelectionChanged;
   final BoardToken? manualRollToken;
+  final Future<bool> Function(BoardToken token)? onDiceRollClaimRequested;
+  final FutureOr<void> Function(BoardToken token, BoardDiceRollOutcome outcome)?
+      onDiceRollResolved;
 
   const BattleBoardView({
     super.key,
@@ -29,41 +34,115 @@ class BattleBoardView extends StatelessWidget {
     this.onBoardCellTap,
     this.onTokenTap,
     this.selectedTokenId,
+    this.selectedTokenIds = const {},
+    this.selectionEnabled = false,
+    this.onSelectionChanged,
     this.manualRollToken,
+    this.onDiceRollClaimRequested,
+    this.onDiceRollResolved,
   });
 
   @override
+  State<BattleBoardView> createState() => _BattleBoardViewState();
+}
+
+class _BattleBoardViewState extends State<BattleBoardView> {
+  Offset? _selectionStart;
+  Offset? _selectionCurrent;
+
+  bool get _selectionActive {
+    return widget.selectionEnabled &&
+        !widget.readOnly &&
+        widget.onSelectionChanged != null;
+  }
+
+  Rect? get _selectionRect {
+    final start = _selectionStart;
+    final current = _selectionCurrent;
+    if (start == null || current == null) return null;
+    return Rect.fromPoints(start, current);
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final scene = widget.scene;
     final boardWidth = scene.gridColumns * scene.gridSize.toDouble();
     final boardHeight = scene.gridRows * scene.gridSize.toDouble();
     final boardKey = GlobalKey();
     final visibleTokens =
-        tokens.where((token) => token.isVisible).toList(growable: false);
+        widget.tokens.where((token) => token.isVisible).toList(growable: false);
     final activeToken = _activeTokenOf(visibleTokens);
     final targetToken = _targetTokenOf(visibleTokens);
     final eventToken = _latestEventToken(visibleTokens);
+    final areaEventToken = _latestAreaEventToken(visibleTokens);
+    final areaEventActorToken = areaEventToken == null
+        ? null
+        : _tokenByRefId(
+              visibleTokens,
+              areaEventToken.lastEventSourceRefId,
+            ) ??
+            activeToken;
+    final areaEventTargetToken = areaEventToken == null
+        ? null
+        : _tokenByRefId(
+              visibleTokens,
+              areaEventToken.lastEventPrimaryTargetRefId,
+            ) ??
+            targetToken;
+    final areaPreviewTargetCenter = activeToken == null || targetToken == null
+        ? null
+        : _areaAimCenter(
+            activeToken,
+            fallback: targetToken,
+            gridSize: scene.gridSize.toDouble(),
+          );
+    final areaEventTargetCenter =
+        areaEventToken == null || areaEventTargetToken == null
+            ? null
+            : _areaEventCenter(
+                areaEventToken,
+                fallback: areaEventTargetToken,
+                gridSize: scene.gridSize.toDouble(),
+              );
+    final areaPreviewAffectedRefs =
+        activeToken == null || areaPreviewTargetCenter == null
+            ? const <String>{}
+            : _areaPreviewAffectedRefs(
+                activeToken: activeToken,
+                tokens: visibleTokens,
+                targetCenter: areaPreviewTargetCenter,
+                shape: activeToken.selectedActionAreaShape,
+                areaFeet: activeToken.selectedActionAreaFeet,
+                gridSize: scene.gridSize.toDouble(),
+              );
     final manualEventToken = _latestEventToken(
-      tokens
+      widget.tokens
           .where(
             (token) =>
                 token.lastEventLabel.isNotEmpty &&
                 token.lastEventId.isNotEmpty &&
                 token.lastEventKind.toLowerCase() == 'manual' &&
-                token.id != manualRollToken?.id &&
+                token.id != widget.manualRollToken?.id &&
                 token.id != eventToken?.id,
           )
           .toList(growable: false),
     );
     final diceEventToken = _latestEventToken([
       if (eventToken != null) eventToken,
-      if (manualRollToken != null) manualRollToken!,
+      if (widget.manualRollToken != null) widget.manualRollToken!,
       if (manualEventToken != null) manualEventToken,
     ]);
-    final selectedMoveToken = _tokenById(visibleTokens, selectedTokenId);
+    final selectedMoveToken = _tokenById(visibleTokens, widget.selectedTokenId);
+    final selectedGroupTokens = visibleTokens
+        .where((token) => widget.selectedTokenIds.contains(token.id))
+        .toList(growable: false);
+    final hasMoveSelection =
+        selectedMoveToken != null || selectedGroupTokens.isNotEmpty;
 
     return InteractiveViewer(
       minScale: 0.35,
       maxScale: 3,
+      panEnabled: !_selectionActive,
       constrained: false,
       boundaryMargin: const EdgeInsets.all(280),
       child: SizedBox(
@@ -71,7 +150,7 @@ class BattleBoardView extends StatelessWidget {
         height: boardHeight,
         child: DragTarget<BoardToken>(
           key: boardKey,
-          onAcceptWithDetails: readOnly || onMoveToken == null
+          onAcceptWithDetails: widget.readOnly || widget.onMoveToken == null
               ? null
               : (details) async {
                   final boardContext = boardKey.currentContext;
@@ -80,22 +159,25 @@ class BattleBoardView extends StatelessWidget {
                   if (renderBox == null) return;
 
                   final local = renderBox.globalToLocal(details.offset);
+                  final maxX =
+                      math.max(0, scene.gridColumns - details.data.size);
+                  final maxY = math.max(0, scene.gridRows - details.data.size);
                   final x = (local.dx / scene.gridSize)
                       .round()
-                      .clamp(0, scene.gridColumns - 1)
+                      .clamp(0, maxX)
                       .toInt();
                   final y = (local.dy / scene.gridSize)
                       .round()
-                      .clamp(0, scene.gridRows - 1)
+                      .clamp(0, maxY)
                       .toInt();
-                  await onMoveToken!(details.data, x, y);
+                  await widget.onMoveToken!(details.data, x, y);
                 },
           builder: (context, _, __) {
             return GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTapUp: readOnly ||
-                      onBoardCellTap == null ||
-                      selectedMoveToken == null
+              onTapUp: widget.readOnly ||
+                      widget.onBoardCellTap == null ||
+                      !hasMoveSelection
                   ? null
                   : (details) {
                       final local = details.localPosition;
@@ -108,7 +190,38 @@ class BattleBoardView extends StatelessWidget {
                           .clamp(0, scene.gridRows - 1)
                           .toInt();
                       if (_cellHasToken(visibleTokens, x, y)) return;
-                      unawaited(onBoardCellTap!(x, y));
+                      unawaited(widget.onBoardCellTap!(x, y));
+                    },
+              onPanStart: !_selectionActive
+                  ? null
+                  : (details) {
+                      setState(() {
+                        _selectionStart = details.localPosition;
+                        _selectionCurrent = details.localPosition;
+                      });
+                    },
+              onPanUpdate: !_selectionActive
+                  ? null
+                  : (details) {
+                      setState(() {
+                        _selectionCurrent = details.localPosition;
+                      });
+                    },
+              onPanEnd: !_selectionActive
+                  ? null
+                  : (_) {
+                      final rect = _selectionRect;
+                      setState(() {
+                        _selectionStart = null;
+                        _selectionCurrent = null;
+                      });
+                      if (rect == null) return;
+                      final selectedIds = _tokensInsideSelection(
+                        tokens: visibleTokens,
+                        rect: rect,
+                        gridSize: scene.gridSize.toDouble(),
+                      );
+                      widget.onSelectionChanged!(selectedIds);
                     },
               child: Stack(
                 children: [
@@ -120,6 +233,15 @@ class BattleBoardView extends StatelessWidget {
                       child: CustomPaint(
                         painter: _SelectedMoveCellPainter(
                           token: selectedMoveToken,
+                          gridSize: scene.gridSize.toDouble(),
+                        ),
+                      ),
+                    ),
+                  if (selectedGroupTokens.length > 1)
+                    Positioned.fill(
+                      child: CustomPaint(
+                        painter: _SelectedGroupBoundsPainter(
+                          tokens: selectedGroupTokens,
                           gridSize: scene.gridSize.toDouble(),
                         ),
                       ),
@@ -158,16 +280,54 @@ class BattleBoardView extends StatelessWidget {
                     ),
                   if (activeToken != null &&
                       targetToken != null &&
-                      activeToken.selectedActionAreaFeet > 0)
+                      activeToken.selectedActionAreaFeet > 0 &&
+                      areaPreviewTargetCenter != null)
                     Positioned.fill(
                       child: CustomPaint(
                         painter: _AreaEffectPreviewPainter(
                           actor: activeToken,
-                          target: targetToken,
+                          targetCenter: areaPreviewTargetCenter,
                           shape: activeToken.selectedActionAreaShape,
                           areaFeet: activeToken.selectedActionAreaFeet,
                           gridSize: scene.gridSize.toDouble(),
                         ),
+                      ),
+                    ),
+                  if (areaEventToken != null &&
+                      areaEventActorToken != null &&
+                      areaEventTargetToken != null &&
+                      areaEventToken.lastEventAreaFeet > 0 &&
+                      areaEventTargetCenter != null)
+                    Positioned.fill(
+                      child: TweenAnimationBuilder<double>(
+                        key: ValueKey(
+                          'area-${areaEventToken.lastEventId}-${areaEventToken.updatedAt.microsecondsSinceEpoch}',
+                        ),
+                        tween: Tween(begin: 0, end: 1),
+                        duration: const Duration(milliseconds: 1450),
+                        curve: Curves.easeOutCubic,
+                        builder: (context, value, child) {
+                          return CustomPaint(
+                            painter: _AreaEffectEventPainter(
+                              actor: areaEventActorToken,
+                              target: areaEventTargetToken,
+                              targetCenter: areaEventTargetCenter,
+                              shape: areaEventToken.lastEventAreaShape,
+                              areaFeet: areaEventToken.lastEventAreaFeet,
+                              gridSize: scene.gridSize.toDouble(),
+                              progress: value.clamp(0.0, 1.0).toDouble(),
+                              color: _eventColor(
+                                areaEventToken.lastEventKind,
+                                areaEventToken.lastEventDamageType,
+                              ),
+                              damageType: areaEventToken.lastEventDamageType,
+                              label:
+                                  areaEventToken.lastEventResultLabel.isNotEmpty
+                                      ? areaEventToken.lastEventResultLabel
+                                      : areaEventToken.lastEventLabel,
+                            ),
+                          );
+                        },
                       ),
                     ),
                   Positioned.fill(
@@ -184,23 +344,30 @@ class BattleBoardView extends StatelessWidget {
                       key: ValueKey(token.id),
                       token: token,
                       gridSize: scene.gridSize,
-                      readOnly: readOnly,
-                      selectedForMove: token.id == selectedMoveToken?.id,
-                      onTap: onTokenTap,
+                      readOnly: widget.readOnly || _selectionActive,
+                      selectedForMove: token.id == selectedMoveToken?.id ||
+                          widget.selectedTokenIds.contains(token.id),
+                      areaPreviewAffected:
+                          areaPreviewAffectedRefs.contains(token.refId),
+                      onTap: widget.onTokenTap,
                     ),
-                  if (kIsWeb) ...[
+                  if (_selectionRect != null)
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: CustomPaint(
+                          painter: _SelectionRectPainter(rect: _selectionRect!),
+                        ),
+                      ),
+                    ),
+                  if (kIsWeb)
                     Positioned.fill(
                       child: BattleBoardDiceBoxOverlay(
+                        key: ValueKey('dice-box-overlay-${scene.id}'),
                         boardViewportId: scene.id,
                         token: diceEventToken,
                         gridSize: scene.gridSize.toDouble(),
-                      ),
-                    ),
-                  ] else
-                    Positioned.fill(
-                      child: BattleBoardDiceFallOverlay(
-                        token: diceEventToken,
-                        gridSize: scene.gridSize.toDouble(),
+                        onRollClaimRequested: widget.onDiceRollClaimRequested,
+                        onRollResolved: widget.onDiceRollResolved,
                       ),
                     ),
                 ],
@@ -250,11 +417,195 @@ class _BattleBoardMap extends StatelessWidget {
   }
 }
 
+Offset _areaAimCenter(
+  BoardToken token, {
+  required BoardToken fallback,
+  required double gridSize,
+}) {
+  final x =
+      token.selectedActionAimX >= 0 ? token.selectedActionAimX : fallback.x;
+  final y =
+      token.selectedActionAimY >= 0 ? token.selectedActionAimY : fallback.y;
+  return Offset((x + 0.5) * gridSize, (y + 0.5) * gridSize);
+}
+
+Offset _areaEventCenter(
+  BoardToken token, {
+  required BoardToken fallback,
+  required double gridSize,
+}) {
+  final x =
+      token.lastEventAreaTargetX >= 0 ? token.lastEventAreaTargetX : fallback.x;
+  final y =
+      token.lastEventAreaTargetY >= 0 ? token.lastEventAreaTargetY : fallback.y;
+  return Offset((x + 0.5) * gridSize, (y + 0.5) * gridSize);
+}
+
+Set<String> _areaPreviewAffectedRefs({
+  required BoardToken activeToken,
+  required List<BoardToken> tokens,
+  required Offset targetCenter,
+  required String shape,
+  required int areaFeet,
+  required double gridSize,
+}) {
+  if (areaFeet <= 0 || shape.trim().isEmpty) return const {};
+  final activeIsEnemy = _isEnemyToken(activeToken);
+  final affected = <String>{};
+  for (final token in tokens) {
+    if (token.refId == activeToken.refId) continue;
+    if (_isEnemyToken(token) == activeIsEnemy) continue;
+    if (_areaPreviewAffectsToken(
+      activeToken: activeToken,
+      candidateToken: token,
+      targetCenter: targetCenter,
+      shape: shape,
+      areaFeet: areaFeet,
+      gridSize: gridSize,
+    )) {
+      affected.add(token.refId);
+    }
+  }
+  return affected;
+}
+
+bool _areaPreviewAffectsToken({
+  required BoardToken activeToken,
+  required BoardToken candidateToken,
+  required Offset targetCenter,
+  required String shape,
+  required int areaFeet,
+  required double gridSize,
+}) {
+  final normalizedShape = shape.toLowerCase().trim();
+  final actorFeet = _tokenCenterFeet(activeToken);
+  final aimFeet = Offset(
+    targetCenter.dx / gridSize * 5,
+    targetCenter.dy / gridSize * 5,
+  );
+  final candidateFeet = _tokenCenterFeet(candidateToken);
+
+  if (normalizedShape.contains('line')) {
+    return _pointInLineArea(
+      start: actorFeet,
+      aim: aimFeet,
+      candidate: candidateFeet,
+      candidateSize: candidateToken.size,
+      lengthFeet: areaFeet,
+    );
+  }
+
+  if (normalizedShape.contains('cone')) {
+    return _pointInConeArea(
+      start: actorFeet,
+      aim: aimFeet,
+      candidate: candidateFeet,
+      lengthFeet: areaFeet,
+    );
+  }
+
+  if (normalizedShape.contains('cube')) {
+    final halfSideFeet = math.max(5.0, areaFeet / 2);
+    return (candidateFeet.dx - aimFeet.dx).abs() <= halfSideFeet &&
+        (candidateFeet.dy - aimFeet.dy).abs() <= halfSideFeet;
+  }
+
+  return (candidateFeet - aimFeet).distance <= areaFeet;
+}
+
+bool _pointInLineArea({
+  required Offset start,
+  required Offset aim,
+  required Offset candidate,
+  required int candidateSize,
+  required int lengthFeet,
+}) {
+  final direction = aim - start;
+  final directionLength = direction.distance;
+  if (directionLength <= 0.001) return (candidate - start).distance <= 5;
+  final candidateVector = candidate - start;
+  final projection =
+      (candidateVector.dx * direction.dx + candidateVector.dy * direction.dy) /
+          directionLength;
+  if (projection < 0 || projection > lengthFeet) return false;
+  final cross =
+      (candidateVector.dx * direction.dy - candidateVector.dy * direction.dx)
+          .abs();
+  final perpendicular = cross / directionLength;
+  final halfWidthFeet = 2.5 + candidateSize * 2.5;
+  return perpendicular <= halfWidthFeet;
+}
+
+bool _pointInConeArea({
+  required Offset start,
+  required Offset aim,
+  required Offset candidate,
+  required int lengthFeet,
+}) {
+  final direction = aim - start;
+  final directionLength = direction.distance;
+  if (directionLength <= 0.001) {
+    return (candidate - start).distance <= lengthFeet;
+  }
+  final candidateVector = candidate - start;
+  final distance = candidateVector.distance;
+  if (distance > lengthFeet || distance <= 0.001) return false;
+  final dot =
+      candidateVector.dx * direction.dx + candidateVector.dy * direction.dy;
+  final cosAngle = dot / (distance * directionLength);
+  final halfAngle = math.pi / 6;
+  return cosAngle >= math.cos(halfAngle);
+}
+
+Offset _tokenCenterFeet(BoardToken token) {
+  return Offset(
+    (token.x + token.size / 2) * 5,
+    (token.y + token.size / 2) * 5,
+  );
+}
+
+bool _isEnemyToken(BoardToken token) {
+  return token.type == 'monster' ||
+      token.type == 'enemy' ||
+      token.type == 'npc';
+}
+
+Set<String> _tokensInsideSelection({
+  required List<BoardToken> tokens,
+  required Rect rect,
+  required double gridSize,
+}) {
+  final normalized = Rect.fromLTRB(
+    math.min(rect.left, rect.right),
+    math.min(rect.top, rect.bottom),
+    math.max(rect.left, rect.right),
+    math.max(rect.top, rect.bottom),
+  );
+  if (normalized.width < 8 && normalized.height < 8) {
+    return const {};
+  }
+
+  final selected = <String>{};
+  for (final token in tokens) {
+    final tokenRect = Rect.fromLTWH(
+      token.x * gridSize,
+      token.y * gridSize,
+      token.size * gridSize,
+      token.size * gridSize,
+    );
+    if (normalized.overlaps(tokenRect)) {
+      selected.add(token.id);
+    }
+  }
+  return selected;
+}
+
 class _BoardTokenWidget extends StatelessWidget {
   final BoardToken token;
   final int gridSize;
   final bool readOnly;
   final bool selectedForMove;
+  final bool areaPreviewAffected;
   final ValueChanged<BoardToken>? onTap;
 
   const _BoardTokenWidget({
@@ -263,6 +614,7 @@ class _BoardTokenWidget extends StatelessWidget {
     required this.gridSize,
     required this.readOnly,
     required this.selectedForMove,
+    required this.areaPreviewAffected,
     this.onTap,
   });
 
@@ -275,6 +627,7 @@ class _BoardTokenWidget extends StatelessWidget {
       token: token,
       size: tokenSize,
       selectedForMove: selectedForMove,
+      areaPreviewAffected: areaPreviewAffected,
     );
     final tappableChild = onTap == null
         ? child
@@ -313,30 +666,37 @@ class _TokenDisc extends StatelessWidget {
   final BoardToken token;
   final double size;
   final bool selectedForMove;
+  final bool areaPreviewAffected;
 
   const _TokenDisc({
     required this.token,
     required this.size,
     required this.selectedForMove,
+    required this.areaPreviewAffected,
   });
 
   @override
   Widget build(BuildContext context) {
     final isEnemy = token.type == 'monster' || token.type == 'enemy';
-    final hpRatio = token.maxHp <= 0
-        ? 0.0
-        : (token.currentHp / token.maxHp).clamp(0.0, 1.0);
     final teamAccent =
         isEnemy ? const Color(0xFFFF5C6C) : const Color(0xFF7DD3FC);
     final accent = selectedForMove
         ? const Color(0xFFFFD166)
-        : token.isTargeted
-            ? const Color(0xFFFFB454)
-            : token.isActive
-                ? const Color(0xFF64F4A2)
-                : teamAccent;
-    final eventColor = _eventColor(token.lastEventKind);
-    final highlighted = selectedForMove || token.isActive || token.isTargeted;
+        : areaPreviewAffected
+            ? const Color(0xFFFF5C6C)
+            : token.isTargeted
+                ? const Color(0xFFFFB454)
+                : token.isActive
+                    ? const Color(0xFF64F4A2)
+                    : teamAccent;
+    final eventColor = _eventColor(
+      token.lastEventKind,
+      token.lastEventDamageType,
+    );
+    final highlighted = selectedForMove ||
+        areaPreviewAffected ||
+        token.isActive ||
+        token.isTargeted;
     final borderWidth =
         (highlighted ? math.max(3, size * 0.06) : math.max(2, size * 0.045))
             .toDouble();
@@ -410,43 +770,53 @@ class _TokenDisc extends StatelessWidget {
               ),
             ),
           ),
+          if (token.lastEventLabel.isNotEmpty)
+            Positioned.fill(
+              child: _TokenImpactPulse(
+                eventKey:
+                    '${token.lastEventId}-${token.lastEventLabel}-${token.updatedAt.microsecondsSinceEpoch}',
+                color: eventColor,
+              ),
+            ),
+          if (token.lastEventLabel.isNotEmpty &&
+              token.lastEventDamageType.isNotEmpty)
+            Positioned.fill(
+              child: _ElementalImpactOverlay(
+                eventKey:
+                    'element-${token.lastEventId}-${token.lastEventDamageType}-${token.updatedAt.microsecondsSinceEpoch}',
+                damageType: token.lastEventDamageType,
+                color: eventColor,
+              ),
+            ),
+          if (areaPreviewAffected && token.lastEventLabel.isEmpty)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: const Color(0xFFFF5C6C).withValues(alpha: 0.10),
+                    border: Border.all(
+                      color: const Color(0xFFFFD166).withValues(alpha: 0.92),
+                      width: math.max(2, size * 0.045),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFFFF5C6C).withValues(alpha: 0.34),
+                        blurRadius: 24,
+                        spreadRadius: 4,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           Positioned(
             left: -size * 0.08,
             right: -size * 0.08,
-            bottom: -18,
+            bottom: -20,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.78),
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.18),
-                    ),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(2),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(999),
-                      child: SizedBox(
-                        height: 6,
-                        child: FractionallySizedBox(
-                          alignment: Alignment.centerLeft,
-                          widthFactor: hpRatio,
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: hpRatio <= 0.35
-                                  ? const Color(0xFFFF5C6C)
-                                  : const Color(0xFF64F4A2),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 4),
                 Text(
                   token.name,
                   maxLines: 1,
@@ -507,7 +877,9 @@ class _TokenDisc extends StatelessWidget {
               top: size * 0.32,
               child: Center(
                 child: _ImpactBanner(
-                  label: token.lastEventLabel,
+                  label: token.lastEventResultLabel.isNotEmpty
+                      ? token.lastEventResultLabel
+                      : token.lastEventLabel,
                   color: eventColor,
                 ),
               ),
@@ -519,9 +891,183 @@ class _TokenDisc extends StatelessWidget {
               bottom: -38,
               child: _ConditionRibbon(conditions: token.conditions),
             ),
+          if (areaPreviewAffected)
+            Positioned(
+              bottom: -8,
+              right: -4,
+              child: const _TokenBadge(
+                icon: Icons.bolt_rounded,
+                label: 'AoE',
+                color: Color(0xFFFF5C6C),
+              ),
+            ),
         ],
       ),
     );
+  }
+}
+
+class _TokenImpactPulse extends StatelessWidget {
+  final String eventKey;
+  final Color color;
+
+  const _TokenImpactPulse({
+    required this.eventKey,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: TweenAnimationBuilder<double>(
+        key: ValueKey(eventKey),
+        tween: Tween(begin: 0, end: 1),
+        duration: const Duration(milliseconds: 860),
+        curve: Curves.easeOutCubic,
+        builder: (context, value, child) {
+          final t = value.clamp(0.0, 1.0).toDouble();
+          final alpha = (1.0 - t).clamp(0.0, 1.0).toDouble();
+          return Transform.scale(
+            scale: 1.0 + t * 0.26,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: color.withValues(alpha: 0.18 * alpha),
+                border: Border.all(
+                  color: color.withValues(alpha: 0.86 * alpha),
+                  width: 4,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.48 * alpha),
+                    blurRadius: 34,
+                    spreadRadius: 8,
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ElementalImpactOverlay extends StatelessWidget {
+  final String eventKey;
+  final String damageType;
+  final Color color;
+
+  const _ElementalImpactOverlay({
+    required this.eventKey,
+    required this.damageType,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: TweenAnimationBuilder<double>(
+        key: ValueKey(eventKey),
+        tween: Tween(begin: 0, end: 1),
+        duration: const Duration(milliseconds: 1180),
+        curve: Curves.easeOutCubic,
+        builder: (context, value, child) {
+          return CustomPaint(
+            painter: _ElementalImpactPainter(
+              damageType: damageType,
+              color: color,
+              progress: value.clamp(0.0, 1.0).toDouble(),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ElementalImpactPainter extends CustomPainter {
+  final String damageType;
+  final Color color;
+  final double progress;
+
+  const _ElementalImpactPainter({
+    required this.damageType,
+    required this.color,
+    required this.progress,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = math.min(size.width, size.height) / 2;
+    final t = progress.clamp(0.0, 1.0).toDouble();
+    final fade = (1 - t).clamp(0.0, 1.0).toDouble();
+    final normalized = damageType.toLowerCase().trim();
+
+    if (normalized == 'lightning') {
+      final paint = Paint()
+        ..color = color.withValues(alpha: 0.88 * fade)
+        ..strokeWidth = math.max(2, radius * 0.08)
+        ..strokeCap = StrokeCap.round;
+      for (var i = 0; i < 3; i++) {
+        final angle = -math.pi / 2 + i * math.pi * 2 / 3 + t * 0.4;
+        final start = center + Offset(math.cos(angle), math.sin(angle)) * 4;
+        final mid = center +
+            Offset(math.cos(angle + 0.36), math.sin(angle + 0.36)) *
+                radius *
+                (0.38 + t * 0.18);
+        final end = center +
+            Offset(math.cos(angle), math.sin(angle)) * radius * (0.78 + t);
+        final path = Path()
+          ..moveTo(start.dx, start.dy)
+          ..lineTo(mid.dx, mid.dy)
+          ..lineTo(end.dx, end.dy);
+        canvas.drawPath(path, paint);
+      }
+      return;
+    }
+
+    final particlePaint = Paint()
+      ..color = color.withValues(alpha: 0.84 * fade)
+      ..style = PaintingStyle.fill;
+    final count = normalized == 'fire' ? 11 : 8;
+    for (var i = 0; i < count; i++) {
+      final angle = i * math.pi * 2 / count + t * 0.8;
+      final distance = radius * (0.18 + t * (0.55 + (i % 3) * 0.08));
+      final position =
+          center + Offset(math.cos(angle), math.sin(angle)) * distance;
+      final particleRadius = math.max(2.0, radius * (0.045 + (i % 2) * 0.018));
+      if (normalized == 'cold') {
+        canvas.drawLine(
+          position + Offset(-particleRadius, 0),
+          position + Offset(particleRadius, 0),
+          particlePaint..strokeWidth = math.max(1.5, particleRadius * 0.55),
+        );
+        canvas.drawLine(
+          position + Offset(0, -particleRadius),
+          position + Offset(0, particleRadius),
+          particlePaint,
+        );
+      } else {
+        canvas.drawCircle(position, particleRadius, particlePaint);
+      }
+    }
+
+    if (normalized == 'thunder' || normalized == 'force') {
+      final ring = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = math.max(3.0, radius * 0.08)
+        ..color = color.withValues(alpha: 0.54 * fade);
+      canvas.drawCircle(center, radius * (0.4 + t * 0.72), ring);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ElementalImpactPainter oldDelegate) {
+    return oldDelegate.damageType != damageType ||
+        oldDelegate.color != color ||
+        oldDelegate.progress != progress;
   }
 }
 
@@ -670,8 +1216,10 @@ class _MovementRangePainter extends CustomPainter {
 
     final originX = token.movementOriginX.clamp(0, columns - 1).toInt();
     final originY = token.movementOriginY.clamp(0, rows - 1).toInt();
-    final currentDistance =
-        (token.x - originX).abs() + (token.y - originY).abs();
+    final currentDistance = math.max(
+      (token.x - originX).abs(),
+      (token.y - originY).abs(),
+    );
     final startX = math.max(0, originX - budgetSquares);
     final endX = math.min(columns - 1, originX + budgetSquares);
     final startY = math.max(0, originY - budgetSquares);
@@ -679,10 +1227,10 @@ class _MovementRangePainter extends CustomPainter {
 
     for (var y = startY; y <= endY; y++) {
       for (var x = startX; x <= endX; x++) {
-        final distance = (x - originX).abs() + (y - originY).abs();
+        final distance = math.max((x - originX).abs(), (y - originY).abs());
         if (distance > budgetSquares) continue;
         final isSpent = distance <= currentDistance &&
-            ((x - token.x).abs() + (y - token.y).abs()) <=
+            math.max((x - token.x).abs(), (y - token.y).abs()) <=
                 (currentDistance - distance).abs() + 1;
         final rect = Rect.fromLTWH(
           x * gridSize,
@@ -775,6 +1323,109 @@ class _SelectedMoveCellPainter extends CustomPainter {
         oldDelegate.token?.y != token?.y ||
         oldDelegate.token?.size != token?.size ||
         oldDelegate.gridSize != gridSize;
+  }
+}
+
+class _SelectedGroupBoundsPainter extends CustomPainter {
+  final List<BoardToken> tokens;
+  final double gridSize;
+
+  const _SelectedGroupBoundsPainter({
+    required this.tokens,
+    required this.gridSize,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (tokens.isEmpty) return;
+    final left = tokens.map((token) => token.x).reduce(math.min) * gridSize;
+    final top = tokens.map((token) => token.y).reduce(math.min) * gridSize;
+    final right = tokens
+            .map((token) => token.x + token.size)
+            .reduce(math.max)
+            .toDouble() *
+        gridSize;
+    final bottom = tokens
+            .map((token) => token.y + token.size)
+            .reduce(math.max)
+            .toDouble() *
+        gridSize;
+    final rect = Rect.fromLTRB(left, top, right, bottom).inflate(7);
+    final color = const Color(0xFFFFD166);
+
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        rect,
+        Radius.circular(math.max(8, gridSize * 0.14)),
+      ),
+      Paint()
+        ..color = color.withValues(alpha: 0.08)
+        ..style = PaintingStyle.fill,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        rect,
+        Radius.circular(math.max(8, gridSize * 0.14)),
+      ),
+      Paint()
+        ..color = color.withValues(alpha: 0.78)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = math.max(2, gridSize * 0.04),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _SelectedGroupBoundsPainter oldDelegate) {
+    if (oldDelegate.gridSize != gridSize ||
+        oldDelegate.tokens.length != tokens.length) {
+      return true;
+    }
+    for (var index = 0; index < tokens.length; index++) {
+      final previous = oldDelegate.tokens[index];
+      final current = tokens[index];
+      if (previous.id != current.id ||
+          previous.x != current.x ||
+          previous.y != current.y ||
+          previous.size != current.size) {
+        return true;
+      }
+    }
+    return false;
+  }
+}
+
+class _SelectionRectPainter extends CustomPainter {
+  final Rect rect;
+
+  const _SelectionRectPainter({required this.rect});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final normalized = Rect.fromLTRB(
+      math.min(rect.left, rect.right),
+      math.min(rect.top, rect.bottom),
+      math.max(rect.left, rect.right),
+      math.max(rect.top, rect.bottom),
+    );
+    const color = Color(0xFF7DD3FC);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(normalized, const Radius.circular(8)),
+      Paint()
+        ..color = color.withValues(alpha: 0.12)
+        ..style = PaintingStyle.fill,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(normalized, const Radius.circular(8)),
+      Paint()
+        ..color = color.withValues(alpha: 0.86)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _SelectionRectPainter oldDelegate) {
+    return oldDelegate.rect != rect;
   }
 }
 
@@ -884,8 +1535,7 @@ class _TargetLinkPainter extends CustomPainter {
       (target.x + target.size / 2) * gridSize,
       (target.y + target.size / 2) * gridSize,
     );
-    final distanceFeet =
-        math.max((actor.x - target.x).abs(), (actor.y - target.y).abs()) * 5;
+    final distanceFeet = _distanceFeet(actor, target);
     final rangeFeet = actor.selectedActionRangeFeet;
     final accent = inRange ? const Color(0xFFFFB454) : const Color(0xFFFF5C6C);
 
@@ -969,14 +1619,14 @@ class _TargetLinkPainter extends CustomPainter {
 
 class _AreaEffectPreviewPainter extends CustomPainter {
   final BoardToken actor;
-  final BoardToken target;
+  final Offset targetCenter;
   final String shape;
   final int areaFeet;
   final double gridSize;
 
   const _AreaEffectPreviewPainter({
     required this.actor,
-    required this.target,
+    required this.targetCenter,
     required this.shape,
     required this.areaFeet,
     required this.gridSize,
@@ -988,10 +1638,6 @@ class _AreaEffectPreviewPainter extends CustomPainter {
     final actorCenter = Offset(
       (actor.x + actor.size / 2) * gridSize,
       (actor.y + actor.size / 2) * gridSize,
-    );
-    final targetCenter = Offset(
-      (target.x + target.size / 2) * gridSize,
-      (target.y + target.size / 2) * gridSize,
     );
     final areaPixels = math.max(gridSize, (areaFeet / 5) * gridSize);
     final fill = Paint()
@@ -1034,6 +1680,7 @@ class _AreaEffectPreviewPainter extends CustomPainter {
       canvas.drawPath(path, fill);
       canvas.drawPath(path, glow);
       canvas.drawPath(path, stroke);
+      _drawAimMarker(canvas, targetCenter);
       _drawAreaLabel(canvas, targetCenter, 'CONE $areaFeet ft');
       return;
     }
@@ -1053,6 +1700,7 @@ class _AreaEffectPreviewPainter extends CustomPainter {
       canvas.drawLine(actorCenter, end, linePaint);
       canvas.drawLine(actorCenter, end, glow);
       canvas.drawLine(actorCenter, end, stroke);
+      _drawAimMarker(canvas, targetCenter);
       _drawAreaLabel(canvas, end, 'LINE $areaFeet ft');
       return;
     }
@@ -1076,6 +1724,7 @@ class _AreaEffectPreviewPainter extends CustomPainter {
         RRect.fromRectAndRadius(rect, Radius.circular(gridSize * 0.12)),
         stroke,
       );
+      _drawAimMarker(canvas, targetCenter);
       _drawAreaLabel(canvas, targetCenter, 'CUBE $areaFeet ft');
       return;
     }
@@ -1083,7 +1732,32 @@ class _AreaEffectPreviewPainter extends CustomPainter {
     canvas.drawCircle(targetCenter, areaPixels, fill);
     canvas.drawCircle(targetCenter, areaPixels, glow);
     canvas.drawCircle(targetCenter, areaPixels, stroke);
+    _drawAimMarker(canvas, targetCenter);
     _drawAreaLabel(canvas, targetCenter, 'AREA $areaFeet ft');
+  }
+
+  void _drawAimMarker(Canvas canvas, Offset center) {
+    final radius = math.max(5.0, gridSize * 0.16);
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(2, gridSize * 0.04)
+      ..color = const Color(0xFFFFF2C4).withValues(alpha: 0.95);
+    final glow = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(5, gridSize * 0.10)
+      ..color = const Color(0xFFFFD166).withValues(alpha: 0.22);
+    canvas.drawCircle(center, radius * 1.55, glow);
+    canvas.drawCircle(center, radius, paint);
+    canvas.drawLine(
+      center + Offset(-radius * 1.7, 0),
+      center + Offset(radius * 1.7, 0),
+      paint,
+    );
+    canvas.drawLine(
+      center + Offset(0, -radius * 1.7),
+      center + Offset(0, radius * 1.7),
+      paint,
+    );
   }
 
   void _drawAreaLabel(Canvas canvas, Offset center, String text) {
@@ -1118,10 +1792,258 @@ class _AreaEffectPreviewPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _AreaEffectPreviewPainter oldDelegate) {
     return oldDelegate.actor != actor ||
-        oldDelegate.target != target ||
+        oldDelegate.targetCenter != targetCenter ||
         oldDelegate.shape != shape ||
         oldDelegate.areaFeet != areaFeet ||
         oldDelegate.gridSize != gridSize;
+  }
+}
+
+class _AreaEffectEventPainter extends CustomPainter {
+  final BoardToken actor;
+  final BoardToken target;
+  final Offset targetCenter;
+  final String shape;
+  final int areaFeet;
+  final double gridSize;
+  final double progress;
+  final Color color;
+  final String damageType;
+  final String label;
+
+  const _AreaEffectEventPainter({
+    required this.actor,
+    required this.target,
+    required this.targetCenter,
+    required this.shape,
+    required this.areaFeet,
+    required this.gridSize,
+    required this.progress,
+    required this.color,
+    required this.damageType,
+    required this.label,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final normalizedShape = shape.toLowerCase().trim();
+    final actorCenter = Offset(
+      (actor.x + actor.size / 2) * gridSize,
+      (actor.y + actor.size / 2) * gridSize,
+    );
+    final t = progress.clamp(0.0, 1.0).toDouble();
+    final fade = (1.0 - t * 0.62).clamp(0.0, 1.0).toDouble();
+    final pulse = Curves.easeOutBack.transform(t).clamp(0.0, 1.18).toDouble();
+    final areaPixels = math.max(gridSize, (areaFeet / 5) * gridSize);
+    final drawPixels = areaPixels * (0.72 + pulse * 0.28);
+    final fill = Paint()
+      ..style = PaintingStyle.fill
+      ..color = color.withValues(alpha: 0.24 * fade);
+    final stroke = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(3, gridSize * 0.07) * (1.0 + t * 0.18)
+      ..color = color.withValues(alpha: 0.92 * fade);
+    final outer = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(10, gridSize * 0.18) * (1.0 + t * 0.2)
+      ..color = color.withValues(alpha: 0.22 * fade);
+    final spark = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = math.max(2, gridSize * 0.045)
+      ..color = color.withValues(alpha: 0.78 * fade);
+
+    Offset labelCenter = targetCenter;
+    if (normalizedShape.contains('cone')) {
+      final direction = targetCenter - actorCenter;
+      final angle = direction.distance <= 0.1
+          ? 0.0
+          : math.atan2(direction.dy, direction.dx);
+      final left = actorCenter +
+          Offset(
+            math.cos(angle - math.pi / 6) * drawPixels,
+            math.sin(angle - math.pi / 6) * drawPixels,
+          );
+      final right = actorCenter +
+          Offset(
+            math.cos(angle + math.pi / 6) * drawPixels,
+            math.sin(angle + math.pi / 6) * drawPixels,
+          );
+      final path = Path()
+        ..moveTo(actorCenter.dx, actorCenter.dy)
+        ..lineTo(left.dx, left.dy)
+        ..quadraticBezierTo(
+          targetCenter.dx,
+          targetCenter.dy,
+          right.dx,
+          right.dy,
+        )
+        ..close();
+      canvas.drawPath(path, fill);
+      canvas.drawPath(path, outer);
+      canvas.drawPath(path, stroke);
+      _drawElementalTexture(canvas, actorCenter, targetCenter, spark, t);
+      labelCenter = actorCenter +
+          Offset(math.cos(angle) * drawPixels, math.sin(angle) * drawPixels);
+    } else if (normalizedShape.contains('line')) {
+      final direction = targetCenter - actorCenter;
+      final angle = direction.distance <= 0.1
+          ? 0.0
+          : math.atan2(direction.dy, direction.dx);
+      final end = actorCenter +
+          Offset(math.cos(angle) * drawPixels, math.sin(angle) * drawPixels);
+      final lineFill = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth = gridSize * (0.72 + t * 0.26)
+        ..color = color.withValues(alpha: 0.18 * fade);
+      canvas.drawLine(actorCenter, end, lineFill);
+      canvas.drawLine(actorCenter, end, outer);
+      canvas.drawLine(actorCenter, end, stroke);
+      _drawElementalTexture(canvas, actorCenter, end, spark, t);
+      labelCenter = end;
+    } else if (normalizedShape.contains('cube')) {
+      final rect = Rect.fromCenter(
+        center: targetCenter,
+        width: drawPixels,
+        height: drawPixels,
+      );
+      final rrect = RRect.fromRectAndRadius(
+        rect,
+        Radius.circular(gridSize * 0.16),
+      );
+      canvas.drawRRect(rrect, fill);
+      canvas.drawRRect(rrect, outer);
+      canvas.drawRRect(rrect, stroke);
+      _drawElementalTexture(canvas, targetCenter, targetCenter, spark, t);
+    } else {
+      canvas.drawCircle(targetCenter, drawPixels, fill);
+      canvas.drawCircle(targetCenter, drawPixels, outer);
+      canvas.drawCircle(targetCenter, drawPixels, stroke);
+      _drawElementalTexture(canvas, targetCenter, targetCenter, spark, t);
+    }
+
+    _drawEventLabel(canvas, labelCenter, fade);
+  }
+
+  void _drawElementalTexture(
+    Canvas canvas,
+    Offset start,
+    Offset end,
+    Paint paint,
+    double t,
+  ) {
+    final normalized = damageType.toLowerCase().trim();
+    if (normalized.isEmpty) return;
+    final direction = end - start;
+    final directionLength = direction.distance;
+    final baseAngle = directionLength <= 0.1
+        ? -math.pi / 2
+        : math.atan2(direction.dy, direction.dx);
+    final center = directionLength <= 0.1 ? start : start + direction * 0.58;
+
+    if (normalized == 'lightning') {
+      for (var i = 0; i < 5; i++) {
+        final side = i.isEven ? 1.0 : -1.0;
+        final origin = center +
+            Offset(
+              math.cos(baseAngle) * gridSize * (i - 2) * 0.46,
+              math.sin(baseAngle) * gridSize * (i - 2) * 0.46,
+            );
+        final a = origin +
+            Offset(
+                  math.cos(baseAngle + side * math.pi / 2),
+                  math.sin(baseAngle + side * math.pi / 2),
+                ) *
+                gridSize *
+                (0.22 + t * 0.12);
+        final b = origin +
+            Offset(math.cos(baseAngle), math.sin(baseAngle)) *
+                gridSize *
+                (0.34 + t * 0.16);
+        canvas.drawLine(a, b, paint);
+      }
+      return;
+    }
+
+    final count = normalized == 'fire' ? 18 : 12;
+    for (var i = 0; i < count; i++) {
+      final angle = i * math.pi * 2 / count + t * 0.9;
+      final spread = gridSize * (0.42 + (i % 4) * 0.16 + t * 0.28);
+      final particleCenter =
+          center + Offset(math.cos(angle), math.sin(angle)) * spread;
+      if (normalized == 'cold') {
+        final half = gridSize * 0.08;
+        canvas.drawLine(
+          particleCenter + Offset(-half, 0),
+          particleCenter + Offset(half, 0),
+          paint,
+        );
+        canvas.drawLine(
+          particleCenter + Offset(0, -half),
+          particleCenter + Offset(0, half),
+          paint,
+        );
+      } else {
+        canvas.drawCircle(
+          particleCenter,
+          math.max(2, gridSize * (normalized == 'fire' ? 0.055 : 0.04)),
+          paint..style = PaintingStyle.fill,
+        );
+        paint.style = PaintingStyle.stroke;
+      }
+    }
+  }
+
+  void _drawEventLabel(Canvas canvas, Offset center, double fade) {
+    final text = label.trim().isEmpty ? 'AREA' : label.trim();
+    final painter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: TextStyle(
+          color: Colors.white.withValues(alpha: fade),
+          fontSize: 14,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout(maxWidth: 220);
+    final offset = center + Offset(-painter.width / 2, -gridSize * 0.9);
+    final bg = RRect.fromRectAndRadius(
+      Rect.fromLTWH(
+        offset.dx - 9,
+        offset.dy - 5,
+        painter.width + 18,
+        painter.height + 10,
+      ),
+      const Radius.circular(999),
+    );
+    canvas.drawRRect(
+      bg,
+      Paint()..color = Colors.black.withValues(alpha: 0.78 * fade),
+    );
+    canvas.drawRRect(
+      bg,
+      Paint()
+        ..color = color.withValues(alpha: 0.72 * fade)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2,
+    );
+    painter.paint(canvas, offset);
+  }
+
+  @override
+  bool shouldRepaint(covariant _AreaEffectEventPainter oldDelegate) {
+    return oldDelegate.actor != actor ||
+        oldDelegate.target != target ||
+        oldDelegate.targetCenter != targetCenter ||
+        oldDelegate.shape != shape ||
+        oldDelegate.areaFeet != areaFeet ||
+        oldDelegate.gridSize != gridSize ||
+        oldDelegate.progress != progress ||
+        oldDelegate.color != color ||
+        oldDelegate.damageType != damageType ||
+        oldDelegate.label != label;
   }
 }
 
@@ -1241,12 +2163,54 @@ BoardToken? _tokenById(List<BoardToken> tokens, String? tokenId) {
   return null;
 }
 
+BoardToken? _tokenByRefId(List<BoardToken> tokens, String? refId) {
+  if (refId == null || refId.isEmpty) return null;
+  for (final token in tokens) {
+    if (token.refId == refId) return token;
+  }
+  return null;
+}
+
 BoardToken? _latestEventToken(List<BoardToken> tokens) {
   final eventTokens =
       tokens.where((token) => token.lastEventLabel.isNotEmpty).toList();
   if (eventTokens.isEmpty) return null;
   eventTokens.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+  final latest = eventTokens.first;
+  final latestEventId = latest.lastEventId;
+  final sameEventTokens = latestEventId.isEmpty
+      ? [latest]
+      : eventTokens
+          .where((token) => token.lastEventId == latestEventId)
+          .toList(growable: false);
+  sameEventTokens.sort((a, b) {
+    final dicePriority = _eventDicePriority(b).compareTo(
+      _eventDicePriority(a),
+    );
+    if (dicePriority != 0) return dicePriority;
+    return b.updatedAt.compareTo(a.updatedAt);
+  });
+  return sameEventTokens.first;
+}
+
+BoardToken? _latestAreaEventToken(List<BoardToken> tokens) {
+  final eventTokens = tokens
+      .where(
+        (token) =>
+            token.lastEventAreaShape.isNotEmpty &&
+            token.lastEventAreaFeet > 0 &&
+            token.lastEventId.isNotEmpty,
+      )
+      .toList();
+  if (eventTokens.isEmpty) return null;
+  eventTokens.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
   return eventTokens.first;
+}
+
+int _eventDicePriority(BoardToken token) {
+  if (token.lastEventDiceNotation.trim().isNotEmpty) return 2;
+  if (token.lastEventKind.toLowerCase().trim() == 'manual') return 1;
+  return 0;
 }
 
 bool _cellHasToken(List<BoardToken> tokens, int x, int y) {
@@ -1261,7 +2225,38 @@ bool _cellHasToken(List<BoardToken> tokens, int x, int y) {
   return false;
 }
 
-Color _eventColor(String eventKind) {
+int _distanceFeet(BoardToken a, BoardToken b) {
+  final dx = _tokenAxisDistanceSquares(
+    a.x,
+    a.x + a.size - 1,
+    b.x,
+    b.x + b.size - 1,
+  );
+  final dy = _tokenAxisDistanceSquares(
+    a.y,
+    a.y + a.size - 1,
+    b.y,
+    b.y + b.size - 1,
+  );
+  return math.max(dx, dy) * 5;
+}
+
+int _tokenAxisDistanceSquares(
+  int aStart,
+  int aEnd,
+  int bStart,
+  int bEnd,
+) {
+  if (aEnd < bStart) return bStart - aEnd;
+  if (bEnd < aStart) return aStart - bEnd;
+  return 0;
+}
+
+Color _eventColor(String eventKind, [String damageType = '']) {
+  final typeColor = _damageTypeColor(damageType);
+  if (typeColor != null && eventKind != 'heal' && eventKind != 'miss') {
+    return typeColor;
+  }
   return switch (eventKind) {
     'damage' => const Color(0xFFFF5C6C),
     'hit' => const Color(0xFFFFB454),
@@ -1270,5 +2265,24 @@ Color _eventColor(String eventKind) {
     'miss' => const Color(0xFF7DD3FC),
     'blocked' => const Color(0xFFFF5C6C),
     _ => const Color(0xFF7DD3FC),
+  };
+}
+
+Color? _damageTypeColor(String damageType) {
+  return switch (damageType.toLowerCase().trim()) {
+    'acid' => const Color(0xFF9BE564),
+    'bludgeoning' => const Color(0xFFC8BDA4),
+    'cold' => const Color(0xFF8BE9FF),
+    'fire' => const Color(0xFFFF7A2F),
+    'force' => const Color(0xFFB85CFF),
+    'lightning' => const Color(0xFFFFF06A),
+    'necrotic' => const Color(0xFF9B6BFF),
+    'piercing' => const Color(0xFFFFD27A),
+    'poison' => const Color(0xFF70D56B),
+    'psychic' => const Color(0xFFFF7AD9),
+    'radiant' => const Color(0xFFFFF2A6),
+    'slashing' => const Color(0xFFFFB454),
+    'thunder' => const Color(0xFF7DD3FC),
+    _ => null,
   };
 }

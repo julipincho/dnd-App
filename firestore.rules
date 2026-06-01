@@ -1,0 +1,198 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function hasField(data, field) {
+      return data.keys().hasAny([field]);
+    }
+
+    function membersOf(data) {
+      return hasField(data, 'memberUserIds') && data.memberUserIds is list
+        ? data.memberUserIds
+        : [];
+    }
+
+    function isCampaignOwnerData(data) {
+      return signedIn()
+        && hasField(data, 'ownerUserId')
+        && data.ownerUserId == request.auth.uid;
+    }
+
+    function isCampaignMemberData(data) {
+      return signedIn() && request.auth.uid in membersOf(data);
+    }
+
+    function campaignExists(campaignId) {
+      return exists(/databases/$(database)/documents/campaigns/$(campaignId));
+    }
+
+    function campaignData(campaignId) {
+      return get(/databases/$(database)/documents/campaigns/$(campaignId)).data;
+    }
+
+    function isCampaignMember(campaignId) {
+      return signedIn()
+        && campaignExists(campaignId)
+        && isCampaignMemberData(campaignData(campaignId));
+    }
+
+    function hasCampaignAccess(data) {
+      return hasField(data, 'campaignId')
+        && data.campaignId is string
+        && data.campaignId != ''
+        && isCampaignMember(data.campaignId);
+    }
+
+    function hasOptionalCampaignAccess(data) {
+      return !hasField(data, 'campaignId')
+        || !(data.campaignId is string)
+        || data.campaignId == ''
+        || isCampaignMember(data.campaignId);
+    }
+
+    function isValidCampaignCreate(campaignId) {
+      return signedIn()
+        && request.resource.data.id == campaignId
+        && request.resource.data.ownerUserId == request.auth.uid
+        && request.auth.uid in membersOf(request.resource.data);
+    }
+
+    function isCampaignSelfJoin() {
+      let before = membersOf(resource.data);
+      let after = membersOf(request.resource.data);
+      return signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['memberUserIds'])
+        && !(request.auth.uid in before)
+        && request.auth.uid in after
+        && after.hasAll(before)
+        && after.size() == before.size() + 1;
+    }
+
+    function isCampaignMemberNoOp() {
+      return isCampaignMemberData(resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['memberUserIds'])
+        && membersOf(request.resource.data) == membersOf(resource.data);
+    }
+
+    function hasOpenDiceRollEvent() {
+      return hasField(resource.data, 'lastEventId')
+        && resource.data.lastEventId is string
+        && resource.data.lastEventId != ''
+        && hasField(resource.data, 'lastEventDiceNotation')
+        && resource.data.lastEventDiceNotation is string
+        && resource.data.lastEventDiceNotation != ''
+        && (
+          !hasField(resource.data, 'lastEventRollValues')
+          || (
+            resource.data.lastEventRollValues is list
+            && resource.data.lastEventRollValues.size() == 0
+          )
+        );
+    }
+
+    function isPublicDiceRollClaimUpdate() {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return hasOpenDiceRollEvent()
+        && changed.hasOnly([
+          'lastEventRollClaimOwnerId',
+          'lastEventRollClaimedAt',
+          'updatedAt'
+        ])
+        && request.resource.data.lastEventRollClaimOwnerId is string
+        && request.resource.data.lastEventRollClaimOwnerId != ''
+        && request.resource.data.lastEventRollClaimedAt is string;
+    }
+
+    function isPublicDiceRollOutcomeUpdate() {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return hasOpenDiceRollEvent()
+        && changed.hasOnly([
+          'lastEventResultLabel',
+          'lastEventResultDetail',
+          'lastEventRollTotal',
+          'lastEventRollDiceTotal',
+          'lastEventRollValues',
+          'lastEventRollClaimOwnerId',
+          'lastEventRollClaimedAt',
+          'updatedAt'
+        ])
+        && request.resource.data.lastEventRollValues is list
+        && request.resource.data.lastEventRollValues.size() > 0
+        && request.resource.data.lastEventRollValues.size() <= 80
+        && request.resource.data.lastEventRollTotal is number
+        && request.resource.data.lastEventRollDiceTotal is number
+        && request.resource.data.lastEventResultLabel is string
+        && request.resource.data.lastEventResultDetail is string
+        && request.resource.data.lastEventRollClaimOwnerId == ''
+        && request.resource.data.lastEventRollClaimedAt == '';
+    }
+
+    match /users/{userId} {
+      allow read, create, update, delete: if signedIn()
+        && request.auth.uid == userId;
+    }
+
+    match /campaigns/{campaignId} {
+      allow read: if signedIn();
+      allow create: if isValidCampaignCreate(campaignId);
+      allow update: if isCampaignOwnerData(resource.data)
+        || isCampaignSelfJoin()
+        || isCampaignMemberNoOp();
+      allow delete: if isCampaignOwnerData(resource.data);
+
+      // The battle-board display route currently opens without login.
+      // Reads stay public for display URLs. Dice rolls may only update their
+      // narrow claim/result fields so the 3D board can publish the value it
+      // physically rolled without exposing HP, token position, or setup writes.
+      match /scenes/{sceneId} {
+        allow read: if true;
+        allow create, update, delete: if isCampaignMember(campaignId);
+
+        match /tokens/{tokenId} {
+          allow read: if true;
+          allow create, delete: if isCampaignMember(campaignId);
+          allow update: if isCampaignMember(campaignId)
+            || isPublicDiceRollClaimUpdate()
+            || isPublicDiceRollOutcomeUpdate();
+        }
+      }
+    }
+
+    match /characters/{characterId} {
+      allow read: if signedIn()
+        && (resource.data.ownerUserId == request.auth.uid
+          || hasCampaignAccess(resource.data));
+      allow create: if signedIn()
+        && request.resource.data.ownerUserId == request.auth.uid
+        && hasOptionalCampaignAccess(request.resource.data);
+      allow update, delete: if signedIn()
+        && resource.data.ownerUserId == request.auth.uid
+        && hasOptionalCampaignAccess(request.resource.data);
+    }
+
+    match /sessions/{sessionId} {
+      allow read, delete: if hasCampaignAccess(resource.data);
+      allow create, update: if hasCampaignAccess(request.resource.data);
+    }
+
+    match /campaign_events/{eventId} {
+      allow read, delete: if hasCampaignAccess(resource.data);
+      allow create, update: if hasCampaignAccess(request.resource.data);
+    }
+
+    match /journal_entries/{entryId} {
+      allow read, delete: if hasCampaignAccess(resource.data);
+      allow create, update: if hasCampaignAccess(request.resource.data);
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

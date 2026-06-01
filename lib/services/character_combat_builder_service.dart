@@ -68,6 +68,13 @@ class _NaturalWeaponPattern {
   });
 }
 
+class _WeaponRangeSpec {
+  final int normalFeet;
+  final int? longFeet;
+
+  const _WeaponRangeSpec(this.normalFeet, this.longFeet);
+}
+
 class CharacterCombatBuilderService {
   const CharacterCombatBuilderService._();
 
@@ -132,6 +139,30 @@ class CharacterCombatBuilderService {
             'portraitPath': character.portraitPath!.trim(),
           'race': character.race,
           'classProgression': character.classProgressionLabel,
+          'subclasses': {
+            for (final entry in character.classLevels.entries)
+              if ((character.subclassForClass(entry.key) ?? '')
+                  .trim()
+                  .isNotEmpty)
+                entry.key: character.subclassForClass(entry.key)!.trim(),
+          },
+          if ((_subclassForCombatClass(character, 'monk') ?? '')
+              .trim()
+              .isNotEmpty)
+            'monkSubclass': _subclassForCombatClass(character, 'monk')!.trim(),
+          'features': [
+            for (final feature in character.features)
+              {
+                'id': feature.id,
+                'name': feature.name,
+                'description': feature.description,
+                'source': feature.source,
+                if (feature.unlockedAtLevel != null)
+                  'level': feature.unlockedAtLevel,
+                if ((feature.linkedResourceId ?? '').trim().isNotEmpty)
+                  'linkedResourceId': feature.linkedResourceId!.trim(),
+              },
+          ],
           'abilityScores': {
             for (final ability in ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'])
               ability: _effectiveAbilityScore(
@@ -153,6 +184,7 @@ class CharacterCombatBuilderService {
           },
           'classLevels': Map<String, int>.from(character.classLevels),
           'proficiencyBonus': proficiencyBonus,
+          'resourceMaximums': _resourceMaxMap(character),
           'availableActionCount': availableActions.length,
         },
       ),
@@ -207,6 +239,8 @@ class CharacterCombatBuilderService {
           ? null
           : _formatRollFormula(damageDice, damageBonus);
       final damageType = weapon.damageType?.trim();
+      final weaponRange =
+          _weaponRangeSpec(weapon, resolvedWeapon.equipmentItem);
 
       actions.add(
         PreparedCombatAction(
@@ -233,6 +267,9 @@ class CharacterCombatBuilderService {
             'inventoryItemId': weapon.id,
             'weaponType': weapon.isRanged ? 'ranged' : 'melee',
             'damageType': damageType,
+            if (weaponRange != null) 'rangeFeet': weaponRange.normalFeet,
+            if (weaponRange?.longFeet != null)
+              'longRangeFeet': weaponRange!.longFeet,
             'usesAttackAction': true,
             'attackSlotCount': attackActionCount,
             if (criticalThreshold < 20) 'criticalThreshold': criticalThreshold,
@@ -1339,8 +1376,24 @@ class CharacterCombatBuilderService {
           'targetPolicy': 'hostile',
           'combatPrerequisite': 'attackActionThisTurn',
           'usesAttackAction': false,
+          'multiattack': true,
           'damageType': 'Bludgeoning',
           'criticalDamageFormula': criticalFormula,
+          'multiAttackSteps': [
+            {
+              'name': 'Unarmed Strike',
+              'attackFormula': attackFormula,
+              'damageFormula': damageFormula,
+              'criticalDamageFormula': criticalFormula,
+              'tags': [
+                abilityLabel,
+                'Martial Arts',
+                'Unarmed',
+                'Melee',
+                'Bludgeoning',
+              ],
+            },
+          ],
         },
       ),
     ];
@@ -1738,6 +1791,8 @@ class CharacterCombatBuilderService {
               proficiencyBonus,
             );
       final areaMetadata = _spellAreaMetadata(spell);
+      final spellDamageType = _spellDamageType(spell.description);
+      final spellRangeFeet = _spellRangeFeet(spell, areaMetadata);
       final targetsOnlySelf = _spellTargetsOnlySelf(spell, areaMetadata);
       final targetPolicy = _spellTargetPolicy(
         spell,
@@ -1789,6 +1844,7 @@ class CharacterCombatBuilderService {
               '$saveAbility DC $saveDc',
             if (usesAttackRoll) 'Spell Attack',
             if (healingSpell) 'Healing',
+            if (spellDamageType != null) spellDamageType,
             if (targetPolicy == 'ally') 'Ally',
             if (targetsOnlySelf) 'Self',
           ],
@@ -1801,6 +1857,8 @@ class CharacterCombatBuilderService {
             'duration': spell.duration,
             if (targetsOnlySelf) 'targetsSelf': true,
             if (targetPolicy.isNotEmpty) 'targetPolicy': targetPolicy,
+            if (spellDamageType != null) 'damageType': spellDamageType,
+            if (spellRangeFeet != null) 'rangeFeet': spellRangeFeet,
             ...areaMetadata,
             'halfDamageOnSave': _spellDealsHalfDamageOnSave(spell.description),
             'criticalDamageFormula': usesAttackRoll && damageFormula != null
@@ -2328,6 +2386,46 @@ class CharacterCombatBuilderService {
     return result;
   }
 
+  static Map<String, int> _resourceMaxMap(Character character) {
+    final result = {
+      for (final resource in character.resources)
+        if (resource.id.trim().isNotEmpty) resource.id: resource.max,
+    };
+
+    for (final resource in CharacterResourceFactory.buildResources(character)) {
+      final resourceId = resource.id.trim();
+      if (resourceId.isEmpty) continue;
+      result.putIfAbsent(resourceId, () => resource.max);
+    }
+
+    final fighterLevel = _classLevel(character, const ['fighter', 'guerrero']);
+    if (fighterLevel >= 1) {
+      result.putIfAbsent('second_wind', () => 1);
+    }
+    if (fighterLevel >= 2) {
+      result.putIfAbsent('action_surge', () => 1);
+    }
+
+    for (var level = 1; level <= 9; level++) {
+      final slotMax = CharacterSpellSlotService.slotMaxForLevel(
+        character,
+        level,
+      );
+      if (slotMax > 0) {
+        result['spellSlot:$level'] = slotMax;
+      }
+      final pactMax = CharacterSpellSlotService.pactMagicSlotMaxForLevel(
+        character,
+        level,
+      );
+      if (pactMax > 0) {
+        result['pactMagicSlot:$level'] = pactMax;
+      }
+    }
+
+    return result;
+  }
+
   static int _savingThrowBonus(
     Character character,
     String ability,
@@ -2547,6 +2645,25 @@ class CharacterCombatBuilderService {
     return result;
   }
 
+  static String? _subclassForCombatClass(
+    Character character,
+    String className,
+  ) {
+    final target = _normalizedSearchText(className);
+    for (final entry in character.classLevels.entries) {
+      if (_normalizedSearchText(entry.key) != target) continue;
+      final subclass = character.subclassForClass(entry.key)?.trim();
+      if (subclass != null && subclass.isNotEmpty) return subclass;
+    }
+    final legacySubclass = character.subclass?.trim();
+    if (_normalizedSearchText(character.charClass) == target &&
+        legacySubclass != null &&
+        legacySubclass.isNotEmpty) {
+      return legacySubclass;
+    }
+    return null;
+  }
+
   static String _martialArtsDie(int monkLevel) {
     if (monkLevel >= 17) return '1d12';
     if (monkLevel >= 11) return '1d10';
@@ -2630,6 +2747,73 @@ class CharacterCombatBuilderService {
         normalized.contains('half the damage');
   }
 
+  static _WeaponRangeSpec? _weaponRangeSpec(
+    CharacterInventoryItem weapon,
+    EquipmentCompendiumItem? equipmentItem,
+  ) {
+    final parsed = _parseWeaponRange(equipmentItem?.range);
+    if (parsed != null) return parsed;
+
+    final text =
+        '${weapon.name} ${weapon.description ?? ''} ${weapon.notes ?? ''}'
+            .toLowerCase();
+    if (text.contains('shortbow')) return const _WeaponRangeSpec(80, 320);
+    if (text.contains('longbow')) return const _WeaponRangeSpec(150, 600);
+    if (text.contains('light crossbow')) {
+      return const _WeaponRangeSpec(80, 320);
+    }
+    if (text.contains('heavy crossbow')) {
+      return const _WeaponRangeSpec(100, 400);
+    }
+    if (text.contains('hand crossbow')) return const _WeaponRangeSpec(30, 120);
+    if (text.contains('sling')) return const _WeaponRangeSpec(30, 120);
+    if (text.contains('dart')) return const _WeaponRangeSpec(20, 60);
+    if (weapon.isRanged) return const _WeaponRangeSpec(60, null);
+    return null;
+  }
+
+  static _WeaponRangeSpec? _parseWeaponRange(String? rawRange) {
+    if (rawRange == null || rawRange.trim().isEmpty) return null;
+    final text = rawRange.toLowerCase();
+    final slash = RegExp(r'(\d+)\s*/\s*(\d+)').firstMatch(text);
+    if (slash != null) {
+      final normal = int.tryParse(slash.group(1) ?? '');
+      final long = int.tryParse(slash.group(2) ?? '');
+      if (normal != null && normal > 0) return _WeaponRangeSpec(normal, long);
+    }
+    final explicit = RegExp(r'(\d+)\s*(?:ft|feet|foot)').firstMatch(text);
+    if (explicit != null) {
+      final normal = int.tryParse(explicit.group(1) ?? '');
+      if (normal != null && normal > 0) return _WeaponRangeSpec(normal, null);
+    }
+    return null;
+  }
+
+  static String? _spellDamageType(String text) {
+    final normalized = text.toLowerCase();
+    const damageTypes = [
+      'acid',
+      'bludgeoning',
+      'cold',
+      'fire',
+      'force',
+      'lightning',
+      'necrotic',
+      'piercing',
+      'poison',
+      'psychic',
+      'radiant',
+      'slashing',
+      'thunder',
+    ];
+    for (final type in damageTypes) {
+      if (normalized.contains('$type damage')) {
+        return type;
+      }
+    }
+    return null;
+  }
+
   static Map<String, dynamic> _spellAreaMetadata(Spell spell) {
     final text = '${spell.range} ${spell.description}'.toLowerCase();
     String? shape;
@@ -2654,6 +2838,32 @@ class CharacterCombatBuilderService {
       'areaShape': shape,
       'areaFeet': size,
     };
+  }
+
+  static int? _spellRangeFeet(
+    Spell spell,
+    Map<String, dynamic> areaMetadata,
+  ) {
+    final range = spell.range.trim().toLowerCase();
+    if (range.isEmpty) return null;
+
+    if (range.startsWith('self')) {
+      final areaFeet = areaMetadata['areaFeet'];
+      if (areaFeet is num && areaFeet > 0) return areaFeet.toInt();
+      return 0;
+    }
+
+    if (range.contains('touch')) return 5;
+
+    final explicitRange =
+        RegExp(r'(\d+)\s*(?:ft|feet|foot|pies|pie)').firstMatch(range);
+    if (explicitRange != null) {
+      return int.tryParse(explicitRange.group(1) ?? '');
+    }
+
+    if (range.contains('sight')) return 120;
+    if (range.contains('unlimited')) return null;
+    return null;
   }
 
   static int? _firstAreaFeet(String text, String shape) {

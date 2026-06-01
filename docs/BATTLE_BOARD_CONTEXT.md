@@ -3,6 +3,7 @@
 Priority roadmap:
 
 - `docs/ROADMAP_COMBAT_DEFINITIVO.md`
+- Current dice/sync implementation notes: `docs/DICE_AND_COMBAT_SYNC_STATE.md`
 
 ## Vision
 
@@ -123,7 +124,9 @@ Implemented direction:
 - Controller/display state continues to sync through scene/token streams.
 - Board token selection can update the visual target, and Combat Mode listens for board target changes when the controller is active.
 - Movement budget now uses the turn origin. Backtracking toward the origin lowers used movement instead of spending additional feet.
+- Controller movement commands are queued while token saves are in flight, so rapid stick/trackpad input is not dropped during Firestore writes.
 - Setup mode exists on the board for changing map background, grid size, grid dimensions and initial token positions.
+- Setup/edit mode now has a multi-select tool: drag a rectangle over tokens, then tap an empty cell to move the selected formation while preserving relative offsets.
 - Battle scenes can carry a `combatState` snapshot so active combat can be resumed while the scene remains `combatActive`.
 
 Important model additions:
@@ -137,8 +140,11 @@ Important model additions:
 Next polish targets:
 
 - Replace placeholder map presets with uploaded Firebase Storage map choices.
+- Add a board setup palette for grid scale, map background, opacity and dimensions without leaving Combat Mode.
+- Improve drag-selection rectangle polish: keyboard modifiers, group delete/duplicate controls and route preview before moving a formation.
 - Make target selection fully bidirectional for support/healing and hostile actions.
 - Add spell/area templates on board for cones, lines, spheres and cubes.
+- Expand board-native elemental VFX for fire, cold, lightning, poison, acid, thunder, radiant, necrotic, psychic and force events.
 - Add an explicit "End Combat" command that marks `combatActive = false`.
 - Move more dice resolution and combat log feedback from Combat Mode onto the board HUD.
 
@@ -152,6 +158,7 @@ Next polish targets:
 - Combat state persistence now includes turn economy, pending damage and attack-slot usage, not only HP and token positions.
 - Combat Mode has a direct target saving throw menu for STR/DEX/CON/INT/WIS/CHA saves.
 - Spell actions can carry first-pass area metadata (`areaShape`, `areaFeet`) so the board can preview spheres, cubes, cones and lines.
+- Damage events now preserve `lastEventDamageType`, allowing area pulses, token hits and dice/result toasts to inherit typed colors and small elemental impact overlays.
 - Display boards can be temporarily unlocked for direct token dragging during DM/local testing while staying read-only by default.
 
 ### Rules In Progress
@@ -160,13 +167,15 @@ Next polish targets:
 - Bonus-action techniques such as Flurry of Blows are modeled separately and do not consume Action attack slots.
 - Inspiration-style resources can be surfaced as Free actions and spent from the controller.
 - Movement remains origin-based for the turn, so retracing a route does not spend extra feet.
-- Saving throws currently resolve per selected target; group saves for area templates are the next rules layer.
+- Area saving throws can now be requested from each affected token before damage resolves.
+- Saving throw advantage/disadvantage is beginning to read tactical state and monster traits.
 
 ### Next
 
 - Add board-native area templates: radius, cone, line and cube previews with affected target highlighting.
-- Add group saving throw resolution for AoE spells: request saves, roll/save per target, then apply half/full damage.
+- Improve group saving throw UX: explicit player reaction windows, better prompts and DM override controls.
 - Make map selection use user-uploaded Firebase Storage images instead of only preset URLs.
 - Add a setup wizard for map scale, grid alignment and initial token placement before initiative begins.
+- Build the board visual upgrade in slices: board setup palette, multi-select rectangle, formation movement, then elemental VFX.
 - Expand target selection rules so the board can safely choose hostile, support, self and area targets depending on the selected action.
 - Persist and expose an explicit End Combat command that closes the resumable scene cleanly.

@@ -106,6 +106,7 @@ class SrdMonsterAction {
   final bool isRanged;
   final bool isMelee;
   final List<SrdMonsterMultiattackEntry> multiattackActions;
+  final List<SrdMonsterActionOption> optionActions;
 
   const SrdMonsterAction({
     required this.name,
@@ -116,6 +117,7 @@ class SrdMonsterAction {
     required this.isRanged,
     required this.isMelee,
     required this.multiattackActions,
+    required this.optionActions,
   });
 
   factory SrdMonsterAction.fromJson(Map<String, dynamic> json) {
@@ -126,17 +128,41 @@ class SrdMonsterAction {
     return SrdMonsterAction(
       name: json['name']?.toString() ?? 'Action',
       description: description,
-      attackBonus: _optionalIntFromJson(json['attack_bonus']),
+      attackBonus: _optionalIntFromJson(json['attack_bonus']) ??
+          _attackBonusFromDescription(description),
       damageFormula: damage.formula,
       damageType: damage.type,
       isRanged: lowerDescription.contains('ranged weapon attack'),
       isMelee: lowerDescription.contains('melee weapon attack'),
-      multiattackActions: _listOfMaps(json['actions'])
-          .map(SrdMonsterMultiattackEntry.fromJson)
-          .where((entry) => entry.actionName.trim().isNotEmpty)
-          .toList(growable: false),
+      multiattackActions: _parseMultiattackEntries(
+        json['actions'],
+        json['action_options'],
+      ),
+      optionActions: _parseActionOptions(json['options'], description),
     );
   }
+}
+
+class SrdMonsterActionOption {
+  final String name;
+  final String description;
+  final String? optionType;
+  final String? saveAbility;
+  final int? saveDc;
+  final String? successType;
+  final String? damageFormula;
+  final String? damageType;
+
+  const SrdMonsterActionOption({
+    required this.name,
+    required this.description,
+    required this.optionType,
+    required this.saveAbility,
+    required this.saveDc,
+    required this.successType,
+    required this.damageFormula,
+    required this.damageType,
+  });
 }
 
 class SrdMonsterMultiattackEntry {
@@ -157,6 +183,102 @@ class SrdMonsterMultiattackEntry {
       type: json['type']?.toString(),
     );
   }
+}
+
+List<SrdMonsterMultiattackEntry> _parseMultiattackEntries(
+  Object? directActions,
+  Object? actionOptions,
+) {
+  final direct = _listOfMaps(directActions)
+      .map(SrdMonsterMultiattackEntry.fromJson)
+      .where((entry) => entry.actionName.trim().isNotEmpty)
+      .toList(growable: false);
+  if (direct.isNotEmpty) return direct;
+
+  final alternatives = _optionMaps(actionOptions)
+      .map(_multiattackEntriesFromOption)
+      .where((entries) => entries.isNotEmpty)
+      .toList(growable: false);
+  if (alternatives.isEmpty) return const [];
+
+  alternatives.sort((a, b) {
+    final totalA = a.fold<int>(0, (sum, entry) => sum + entry.count);
+    final totalB = b.fold<int>(0, (sum, entry) => sum + entry.count);
+    return totalB.compareTo(totalA);
+  });
+  return alternatives.first;
+}
+
+List<SrdMonsterMultiattackEntry> _multiattackEntriesFromOption(
+  Map<String, dynamic> option,
+) {
+  final items = _listOfMaps(option['items']);
+  if (items.isNotEmpty) {
+    return items
+        .expand(_multiattackEntriesFromOption)
+        .where((entry) => entry.actionName.trim().isNotEmpty)
+        .toList(growable: false);
+  }
+
+  final actionName =
+      option['action_name']?.toString() ?? option['name']?.toString() ?? '';
+  if (actionName.trim().isEmpty) return const [];
+
+  return [
+    SrdMonsterMultiattackEntry(
+      actionName: actionName,
+      count: _intFromJson(option['count'], fallback: 1),
+      type: option['type']?.toString(),
+    ),
+  ];
+}
+
+List<SrdMonsterActionOption> _parseActionOptions(
+  Object? rawOptions,
+  String parentDescription,
+) {
+  final options = <SrdMonsterActionOption>[];
+  for (final rawOption in _optionMaps(rawOptions)) {
+    final name =
+        rawOption['name']?.toString() ?? rawOption['action_name']?.toString();
+    if (name == null || name.trim().isEmpty) continue;
+
+    final optionDescription = rawOption['desc']?.toString();
+    final description =
+        (optionDescription == null || optionDescription.trim().isEmpty)
+            ? _descriptionForNamedOption(parentDescription, name)
+            : optionDescription;
+    final damage = _extractDamage(rawOption['damage']);
+    final textDamage = _extractDamageFromText(description);
+    final saveFromDc = _saveFromDc(rawOption['dc']);
+    final saveFromText = _extractSavingThrow(description);
+    final dc = rawOption['dc'];
+    final successType =
+        dc is Map ? dc['success_type']?.toString().toLowerCase() : null;
+
+    options.add(
+      SrdMonsterActionOption(
+        name: name,
+        description: description,
+        optionType: rawOption['option_type']?.toString(),
+        saveAbility: saveFromDc?.ability ?? saveFromText?.ability,
+        saveDc: saveFromDc?.dc ?? saveFromText?.dc,
+        successType: successType,
+        damageFormula: damage.formula ?? textDamage.formula,
+        damageType: damage.type ?? textDamage.type,
+      ),
+    );
+  }
+  return options;
+}
+
+List<Map<String, dynamic>> _optionMaps(Object? rawOptions) {
+  if (rawOptions is Map) {
+    final from = rawOptions['from'];
+    if (from is Map) return _listOfMaps(from['options']);
+    return _listOfMaps(rawOptions['options']);
+  }
+  return _listOfMaps(rawOptions);
 }
 
 class SrdMonsterSpecialAbility {
@@ -282,6 +404,10 @@ class MonsterRepository {
             'CHA': monster.charisma,
           },
           'savingThrowBonuses': monster.savingThrowBonuses,
+          'specialAbilities': [
+            for (final ability in monster.specialAbilities)
+              '${ability.name}: ${ability.description}',
+          ],
           if (monster.challengeRating != null) 'challengeRating': cr,
           if (monster.hitDice != null) 'hitDice': monster.hitDice,
           if (portraitPath != null) ...{
@@ -302,7 +428,7 @@ class MonsterRepository {
   }) {
     final actions = <PreparedCombatAction>[
       for (final action in monster.actions)
-        _buildMonsterAction(monster, action, monster.actions),
+        ..._buildMonsterActionEntries(monster, action, monster.actions),
       for (final ability in monster.specialAbilities)
         if (_isUsableSpecialAbility(ability))
           _buildSpecialAbility(monster, ability),
@@ -316,6 +442,21 @@ class MonsterRepository {
           ),
         )
         .toList(growable: false);
+  }
+
+  static Iterable<PreparedCombatAction> _buildMonsterActionEntries(
+    SrdMonster monster,
+    SrdMonsterAction action,
+    List<SrdMonsterAction> allActions,
+  ) sync* {
+    final isOptionContainer =
+        action.optionActions.isNotEmpty && action.multiattackActions.isEmpty;
+    if (!isOptionContainer) {
+      yield _buildMonsterAction(monster, action, allActions);
+    }
+    for (final option in action.optionActions) {
+      yield _buildMonsterActionOption(monster, action, option);
+    }
   }
 
   static PreparedCombatAction _buildMonsterAction(
@@ -347,17 +488,26 @@ class MonsterRepository {
       );
     }
 
+    final textDamage = _extractDamageFromText(action.description);
+    final damageFormula = action.damageFormula ?? textDamage.formula;
+    final damageType = action.damageType ?? textDamage.type;
+    final save = _extractSavingThrow(action.description);
+    final area = _extractAreaFromText(action.description);
+    final attackRange = _extractAttackRangeFromText(action.description);
     final attackBonus = action.attackBonus;
     final attackFormula = attackBonus == null
         ? null
         : attackBonus >= 0
             ? 'd20+$attackBonus'
             : 'd20$attackBonus';
+    final hasPrimarySave = save != null && attackFormula == null;
     final tags = <String>[
       'Monster',
       if (action.isMelee) 'Melee',
       if (action.isRanged) 'Ranged',
-      if (action.damageType != null) action.damageType!,
+      if (damageType != null) damageType,
+      if (save != null) '${save.ability} DC ${save.dc}',
+      if (area != null) '${area.shape} ${area.feet} ft',
       if (monster.challengeRating != null) 'CR ${monster.challengeRating}',
     ];
 
@@ -365,21 +515,110 @@ class MonsterRepository {
       id: 'monster:${monster.index}:action:${_normalizeKey(action.name)}',
       name: action.name,
       timing: CombatActionTiming.action,
-      rollKind: attackFormula == null
-          ? action.damageFormula == null
-              ? CombatActionRollKind.none
-              : CombatActionRollKind.damage
-          : CombatActionRollKind.attack,
+      rollKind: hasPrimarySave
+          ? CombatActionRollKind.savingThrow
+          : attackFormula == null
+              ? damageFormula == null
+                  ? CombatActionRollKind.none
+                  : CombatActionRollKind.damage
+              : CombatActionRollKind.attack,
       attackFormula: attackFormula,
-      damageFormula: action.damageFormula,
+      damageFormula: damageFormula,
+      saveAbility: save?.ability,
+      saveDc: save?.dc,
       tags: tags,
       metadata: {
         'source': 'monster',
         'monsterIndex': monster.index,
         'monsterName': monster.name,
         'description': action.description,
-        if (action.damageFormula != null)
-          'criticalDamageFormula': _doubleDice(action.damageFormula!),
+        if (damageType != null) 'damageType': damageType,
+        if (damageFormula != null && !hasPrimarySave)
+          'criticalDamageFormula': _doubleDice(damageFormula),
+        if (save != null)
+          'halfDamageOnSave': _dealsHalfDamageOnSave(
+            action.description,
+          ),
+        if (area != null) ...{
+          'areaShape': area.shape,
+          'areaFeet': area.feet,
+          if (area.shape == 'cone' || area.shape == 'line')
+            'rangeFeet': area.feet,
+        },
+        if (area == null && attackRange != null) ...{
+          'rangeFeet': attackRange.normalFeet,
+          if (attackRange.longFeet != null)
+            'longRangeFeet': attackRange.longFeet,
+        },
+      },
+    );
+  }
+
+  static PreparedCombatAction _buildMonsterActionOption(
+    SrdMonster monster,
+    SrdMonsterAction parent,
+    SrdMonsterActionOption option,
+  ) {
+    final damageFormula = option.damageFormula;
+    final damageType = option.damageType;
+    final saveAbility = option.saveAbility;
+    final saveDc = option.saveDc;
+    final area = _extractAreaFromText(option.description);
+    final attackRange = _extractAttackRangeFromText(option.description);
+    final hasPrimarySave = saveAbility != null && saveDc != null;
+    final optionType = option.optionType?.toLowerCase();
+    final isBreath = optionType == 'breath' ||
+        parent.name.toLowerCase().contains('breath') ||
+        option.name.toLowerCase().contains('breath');
+    final halfDamageOnSave = option.successType == 'half' ||
+        _dealsHalfDamageOnSave(option.description);
+    final failureCondition = _failureConditionForMonsterOption(option);
+
+    return PreparedCombatAction(
+      id: 'monster:${monster.index}:action:${_normalizeKey(parent.name)}:${_normalizeKey(option.name)}',
+      name: option.name,
+      timing: CombatActionTiming.action,
+      rollKind: hasPrimarySave
+          ? CombatActionRollKind.savingThrow
+          : damageFormula == null
+              ? CombatActionRollKind.none
+              : CombatActionRollKind.damage,
+      damageFormula: damageFormula,
+      saveAbility: saveAbility,
+      saveDc: saveDc,
+      tags: [
+        'Monster',
+        if (isBreath) 'Breath',
+        if (damageType != null) damageType,
+        if (failureCondition != null) failureCondition,
+        if (hasPrimarySave) '$saveAbility DC $saveDc',
+        if (area != null) '${area.shape} ${area.feet} ft',
+        if (monster.challengeRating != null) 'CR ${monster.challengeRating}',
+      ],
+      metadata: {
+        'source': 'monster',
+        'monsterIndex': monster.index,
+        'monsterName': monster.name,
+        'description': option.description,
+        'parentAction': parent.name,
+        if (option.optionType != null) 'optionType': option.optionType,
+        if (damageType != null) 'damageType': damageType,
+        if (isBreath) 'breathWeapon': true,
+        if (failureCondition != null) 'failureCondition': failureCondition,
+        if (damageFormula != null && !hasPrimarySave)
+          'criticalDamageFormula': _doubleDice(damageFormula),
+        if (hasPrimarySave) 'halfDamageOnSave': halfDamageOnSave,
+        if (area != null) ...{
+          'areaShape': area.shape,
+          'areaFeet': area.feet,
+          if (area.shape == 'cone' || area.shape == 'line')
+            'rangeFeet': area.feet,
+        },
+        if (area == null && attackRange != null) ...{
+          'rangeFeet': attackRange.normalFeet,
+          if (attackRange.longFeet != null)
+            'longRangeFeet': attackRange.longFeet,
+        },
       },
     );
   }
@@ -404,20 +643,22 @@ class MonsterRepository {
           : attackBonus >= 0
               ? 'd20+$attackBonus'
               : 'd20$attackBonus';
-      if (attackFormula == null && candidate.damageFormula == null) {
+      final candidateDamage = _damageForMonsterAction(candidate);
+      final damageFormula = candidateDamage.formula;
+      if (attackFormula == null && damageFormula == null) {
         continue;
       }
       for (var index = 0; index < entry.count; index++) {
         steps.add({
           'name': candidate.name,
           'attackFormula': attackFormula,
-          'damageFormula': candidate.damageFormula,
-          if (candidate.damageFormula != null)
-            'criticalDamageFormula': _doubleDice(candidate.damageFormula!),
+          'damageFormula': damageFormula,
+          if (damageFormula != null)
+            'criticalDamageFormula': _doubleDice(damageFormula),
           'tags': [
             if (candidate.isMelee) 'Melee',
             if (candidate.isRanged) 'Ranged',
-            if (candidate.damageType != null) candidate.damageType!,
+            if (candidateDamage.type != null) candidateDamage.type!,
             if (entry.type != null) entry.type!,
           ],
         });
@@ -431,35 +672,106 @@ class MonsterRepository {
     SrdMonsterSpecialAbility ability,
   ) {
     final lower = ability.description.toLowerCase();
+    final attackBonus = _attackBonusFromDescription(ability.description);
+    final damage = _extractDamageFromText(ability.description);
+    final save = _extractSavingThrow(ability.description);
+    final area = _extractAreaFromText(ability.description);
+    final attackRange = _extractAttackRangeFromText(ability.description);
     final timing = lower.contains('bonus action')
         ? CombatActionTiming.bonusAction
         : lower.contains('reaction')
             ? CombatActionTiming.reaction
             : CombatActionTiming.action;
+    final attackFormula = attackBonus == null
+        ? null
+        : attackBonus >= 0
+            ? 'd20+$attackBonus'
+            : 'd20$attackBonus';
+    final hasPrimarySave = save != null && attackFormula == null;
 
     return PreparedCombatAction(
       id: 'monster:${monster.index}:feature:${_normalizeKey(ability.name)}',
       name: ability.name,
       timing: timing,
-      rollKind: CombatActionRollKind.none,
+      rollKind: hasPrimarySave
+          ? CombatActionRollKind.savingThrow
+          : attackFormula == null
+              ? damage.formula == null
+                  ? CombatActionRollKind.none
+                  : CombatActionRollKind.damage
+              : CombatActionRollKind.attack,
+      attackFormula: attackFormula,
+      damageFormula: damage.formula,
+      saveAbility: save?.ability,
+      saveDc: save?.dc,
       tags: [
         'Monster Feature',
         if (timing == CombatActionTiming.bonusAction) 'Bonus Action',
         if (timing == CombatActionTiming.reaction) 'Reaction',
+        if (damage.type != null) damage.type!,
+        if (save != null) '${save.ability} DC ${save.dc}',
+        if (area != null) '${area.shape} ${area.feet} ft',
       ],
       metadata: {
         'source': 'monsterFeature',
         'monsterIndex': monster.index,
         'monsterName': monster.name,
         'description': ability.description,
+        if (damage.formula != null && !hasPrimarySave)
+          'criticalDamageFormula': _doubleDice(damage.formula!),
+        if (save != null)
+          'halfDamageOnSave': _dealsHalfDamageOnSave(
+            ability.description,
+          ),
+        if (area != null) ...{
+          'areaShape': area.shape,
+          'areaFeet': area.feet,
+          if (area.shape == 'cone' || area.shape == 'line')
+            'rangeFeet': area.feet,
+        },
+        if (area == null && attackRange != null) ...{
+          'rangeFeet': attackRange.normalFeet,
+          if (attackRange.longFeet != null)
+            'longRangeFeet': attackRange.longFeet,
+        },
       },
     );
   }
 
   static bool _isUsableSpecialAbility(SrdMonsterSpecialAbility ability) {
     final lower = ability.description.toLowerCase();
-    return lower.contains('action') || lower.contains('reaction');
+    return lower.contains('action') ||
+        lower.contains('reaction') ||
+        _attackBonusFromDescription(ability.description) != null ||
+        _extractSavingThrow(ability.description) != null ||
+        _extractDamageFromText(ability.description).formula != null;
   }
+}
+
+_ParsedDamage _damageForMonsterAction(SrdMonsterAction action) {
+  final textDamage = _extractDamageFromText(action.description);
+  return _ParsedDamage(
+    action.damageFormula ?? textDamage.formula,
+    action.damageType ?? textDamage.type,
+  );
+}
+
+String? _failureConditionForMonsterOption(SrdMonsterActionOption option) {
+  final text = '${option.name} ${option.description}'.toLowerCase();
+  if (text.contains('weakening breath') ||
+      text.contains('disadvantage on strength')) {
+    return 'Weakened';
+  }
+  if (text.contains('sleep breath') || text.contains('fall unconscious')) {
+    return 'Unconscious';
+  }
+  if (text.contains('poison') && text.contains('saving throw')) {
+    return 'Poisoned';
+  }
+  if (text.contains('frightened')) return 'Frightened';
+  if (text.contains('restrained')) return 'Restrained';
+  if (text.contains('paralyzed')) return 'Paralyzed';
+  return null;
 }
 
 class _ParsedDamage {
@@ -469,6 +781,62 @@ class _ParsedDamage {
   const _ParsedDamage(this.formula, this.type);
 }
 
+class _ParsedSave {
+  final String ability;
+  final int dc;
+
+  const _ParsedSave(this.ability, this.dc);
+}
+
+class _ParsedArea {
+  final String shape;
+  final int feet;
+
+  const _ParsedArea(this.shape, this.feet);
+}
+
+class _ParsedRange {
+  final int normalFeet;
+  final int? longFeet;
+
+  const _ParsedRange(this.normalFeet, this.longFeet);
+}
+
+_ParsedSave? _saveFromDc(Object? raw) {
+  if (raw is! Map) return null;
+  final value = _optionalIntFromJson(raw['dc_value']);
+  final dcType = raw['dc_type'];
+  String? ability;
+  if (dcType is Map) {
+    ability = dcType['index']?.toString() ?? dcType['name']?.toString();
+  } else {
+    ability = dcType?.toString();
+  }
+  if (value == null || ability == null || ability.trim().isEmpty) {
+    return null;
+  }
+  return _ParsedSave(_normalizeAbilityLabel(ability), value);
+}
+
+String _descriptionForNamedOption(String parentDescription, String optionName) {
+  final parent = parentDescription.trim();
+  if (parent.isEmpty) return '';
+
+  final startMatch = RegExp(
+    r'(?:^|\n\s*)' + RegExp.escape(optionName.trim()) + r'\.\s*',
+    caseSensitive: false,
+  ).firstMatch(parent);
+  if (startMatch == null) return parent;
+
+  final start = startMatch.start;
+  final rest = parent.substring(start).trim();
+  final nextHeading = RegExp(
+    r'\n\s*[A-Z][^.\n]{1,64}\.\s',
+  ).firstMatch(rest.length <= 1 ? '' : rest.substring(1));
+  if (nextHeading == null) return rest;
+  return rest.substring(0, nextHeading.start + 1).trim();
+}
+
 _ParsedDamage _extractDamage(Object? raw) {
   if (raw is! List) return const _ParsedDamage(null, null);
   for (final item in raw) {
@@ -476,6 +844,133 @@ _ParsedDamage _extractDamage(Object? raw) {
     if (parsed.formula != null) return parsed;
   }
   return const _ParsedDamage(null, null);
+}
+
+_ParsedDamage _extractDamageFromText(String text) {
+  final hitIndex = text.toLowerCase().indexOf('hit:');
+  final source = hitIndex < 0 ? text : text.substring(hitIndex);
+  final formulaMatch = RegExp(
+    r'\((\d+d\d+(?:\s*[+-]\s*\d+)?)\)',
+    caseSensitive: false,
+  ).firstMatch(source);
+  final formula = _cleanFormula(formulaMatch?.group(1));
+  if (formula == null) return const _ParsedDamage(null, null);
+
+  final typeMatch = RegExp(
+    r'\)\s+[a-z,\s]*?\b([a-z]+)\s+damage',
+    caseSensitive: false,
+  ).firstMatch(source);
+  final rawType = typeMatch?.group(1);
+  final type = rawType == null || rawType.isEmpty
+      ? null
+      : '${rawType[0].toUpperCase()}${rawType.substring(1).toLowerCase()}';
+  return _ParsedDamage(formula, type);
+}
+
+_ParsedSave? _extractSavingThrow(String text) {
+  final patterns = <RegExp>[
+    RegExp(
+      r'dc\s*(\d+)\s*(strength|dexterity|constitution|intelligence|wisdom|charisma|str|dex|con|int|wis|cha)\s+saving throw',
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'(strength|dexterity|constitution|intelligence|wisdom|charisma|str|dex|con|int|wis|cha)\s+saving throw.{0,24}?dc\s*(\d+)',
+      caseSensitive: false,
+    ),
+  ];
+
+  for (final pattern in patterns) {
+    final match = pattern.firstMatch(text);
+    if (match == null) continue;
+    final first = match.group(1) ?? '';
+    final second = match.group(2) ?? '';
+    final firstNumber = int.tryParse(first);
+    final dc = firstNumber ?? int.tryParse(second);
+    final abilityText = firstNumber == null ? first : second;
+    if (dc == null || abilityText.isEmpty) continue;
+    return _ParsedSave(_normalizeAbilityLabel(abilityText), dc);
+  }
+  return null;
+}
+
+_ParsedArea? _extractAreaFromText(String text) {
+  final normalized = text.toLowerCase();
+  final shape = normalized.contains('cone')
+      ? 'cone'
+      : normalized.contains('line')
+          ? 'line'
+          : normalized.contains('cube')
+              ? 'cube'
+              : normalized.contains('sphere') ||
+                      normalized.contains('radius') ||
+                      normalized.contains('cylinder')
+                  ? 'sphere'
+                  : null;
+  if (shape == null) return null;
+
+  final feet = _firstAreaFeet(normalized, shape);
+  if (feet == null || feet <= 0) return null;
+  return _ParsedArea(shape, feet);
+}
+
+_ParsedRange? _extractAttackRangeFromText(String text) {
+  final normalized = text.toLowerCase();
+  final rangeSection =
+      RegExp(r'range\s+(\d+)\s*/\s*(\d+)\s*ft', caseSensitive: false)
+          .firstMatch(normalized);
+  if (rangeSection != null) {
+    final normal = int.tryParse(rangeSection.group(1) ?? '');
+    final long = int.tryParse(rangeSection.group(2) ?? '');
+    if (normal != null && normal > 0) {
+      return _ParsedRange(normal, long);
+    }
+  }
+
+  final explicitRange =
+      RegExp(r'range\s+(\d+)\s*ft', caseSensitive: false).firstMatch(
+    normalized,
+  );
+  if (explicitRange != null) {
+    final normal = int.tryParse(explicitRange.group(1) ?? '');
+    if (normal != null && normal > 0) return _ParsedRange(normal, null);
+  }
+
+  final reach = RegExp(r'reach\s+(\d+)\s*ft', caseSensitive: false).firstMatch(
+    normalized,
+  );
+  if (reach != null) {
+    final normal = int.tryParse(reach.group(1) ?? '');
+    if (normal != null && normal > 0) return _ParsedRange(normal, null);
+  }
+  return null;
+}
+
+int? _firstAreaFeet(String text, String shape) {
+  final patterns = <RegExp>[
+    RegExp(
+      '(\\d+)[-\\s]*(?:foot|feet|ft)[-\\s]*(?:radius[-\\s]*)?$shape',
+    ),
+    RegExp(
+      '(\\d+)[-\\s]*(?:foot|feet|ft)[-\\s]*(?:long[-,\\s]*)?.{0,24}$shape',
+    ),
+    RegExp('$shape.{0,24}?(\\d+)[-\\s]*(?:foot|feet|ft)'),
+    RegExp('(\\d+)[-\\s]*(?:foot|feet|ft)[-\\s]*radius'),
+  ];
+
+  for (final pattern in patterns) {
+    final match = pattern.firstMatch(text);
+    if (match == null) continue;
+    final value = int.tryParse(match.group(1) ?? '');
+    if (value != null && value > 0) return value;
+  }
+  return null;
+}
+
+bool _dealsHalfDamageOnSave(String text) {
+  final normalized = text.toLowerCase();
+  return normalized.contains('half as much') ||
+      normalized.contains('half damage') ||
+      normalized.contains('half the damage');
 }
 
 _ParsedDamage _parseDamageEntry(Object? raw) {
@@ -564,7 +1059,10 @@ int _abilityModifier(int score) {
 
 List<Map<String, dynamic>> _listOfMaps(Object? raw) {
   if (raw is! List) return const [];
-  return raw.whereType<Map<String, dynamic>>().toList(growable: false);
+  return raw
+      .whereType<Map>()
+      .map((item) => Map<String, dynamic>.from(item))
+      .toList(growable: false);
 }
 
 Map<String, int> _parseSavingThrowBonuses(Object? raw) {
@@ -572,7 +1070,8 @@ Map<String, int> _parseSavingThrowBonuses(Object? raw) {
   for (final item in _listOfMaps(raw)) {
     final proficiency = item['proficiency'];
     if (proficiency is! Map) continue;
-    final name = proficiency['name']?.toString().toLowerCase() ?? '';
+    final name = '${proficiency['name'] ?? ''} ${proficiency['index'] ?? ''}'
+        .toLowerCase();
     final match = RegExp(
       r'saving throw:\s*(str|dex|con|int|wis|cha|strength|dexterity|constitution|intelligence|wisdom|charisma)',
     ).firstMatch(name);
@@ -598,6 +1097,15 @@ int? _optionalIntFromJson(Object? raw) {
   final match = RegExp(r'-?\d+').firstMatch(text);
   if (match == null) return null;
   return int.tryParse(match.group(0)!);
+}
+
+int? _attackBonusFromDescription(String description) {
+  final match = RegExp(
+    r'([+-]\s*\d+)\s+to\s+hit',
+    caseSensitive: false,
+  ).firstMatch(description);
+  if (match == null) return null;
+  return int.tryParse((match.group(1) ?? '').replaceAll(' ', ''));
 }
 
 String _normalizeAbilityLabel(String value) {

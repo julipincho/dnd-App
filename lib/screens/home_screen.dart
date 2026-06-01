@@ -117,6 +117,9 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 28),
               _CampaignsSection(
                 campaigns: campaigns,
+                isLoading: campaignProvider.isLoading,
+                errorMessage: campaignProvider.errorMessage,
+                onRetry: _refreshHome,
               ),
               const SizedBox(height: 28),
               _CharactersSection(
@@ -756,9 +759,15 @@ class _CampaignPortraitStrip extends StatelessWidget {
 
 class _CampaignsSection extends StatelessWidget {
   final List<Campaign> campaigns;
+  final bool isLoading;
+  final String? errorMessage;
+  final Future<void> Function() onRetry;
 
   const _CampaignsSection({
     required this.campaigns,
+    required this.isLoading,
+    required this.errorMessage,
+    required this.onRetry,
   });
 
   @override
@@ -768,7 +777,14 @@ class _CampaignsSection extends StatelessWidget {
       subtitle: 'Switch worlds, create new ones, or join an existing party.',
       child: Column(
         children: [
-          if (campaigns.isEmpty)
+          if (isLoading && campaigns.isEmpty)
+            const _LoadingCard(label: 'Loading campaigns...')
+          else if (errorMessage != null && campaigns.isEmpty)
+            _ErrorCard(
+              message: errorMessage!,
+              onRetry: onRetry,
+            )
+          else if (campaigns.isEmpty)
             _EmptyCard(
               icon: Icons.travel_explore_rounded,
               title: 'No campaigns yet',
@@ -797,6 +813,99 @@ class _CampaignsSection extends StatelessWidget {
                 ),
               ),
               child: const Text('View All Campaigns'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LoadingCard extends StatelessWidget {
+  final String label;
+
+  const _LoadingCard({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFF17132A),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: Colors.white.withOpacity(0.06),
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            label,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.72),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ErrorCard extends StatelessWidget {
+  final String message;
+  final Future<void> Function() onRetry;
+
+  const _ErrorCard({
+    required this.message,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFF17132A),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: Colors.redAccent.withOpacity(0.24),
+        ),
+      ),
+      child: Column(
+        children: [
+          const Icon(
+            Icons.cloud_off_rounded,
+            color: Colors.redAccent,
+          ),
+          const SizedBox(height: 10),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.74),
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('Retry'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.white,
+              side: BorderSide(
+                color: Colors.white.withOpacity(0.16),
+              ),
             ),
           ),
         ],

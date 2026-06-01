@@ -92,8 +92,18 @@ class StitchApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final authProvider = context.watch<AuthProvider>();
     final publicBoardHome = _publicBoardHomeFromRoute(Uri.base);
+
+    if (publicBoardHome != null) {
+      return MaterialApp(
+        title: 'Stitch Battle Board',
+        theme: stitchTheme,
+        debugShowCheckedModeBanner: false,
+        home: publicBoardHome,
+      );
+    }
+
+    final authProvider = context.watch<AuthProvider>();
 
     if (!authProvider.isInitialized || authProvider.isLoading) {
       return MaterialApp(
@@ -112,15 +122,6 @@ class StitchApp extends StatelessWidget {
             ),
           ),
         ),
-      );
-    }
-
-    if (publicBoardHome != null) {
-      return MaterialApp(
-        title: 'Stitch Battle Board',
-        theme: stitchTheme,
-        debugShowCheckedModeBanner: false,
-        home: publicBoardHome,
       );
     }
 

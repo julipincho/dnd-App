@@ -1,3 +1,4 @@
+import 'dart:async';
 // ignore: avoid_web_libraries_in_flutter
 import 'dart:html' as html;
 // ignore: avoid_web_libraries_in_flutter
@@ -6,18 +7,24 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import '../models/board_dice_roll_outcome.dart';
 import '../models/board_token.dart';
 
 class BattleBoardDiceBoxOverlay extends StatefulWidget {
   final String boardViewportId;
   final BoardToken? token;
   final double gridSize;
+  final Future<bool> Function(BoardToken token)? onRollClaimRequested;
+  final FutureOr<void> Function(BoardToken token, BoardDiceRollOutcome outcome)?
+      onRollResolved;
 
   const BattleBoardDiceBoxOverlay({
     super.key,
     required this.boardViewportId,
     required this.token,
     required this.gridSize,
+    this.onRollClaimRequested,
+    this.onRollResolved,
   });
 
   @override
@@ -26,19 +33,36 @@ class BattleBoardDiceBoxOverlay extends StatefulWidget {
 }
 
 class _BattleBoardDiceBoxOverlayState extends State<BattleBoardDiceBoxOverlay> {
+  static const Duration _claimTimeout = Duration(milliseconds: 1200);
   static final Set<String> _registeredViewTypes = {};
-  static int _nextOverlayIndex = 0;
+  static final Set<String> _completedEventKeys = {};
+  static final Set<String> _activeEventKeys = {};
 
   late final String _viewType =
-      'battle-board-dice-box-${widget.boardViewportId}-${_nextOverlayIndex++}';
+      'battle-board-dice-box-${widget.boardViewportId}';
 
   String? _lastEventKey;
+  String? _rollingEventKey;
+  Timer? _claimRetryTimer;
+  StreamSubscription<html.Event>? _visibilitySubscription;
+  bool _isDisposed = false;
 
   @override
   void initState() {
     super.initState();
 
+    _trace('initState view=$_viewType');
     _registerViewFactory();
+    _visibilitySubscription = html.document.onVisibilityChange.listen((_) {
+      if (html.document.visibilityState != 'visible') return;
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+        if (_hasRollToken) {
+          await _createDiceOverlay();
+        }
+        await _rollIfNeeded();
+      });
+    });
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (_hasRollToken) {
@@ -52,12 +76,27 @@ class _BattleBoardDiceBoxOverlayState extends State<BattleBoardDiceBoxOverlay> {
   void didUpdateWidget(covariant BattleBoardDiceBoxOverlay oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    if (widget.token?.id != oldWidget.token?.id ||
-        widget.token?.lastEventLabel != oldWidget.token?.lastEventLabel ||
+    final rollIdentityChanged = widget.token?.id != oldWidget.token?.id ||
         widget.token?.lastEventId != oldWidget.token?.lastEventId ||
+        widget.token?.lastEventDiceNotation !=
+            oldWidget.token?.lastEventDiceNotation ||
         widget.token?.lastEventDiceColorHex !=
-            oldWidget.token?.lastEventDiceColorHex ||
-        widget.token?.updatedAt != oldWidget.token?.updatedAt) {
+            oldWidget.token?.lastEventDiceColorHex;
+    final resultVisualChanged = widget.token?.lastEventResultLabel !=
+            oldWidget.token?.lastEventResultLabel ||
+        widget.token?.lastEventResultDetail !=
+            oldWidget.token?.lastEventResultDetail ||
+        !_intListsMatch(
+          widget.token?.lastEventRollValues ?? const <int>[],
+          oldWidget.token?.lastEventRollValues ?? const <int>[],
+        );
+
+    if (rollIdentityChanged) {
+      _trace(
+        'didUpdate token=${widget.token?.id ?? '-'} '
+        'event=${widget.token?.lastEventId ?? '-'} '
+        'notation=${widget.token?.lastEventDiceNotation ?? '-'}',
+      );
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         if (_hasRollToken) {
           await _createDiceOverlay();
@@ -65,17 +104,29 @@ class _BattleBoardDiceBoxOverlayState extends State<BattleBoardDiceBoxOverlay> {
         await _rollIfNeeded();
       });
     }
+
+    if (resultVisualChanged) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        await _showResolvedResultPopup(widget.token);
+      });
+    }
   }
 
   @override
   void dispose() {
-    _clearDice();
+    _isDisposed = true;
+    _trace('dispose');
+    _claimRetryTimer?.cancel();
+    _visibilitySubscription?.cancel();
+    _trace('dispose; dice stay visible until bridge auto-clear');
     super.dispose();
   }
 
   bool get _hasRollToken {
     final token = widget.token;
-    return token != null && token.lastEventLabel.isNotEmpty;
+    return token != null &&
+        token.lastEventLabel.isNotEmpty &&
+        token.lastEventDiceNotation.trim().isNotEmpty;
   }
 
   void _registerViewFactory() {
@@ -99,17 +150,16 @@ class _BattleBoardDiceBoxOverlayState extends State<BattleBoardDiceBoxOverlay> {
     );
 
     _registeredViewTypes.add(_viewType);
+    _trace('registered HtmlElementView');
   }
 
-  Future<void> _createDiceOverlay({int retriesLeft = 3}) async {
-    debugPrint(
-      '[BattleBoardDiceBoxOverlay] createDiceOverlay($_viewType)',
-    );
+  Future<bool> _createDiceOverlay({int retriesLeft = 3}) async {
+    _trace('createDiceOverlay retries=$retriesLeft');
 
     final bridge = _bridge();
 
     if (bridge == null) {
-      debugPrint('[BattleBoardDiceBoxOverlay] bridge missing');
+      _trace('bridge missing');
 
       if (retriesLeft > 0) {
         await Future<void>.delayed(
@@ -121,13 +171,11 @@ class _BattleBoardDiceBoxOverlayState extends State<BattleBoardDiceBoxOverlay> {
         );
       }
 
-      return;
+      return false;
     }
 
     if (!await _waitForHtmlElement()) {
-      debugPrint(
-        '[BattleBoardDiceBoxOverlay] HtmlElementView not mounted yet: $_viewType',
-      );
+      _trace('HtmlElementView not mounted yet');
 
       if (retriesLeft > 0) {
         await Future<void>.delayed(
@@ -139,19 +187,33 @@ class _BattleBoardDiceBoxOverlayState extends State<BattleBoardDiceBoxOverlay> {
         );
       }
 
-      return;
+      return false;
     }
 
     try {
-      js_util.callMethod(
+      final rawStatus = js_util.callMethod<Object?>(
         bridge,
         'createDiceOverlay',
         [_viewType],
       );
-    } catch (error) {
-      debugPrint(
-        'Failed to create DiceBox overlay: $error',
+      final ok = rawStatus == null || _jsBool(rawStatus, 'ok') != false;
+      final reason = _jsString(rawStatus, 'reason') ?? 'legacy/no-status';
+      final width = _jsNum(rawStatus, 'width');
+      final height = _jsNum(rawStatus, 'height');
+      _trace(
+        'createDiceOverlay result ok=$ok reason=$reason '
+        'size=${width?.toStringAsFixed(0) ?? '-'}x'
+        '${height?.toStringAsFixed(0) ?? '-'}',
       );
+      _traceOverlayStatus();
+      if (!ok && retriesLeft > 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 180));
+        return _createDiceOverlay(retriesLeft: retriesLeft - 1);
+      }
+      return ok;
+    } catch (error) {
+      _trace('createDiceOverlay exception: $error');
+      return false;
     }
   }
 
@@ -160,19 +222,31 @@ class _BattleBoardDiceBoxOverlayState extends State<BattleBoardDiceBoxOverlay> {
 
     if (token == null || token.lastEventLabel.isEmpty) {
       debugPrint(
-        '[BattleBoardDiceBoxOverlay] no event token or empty event label',
+        '[BattleBoardDiceBoxOverlay] no roll token or empty label',
       );
+      _trace('no roll token/label; leaving dice until auto-clear');
 
       _lastEventKey = null;
-      _clearDice();
       return;
     }
 
-    final eventKey = '${token.id}:${token.lastEventId}:${token.lastEventLabel}:'
-        '${token.updatedAt.millisecondsSinceEpoch}';
+    if (token.lastEventDiceNotation.trim().isEmpty) {
+      _trace('event has no dice notation; keeping current dice visible');
+      return;
+    }
 
-    debugPrint(
-      '[BattleBoardDiceBoxOverlay] rollIfNeeded '
+    final eventIdentity = token.lastEventId.isEmpty
+        ? token.updatedAt.microsecondsSinceEpoch.toString()
+        : token.lastEventId;
+    final eventKey = [
+      token.sceneId,
+      eventIdentity,
+      token.lastEventDiceNotation,
+      token.lastEventDiceColorHex,
+    ].join(':');
+
+    _trace(
+      'rollIfNeeded '
       'token=${token.id} '
       'label=${token.lastEventLabel} '
       'kind=${token.lastEventKind} '
@@ -181,58 +255,183 @@ class _BattleBoardDiceBoxOverlayState extends State<BattleBoardDiceBoxOverlay> {
     );
 
     if (eventKey == _lastEventKey) {
-      debugPrint(
-        '[BattleBoardDiceBoxOverlay] event already processed, skipping',
-      );
+      _trace('event already processed, skipping');
 
       return;
     }
 
-    _lastEventKey = eventKey;
+    if (token.lastEventRollValues.isNotEmpty) {
+      _trace('event already has values=${token.lastEventRollValues}');
+      _lastEventKey = eventKey;
+      _rememberCompletedEvent(eventKey);
+      await _showResolvedResultPopup(token);
+      return;
+    }
 
-    await _createDiceOverlay();
+    if (_completedEventKeys.contains(eventKey)) {
+      _trace('event completed in this client, skipping');
+      _lastEventKey = eventKey;
+      await _showResolvedResultPopup(token);
+      return;
+    }
 
-    final notation = _notationForToken(token);
-    final diceColorHex = _normalizedHexColor(token.lastEventDiceColorHex);
-    final resultLabel = token.lastEventResultLabel.trim();
-    final resultDetail = token.lastEventResultDetail.trim();
+    if (_rollingEventKey != null) {
+      _trace('roll already in flight=$_rollingEventKey');
+      return;
+    }
 
-    await _rollDice(
-      notation,
-      diceColorHex: diceColorHex,
-      resultLabel: resultLabel.isEmpty ? null : resultLabel,
-      resultDetail: resultDetail.isEmpty ? null : resultDetail,
-    );
+    if (html.document.visibilityState == 'hidden') {
+      _trace('page hidden; waiting before claim');
+      return;
+    }
+
+    if (!_activeEventKeys.add(eventKey)) {
+      _trace('event already rolling in another overlay, skipping');
+      return;
+    }
+    _rollingEventKey = eventKey;
+    try {
+      if (!await _createDiceOverlay()) {
+        if (_isDisposed || !mounted) return;
+        _trace('overlay not ready; retry before claim');
+        _scheduleClaimRetry(eventKey);
+        return;
+      }
+
+      if (_isDisposed || !mounted) return;
+      bool claimRoll;
+      _trace('claim requested');
+      claimRoll = await _claimRollOwnership(token);
+      if (_isDisposed || !mounted) {
+        _trace('claim resolved after dispose; aborting roll');
+        return;
+      }
+      if (!claimRoll) {
+        _trace('claim denied; retrying');
+        _scheduleClaimRetry(eventKey);
+        return;
+      }
+      _trace('claim accepted');
+
+      _lastEventKey = eventKey;
+
+      final notation = _notationForToken(token);
+      final diceColorHex = _normalizedHexColor(token.lastEventDiceColorHex);
+
+      _trace('roll start notation=$notation color=${diceColorHex ?? '-'}');
+      final completed = await _rollDice(
+        notation,
+        diceColorHex: diceColorHex,
+        eventKey: eventKey,
+      );
+      if (completed) {
+        _trace('roll completed');
+        _rememberCompletedEvent(eventKey);
+      } else {
+        _trace('roll returned no result; will retry');
+        _lastEventKey = null;
+        _scheduleClaimRetry(eventKey);
+      }
+    } catch (error) {
+      _trace('roll flow exception: $error');
+    } finally {
+      _activeEventKeys.remove(eventKey);
+      if (_rollingEventKey == eventKey) {
+        _rollingEventKey = null;
+      }
+    }
   }
 
-  Future<void> _rollDice(
+  Future<bool> _claimRollOwnership(BoardToken token) async {
+    final claimCallback = widget.onRollClaimRequested;
+    if (claimCallback == null) {
+      _trace('claim skipped; no callback');
+      return true;
+    }
+
+    try {
+      return await claimCallback(token).timeout(
+        _claimTimeout,
+        onTimeout: () {
+          _trace('claim timed out; rolling optimistically');
+          return true;
+        },
+      );
+    } catch (error) {
+      _trace('claim failed; rolling optimistically: $error');
+      return true;
+    }
+  }
+
+  void _scheduleClaimRetry(String eventKey) {
+    _trace('schedule retry event=$eventKey');
+    _claimRetryTimer?.cancel();
+    _claimRetryTimer = Timer(const Duration(seconds: 2), () {
+      if (!mounted || _lastEventKey == eventKey) return;
+      unawaited(_rollIfNeeded());
+    });
+  }
+
+  void _rememberCompletedEvent(String eventKey) {
+    _completedEventKeys.add(eventKey);
+    while (_completedEventKeys.length > 200) {
+      _completedEventKeys.remove(_completedEventKeys.first);
+    }
+  }
+
+  Future<void> _showResolvedResultPopup(BoardToken? token) async {
+    if (token == null) return;
+    if (token.lastEventRollValues.isEmpty) return;
+    final label = token.lastEventResultLabel.trim();
+    if (label.isEmpty || label == 'ROLLING') return;
+
+    await _createDiceOverlay();
+    if (_isDisposed || !mounted) return;
+
+    final detail = token.lastEventResultDetail.trim().isEmpty
+        ? token.lastEventLabel.trim()
+        : token.lastEventResultDetail.trim();
+    try {
+      final bridge = _bridge();
+      if (bridge == null) return;
+      js_util.callMethod(
+        bridge,
+        'showRollResult',
+        [_viewType, label, detail],
+      );
+      _trace('resolved result popup label=$label');
+    } catch (error) {
+      _trace('resolved result popup failed: $error');
+    }
+  }
+
+  Future<bool> _rollDice(
     String notation, {
     String? diceColorHex,
-    String? resultLabel,
-    String? resultDetail,
+    required String eventKey,
   }) async {
-    debugPrint(
-      '[BattleBoardDiceBoxOverlay._rollDice] '
-      'Starting roll with notation="$notation" color="$diceColorHex" '
-      'viewType=$_viewType',
-    );
+    _trace('bridge roll call preparing');
 
     final bridge = await _waitForBridge();
 
     if (bridge == null) {
-      debugPrint(
-        '[BattleBoardDiceBoxOverlay._rollDice] bridge missing before roll',
-      );
+      _trace('bridge missing before roll');
 
-      return;
+      return false;
     }
 
-    debugPrint(
-      '[BattleBoardDiceBoxOverlay._rollDice] bridge found, calling rollDice',
-    );
+    _trace('bridge found; calling rollDice');
 
+    var waitingSeconds = 0;
+    Timer? waitTraceTimer;
     try {
-      await js_util.promiseToFuture(
+      waitTraceTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+        waitingSeconds += 2;
+        _trace('waiting JS dice outcome ${waitingSeconds}s');
+        _traceOverlayStatus();
+      });
+      final rawOutcome = await js_util
+          .promiseToFuture(
         js_util.callMethod(
           bridge,
           'rollDice',
@@ -241,31 +440,44 @@ class _BattleBoardDiceBoxOverlayState extends State<BattleBoardDiceBoxOverlay> {
             notation,
             js_util.jsify({
               if (diceColorHex != null) 'themeColor': diceColorHex,
-              if (resultLabel != null) 'resultLabel': resultLabel,
-              if (resultDetail != null) 'resultDetail': resultDetail,
+              'eventKey': eventKey,
             }),
           ],
         ),
+      )
+          .timeout(
+        const Duration(seconds: 24),
+        onTimeout: () {
+          _trace('Dart timed out waiting for JS dice outcome');
+          return js_util.jsify({
+            'error': 'dart-roll-timeout',
+          });
+        },
       );
-      debugPrint(
-        '[BattleBoardDiceBoxOverlay._rollDice] Roll completed successfully',
-      );
+      final outcome = _outcomeFromJsResult(rawOutcome);
+      final token = widget.token;
+      if (outcome != null && token != null) {
+        _trace(
+          'JS outcome total=${outcome.total} dice=${outcome.diceTotal} '
+          'values=${outcome.values}',
+        );
+        final resolver = widget.onRollResolved;
+        if (resolver != null) {
+          await Future<void>.sync(() => resolver(token, outcome));
+          _trace('outcome persisted callback completed');
+        }
+      } else {
+        final error = _jsString(rawOutcome, 'error') ?? 'null/invalid outcome';
+        _trace('JS outcome missing: $error');
+        _traceOverlayStatus();
+      }
+      return outcome != null;
     } catch (error) {
-      debugPrint('DiceBox roll failed: $error');
-    }
-  }
-
-  void _clearDice() {
-    try {
-      final bridge = _bridge();
-      if (bridge == null) return;
-      js_util.callMethod(
-        bridge,
-        'clearDice',
-        [_viewType],
-      );
-    } catch (error) {
-      debugPrint('DiceBox clear failed: $error');
+      _trace('DiceBox roll exception: $error');
+      _traceOverlayStatus();
+      return false;
+    } finally {
+      waitTraceTimer?.cancel();
     }
   }
 
@@ -302,6 +514,95 @@ class _BattleBoardDiceBoxOverlayState extends State<BattleBoardDiceBoxOverlay> {
       html.window,
       'stitchDiceBoxBridge',
     );
+  }
+
+  void _trace(String message) {
+    final line =
+        '${DateTime.now().toIso8601String().substring(11, 19)} $message';
+    debugPrint('[BattleBoardDiceDebug] $line');
+    _writeDiceDebugLog(
+      'trace',
+      {
+        'message': message,
+        'viewType': _viewType,
+        'lastEventKey': _lastEventKey,
+        'rollingEventKey': _rollingEventKey,
+        'token': _tokenLogData(widget.token),
+      },
+    );
+  }
+
+  void _writeDiceDebugLog(String stage, Map<String, Object?> data) {
+    try {
+      final bridge = _bridge();
+      if (bridge == null) return;
+      js_util.callMethod(
+        bridge,
+        'appendDiceDebugLog',
+        [
+          'dart',
+          stage,
+          js_util.jsify(data),
+        ],
+      );
+    } catch (error) {
+      debugPrint('Dice debug log write failed: $error');
+    }
+  }
+
+  Map<String, Object?> _tokenLogData(BoardToken? token) {
+    if (token == null) return {'hasToken': false};
+    return {
+      'hasToken': true,
+      'id': token.id,
+      'sceneId': token.sceneId,
+      'refId': token.refId,
+      'type': token.type,
+      'name': token.name,
+      'lastEventId': token.lastEventId,
+      'lastEventLabel': token.lastEventLabel,
+      'lastEventKind': token.lastEventKind,
+      'lastEventDiceNotation': token.lastEventDiceNotation,
+      'lastEventDiceColorHex': token.lastEventDiceColorHex,
+      'lastEventResultLabel': token.lastEventResultLabel,
+      'lastEventResultDetail': token.lastEventResultDetail,
+      'lastEventRollTotal': token.lastEventRollTotal,
+      'lastEventRollDiceTotal': token.lastEventRollDiceTotal,
+      'lastEventRollValues': token.lastEventRollValues,
+      'lastEventSourceRefId': token.lastEventSourceRefId,
+      'lastEventPrimaryTargetRefId': token.lastEventPrimaryTargetRefId,
+      'isVisible': token.isVisible,
+      'isActive': token.isActive,
+      'isTargeted': token.isTargeted,
+      'updatedAt': token.updatedAt.toIso8601String(),
+    };
+  }
+
+  void _traceOverlayStatus() {
+    try {
+      final bridge = _bridge();
+      if (bridge == null) {
+        _trace('status bridge=missing');
+        return;
+      }
+      final status = js_util.callMethod<Object?>(
+        bridge,
+        'getOverlayStatus',
+        [_viewType],
+      );
+      _trace(
+        'status container=${_jsBool(status, 'hasContainer')} '
+        'overlay=${_jsBool(status, 'hasOverlay')} '
+        'init=${_jsString(status, 'initState') ?? '-'} '
+        'roll=${_jsBool(status, 'hasRoll')} '
+        'size=${_jsNum(status, 'width')?.toStringAsFixed(0) ?? '-'}x'
+        '${_jsNum(status, 'height')?.toStringAsFixed(0) ?? '-'} '
+        'source=${_jsString(status, 'lastRollSource') ?? '-'} '
+        'err=${_jsString(status, 'lastError') ?? '-'}',
+      );
+    } catch (error) {
+      _trace('status exception: $error');
+    }
   }
 
   String _notationForToken(BoardToken token) {
@@ -401,4 +702,78 @@ class _BattleBoardDiceBoxOverlayState extends State<BattleBoardDiceBoxOverlay> {
       ),
     );
   }
+}
+
+BoardDiceRollOutcome? _outcomeFromJsResult(Object? raw) {
+  if (raw == null) return null;
+  final total = _jsInt(raw, 'total');
+  final diceTotal = _jsInt(raw, 'diceTotal') ?? total;
+  if (total == null || diceTotal == null) return null;
+
+  final values = <int>[];
+  final valuesRaw = js_util.getProperty<Object?>(raw, 'values');
+  if (valuesRaw != null) {
+    final length = _jsInt(valuesRaw, 'length') ?? 0;
+    for (var index = 0; index < length; index++) {
+      final value = js_util.getProperty<Object?>(valuesRaw, index);
+      if (value is num) {
+        values.add(value.toInt());
+      } else {
+        final parsed = int.tryParse(value?.toString() ?? '');
+        if (parsed != null) values.add(parsed);
+      }
+    }
+  }
+
+  final label =
+      js_util.getProperty<Object?>(raw, 'label')?.toString().trim() ?? '';
+  final detail =
+      js_util.getProperty<Object?>(raw, 'detail')?.toString().trim() ?? '';
+
+  return BoardDiceRollOutcome(
+    total: total,
+    diceTotal: diceTotal,
+    values: values,
+    label: label,
+    detail: detail,
+  );
+}
+
+int? _jsInt(Object raw, Object property) {
+  final value = js_util.getProperty<Object?>(raw, property);
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '');
+}
+
+double? _jsNum(Object? raw, Object property) {
+  if (raw == null) return null;
+  final value = js_util.getProperty<Object?>(raw, property);
+  if (value is num) return value.toDouble();
+  return double.tryParse(value?.toString() ?? '');
+}
+
+bool? _jsBool(Object? raw, Object property) {
+  if (raw == null) return null;
+  final value = js_util.getProperty<Object?>(raw, property);
+  if (value is bool) return value;
+  return switch (value?.toString().toLowerCase()) {
+    'true' => true,
+    'false' => false,
+    _ => null,
+  };
+}
+
+String? _jsString(Object? raw, Object property) {
+  if (raw == null) return null;
+  final value = js_util.getProperty<Object?>(raw, property);
+  final text = value?.toString().trim() ?? '';
+  return text.isEmpty ? null : text;
+}
+
+bool _intListsMatch(List<int> a, List<int> b) {
+  if (a.length != b.length) return false;
+  for (var index = 0; index < a.length; index++) {
+    if (a[index] != b[index]) return false;
+  }
+  return true;
 }

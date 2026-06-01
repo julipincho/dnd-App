@@ -133,6 +133,42 @@ class BattleBoardProvider extends ChangeNotifier {
     );
   }
 
+  Future<bool> claimDiceRollEvent({
+    required String campaignId,
+    required BoardToken token,
+    required String ownerId,
+    Duration lockDuration = const Duration(seconds: 3),
+  }) {
+    return _repository.claimDiceRollEvent(
+      campaignId: campaignId,
+      token: token,
+      ownerId: ownerId,
+      lockDuration: lockDuration,
+    );
+  }
+
+  Future<bool> saveDiceRollOutcomeIfClaimed({
+    required String campaignId,
+    required BoardToken token,
+    required String ownerId,
+    required int total,
+    required int diceTotal,
+    required List<int> values,
+    required String label,
+    required String detail,
+  }) {
+    return _repository.saveDiceRollOutcomeIfClaimed(
+      campaignId: campaignId,
+      token: token,
+      ownerId: ownerId,
+      total: total,
+      diceTotal: diceTotal,
+      values: values,
+      label: label,
+      detail: detail,
+    );
+  }
+
   Future<void> moveToken({
     required String campaignId,
     required BoardToken token,

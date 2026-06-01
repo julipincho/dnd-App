@@ -15,9 +15,14 @@ class Campaign {
     this.memberUserIds = const [],
   });
 
-  factory Campaign.fromJson(Map<String, dynamic> json) {
+  factory Campaign.fromJson(
+    Map<String, dynamic> json, {
+    String? fallbackId,
+  }) {
+    final explicitId = json['id']?.toString().trim() ?? '';
+
     return Campaign(
-      id: json['id']?.toString() ?? '',
+      id: explicitId.isNotEmpty ? explicitId : (fallbackId ?? ''),
       name: json['name']?.toString() ?? '',
       description: json['description']?.toString(),
       createdAt: DateTime.tryParse(json['createdAt']?.toString() ?? '') ??

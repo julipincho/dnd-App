@@ -5424,6 +5424,18 @@
               {
                 "name": "Way of Mercy",
                 "description": "Monks of the Way of Mercy learn to manipulate the life force of others to bring aid to those in need. They are wandering physicians to the poor and hurt. However, to those beyond their help, they bring a swift end as an act of mercy. Those who follow the Way of Mercy might be members of a religious order, administering to the needy and making grim choices rooted in reality rather than idealism. Some might be gentle-voiced healers, beloved by their communities, while others might be masked bringers of macabre mercies. The walkers of this way usually don robes with deep cowls, and they often conceal their faces with masks, presenting themselves as the faceless bringers of life and death."
+              },
+              {
+                "name": "Implements of Mercy",
+                "description": "You gain proficiency in Insight, Medicine, and the herbalism kit, and you gain a special mask or similar symbol of your monastic role."
+              },
+              {
+                "name": "Hand of Healing",
+                "description": "As an action, you can spend 1 ki point to touch a creature and restore hit points equal to your Martial Arts die plus your Wisdom modifier. When using Flurry of Blows, you can replace one unarmed strike with this healing without spending the ki point for this feature."
+              },
+              {
+                "name": "Hand of Harm",
+                "description": "Once on each of your turns when you hit a creature with an unarmed strike, you can spend 1 ki point to deal extra necrotic damage equal to your Martial Arts die plus your Wisdom modifier."
               }
             ],
             "6": [
@@ -5459,6 +5471,10 @@
               {
                 "name": "Way of Shadow",
                 "description": "Monks of the Way of Shadow follow a tradition that values stealth and subterfuge. These monks might be called ninjas or shadow dancers, and they serve as spies and assassins. Sometimes the members of a ninja monastery are family members, forming a clan sworn to secrecy about their arts and missions. Other monasteries are more like thieves' guilds, hiring out their services to nobles, rich merchants, or anyone else who can pay their fees. Regardless of their methods, the heads of these monasteries expect the unquestioning obedience of their students."
+              },
+              {
+                "name": "Shadow Arts",
+                "description": "You can spend 2 ki points to cast darkness, darkvision, pass without trace, or silence without material components. You also know the minor illusion cantrip if you do not already know it."
               }
             ],
             "6": [
@@ -5494,6 +5510,10 @@
               {
                 "name": "Way of the Astral Self",
                 "description": "A monk who follows the Way of the Astral Self believes their body is an illusion. They see their ki as a representation of their true form, an astral self. This astral self has the capacity to be a force of order or disorder, with some monasteries training students to use their power to protect the weak and other instructing aspirants in how to manifest their true selves in service to the mighty."
+              },
+              {
+                "name": "Arms of the Astral Self",
+                "description": "As a bonus action, you can spend 1 ki point to summon spectral arms for 10 minutes. When summoned, creatures of your choice within 10 feet make a Dexterity save or take force damage equal to two rolls of your Martial Arts die. While active, you can use Wisdom for Strength checks and saves, make unarmed strikes with the arms, extend reach by 5 feet, and deal force damage with those strikes."
               }
             ],
             "6": [
@@ -5529,12 +5549,20 @@
               {
                 "name": "Way of the Drunken Master",
                 "description": "The Way of the Drunken Master teaches its students to move with the jerky, unpredictable movements of a drunkard. A drunken master sways, tottering on unsteady feet, to present what seems like an incompetent combatant who proves frustrating to engage. The drunken master's erratic stumbles conceal a carefully executed dance of blocks, parries, advances, attacks, and retreats. A drunken master often enjoys playing the fool to bring gladness to the despondent or to demonstrate humility to the arrogant, but when battle is joined, the drunken master can be a maddening, masterful foe."
+              },
+              {
+                "name": "Bonus Proficiencies",
+                "description": "You gain proficiency in Performance if you do not already have it. You also gain proficiency with brewer's supplies if you do not already have it."
+              },
+              {
+                "name": "Drunken Technique",
+                "description": "Whenever you use Flurry of Blows, you gain the benefit of the Disengage action and your walking speed increases by 10 feet until the end of the current turn."
               }
             ],
             "6": [
               {
                 "name": "Tipsy Sway",
-                "description": "Starting at 6th level, you can move in sudden, swaying ways. You gain the following benefits."
+                "description": "Starting at 6th level, you can stand from prone by spending 5 feet of movement instead of half your speed. When a creature misses you with a melee attack roll, you can spend 1 ki point as a reaction to redirect that attack against a different creature of your choice within 5 feet of you."
               }
             ],
             "11": [
@@ -5564,6 +5592,14 @@
               {
                 "name": "Way of the Four Elements",
                 "description": "You follow a monastic tradition that teaches you to harness the elements. When you focus your ki, you can align yourself with the forces of creation and bend the four elements to your will, using them as an extension of your body. Some members of this tradition dedicate themselves to a single element, but others weave the elements together. Many monks of this tradition tattoo their bodies with representations of their ki powers, commonly imagined as coiling dragons, but also as phoenixes, fish, plants, mountains, and cresting waves."
+              },
+              {
+                "name": "Disciple of the Elements",
+                "description": "You learn Elemental Attunement and one additional elemental discipline of your choice. You can spend ki points to fuel elemental disciplines, and some disciplines allow spell-like effects. Whenever you learn a new discipline, you can replace one discipline you know with another available discipline."
+              },
+              {
+                "name": "Elemental Attunement",
+                "description": "You can use your action to briefly control nearby elemental forces, such as shaping a small amount of earth, fire, water, or air; creating a harmless sensory effect; lighting or extinguishing small flames; chilling or warming nonliving material; or shaping elemental material for 1 minute."
               }
             ],
             "6": [
@@ -5599,6 +5635,22 @@
               {
                 "name": "Way of the Kensei",
                 "description": "Monks of the Way of the Kensei train relentlessly with their weapons, to the point where the weapon becomes an extension of the body. Founded on a mastery of sword fighting, the tradition has expanded to include many different weapons. A kensei sees a weapon in much the same way a calligrapher or painter regards a pen or brush. Whatever the weapon, the kensei views it as a tool used to express the beauty and precision of the martial arts. That such mastery makes a kensei a peerless warrior is but a side effect of intense devotion, practice, and study."
+              },
+              {
+                "name": "Path of the Kensei",
+                "description": "You choose two kensei weapons: one melee weapon and one ranged weapon that meet the feature restrictions. You gain proficiency with them if needed, they count as monk weapons for you, and you gain related benefits: Agile Parry, Kensei's Shot, and Way of the Brush."
+              },
+              {
+                "name": "Agile Parry",
+                "description": "If you make an unarmed strike as part of the Attack action while holding a melee kensei weapon, you can use that weapon to defend yourself and gain +2 AC until the start of your next turn, while the weapon remains in your hand and you are not incapacitated."
+              },
+              {
+                "name": "Kensei's Shot",
+                "description": "As a bonus action on your turn, you can make ranged attacks with a kensei weapon more deadly. Until the end of the current turn, targets hit by your ranged kensei weapon attacks take an extra 1d4 damage of the weapon's type."
+              },
+              {
+                "name": "Way of the Brush",
+                "description": "You gain proficiency with your choice of calligrapher's supplies or painter's supplies."
               }
             ],
             "6": [
@@ -5634,6 +5686,10 @@
               {
                 "name": "Way of the Open Hand",
                 "description": "Monks of the Way of the Open Hand are the ultimate masters of martial arts combat, whether armed or unarmed. They learn techniques to push and trip their opponents, manipulate ki to heal damage to their bodies, and practice advanced meditation that can protect them from harm."
+              },
+              {
+                "name": "Open Hand Technique",
+                "description": "Whenever you hit a creature with one of the attacks granted by Flurry of Blows, you can impose one of these effects: the target must succeed on a Dexterity saving throw or fall prone; the target must make a Strength saving throw or be pushed up to 15 feet away from you; or the target cannot take reactions until the end of your next turn."
               }
             ],
             "6": [
@@ -5669,6 +5725,10 @@
               {
                 "name": "Way of the Sun Soul",
                 "description": "Monks of the Way of the Sun Soul learn to channel their life energy into searing bolts of light. They teach that meditation can unlock the ability to unleash the indomitable light shed by the soul of every living creature."
+              },
+              {
+                "name": "Radiant Sun Bolt",
+                "description": "You gain a ranged spell attack with a range of 30 feet that deals radiant damage equal to your Martial Arts die. You can use Dexterity for the attack roll. When you take the Attack action and use this special attack, you can spend 1 ki point to make two Radiant Sun Bolt attacks as a bonus action."
               }
             ],
             "6": [

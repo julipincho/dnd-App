@@ -65,11 +65,30 @@ class _CampaignListScreenState extends State<CampaignListScreen> {
 
                 final campaignProvider = dialogContext.read<CampaignProvider>();
 
-                await campaignProvider.joinCampaign(campaignId, userId);
-                await campaignProvider.loadCampaigns(userId);
+                final success = await campaignProvider.joinCampaign(
+                  campaignId,
+                  userId,
+                );
 
                 if (!dialogContext.mounted) return;
-                Navigator.of(dialogContext).pop();
+                if (success) {
+                  Navigator.of(dialogContext).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Campaign joined.'),
+                    ),
+                  );
+                  return;
+                }
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      campaignProvider.errorMessage ??
+                          'Could not join that campaign.',
+                    ),
+                  ),
+                );
               },
               child: const Text('Join'),
             ),
@@ -137,11 +156,30 @@ class _CampaignListScreenState extends State<CampaignListScreen> {
 
                 final campaignProvider = dialogContext.read<CampaignProvider>();
 
-                await campaignProvider.addCampaign(campaign, userId);
-                await campaignProvider.setActiveCampaignById(campaign.id);
+                final success = await campaignProvider.addCampaign(
+                  campaign,
+                  userId,
+                );
 
                 if (!dialogContext.mounted) return;
-                Navigator.of(dialogContext).pop();
+                if (success) {
+                  Navigator.of(dialogContext).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Campaign created.'),
+                    ),
+                  );
+                  return;
+                }
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      campaignProvider.errorMessage ??
+                          'Could not create the campaign.',
+                    ),
+                  ),
+                );
               },
               child: const Text('Create'),
             ),
@@ -155,45 +193,60 @@ class _CampaignListScreenState extends State<CampaignListScreen> {
   Widget build(BuildContext context) {
     final campaignProvider = context.watch<CampaignProvider>();
     final campaigns = campaignProvider.campaigns;
+    final errorMessage = campaignProvider.errorMessage;
 
     return Scaffold(
       appBar: StitchAppBar(
         title: const Text('Campaigns'),
       ),
-      body: campaigns.isEmpty
+      body: campaignProvider.isLoading && campaigns.isEmpty
           ? const Center(
-              child: Text('No campaigns yet'),
+              child: CircularProgressIndicator(),
             )
-          : ListView.builder(
-              itemCount: campaigns.length,
-              itemBuilder: (context, index) {
-                final campaign = campaigns[index];
-                final isActive =
-                    campaignProvider.activeCampaign?.id == campaign.id;
-
-                return ListTile(
-                  title: Text(campaign.name),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(campaign.description ?? 'No description'),
-                      const SizedBox(height: 4),
-                      Text(
-                        'ID: ${campaign.id}',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
-                  trailing: isActive ? const Icon(Icons.check_circle) : null,
-                  onTap: () async {
-                    await campaignProvider.setActiveCampaign(campaign);
-
-                    if (!context.mounted) return;
-                    context.go('/campaign-detail');
+          : errorMessage != null && campaigns.isEmpty
+              ? _CampaignLoadError(
+                  message: errorMessage,
+                  onRetry: () {
+                    final userId = context.read<AuthProvider>().userId;
+                    if (userId == null) return;
+                    context.read<CampaignProvider>().loadCampaigns(userId);
                   },
-                );
-              },
-            ),
+                )
+              : campaigns.isEmpty
+                  ? const Center(
+                      child: Text('No campaigns yet'),
+                    )
+                  : ListView.builder(
+                      itemCount: campaigns.length,
+                      itemBuilder: (context, index) {
+                        final campaign = campaigns[index];
+                        final isActive =
+                            campaignProvider.activeCampaign?.id == campaign.id;
+
+                        return ListTile(
+                          title: Text(campaign.name),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(campaign.description ?? 'No description'),
+                              const SizedBox(height: 4),
+                              Text(
+                                'ID: ${campaign.id}',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                          trailing:
+                              isActive ? const Icon(Icons.check_circle) : null,
+                          onTap: () async {
+                            await campaignProvider.setActiveCampaign(campaign);
+
+                            if (!context.mounted) return;
+                            context.go('/campaign-detail');
+                          },
+                        );
+                      },
+                    ),
       floatingActionButton: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.end,
@@ -212,6 +265,45 @@ class _CampaignListScreenState extends State<CampaignListScreen> {
             label: const Text('Create'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _CampaignLoadError extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+
+  const _CampaignLoadError({
+    required this.message,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.cloud_off_rounded,
+              size: 44,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
       ),
     );
   }

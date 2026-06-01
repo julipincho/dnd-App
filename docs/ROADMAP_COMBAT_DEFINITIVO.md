@@ -21,10 +21,24 @@ Ya existe una base funcional:
 
 - Combat Mode puede crear/retomar una escena de tablero.
 - El tablero renderiza mapa, grilla, tokens, HUD, iniciativa, rangos y feedback de dados.
-- El controller movil muestra movimiento, objetivos, acciones, bonus, reacciones y confirmacion.
+- El controller de jugador/DM muestra movimiento, objetivos, acciones, bonus, reacciones y confirmacion.
+- En telefono y tablet el Combat Mode usa una unica consola de turno: personaje activo y movimiento, acciones al centro, objetivos/modificadores/confirmacion a la derecha o apilados con la misma jerarquia.
+- Los accesos a dados, board, modo prueba y cierre de combate viven dentro de la consola para no tapar acciones ni objetivos.
+- El modo prueba permite controlar todos los turnos desde una vista de jugador para validar el flujo completo sin entrar como DM.
+- El tablero ya no muestra barra de vida bajo cada token; la vida se consulta y ajusta desde HUD/controlador.
+- Los tokens respetan tamanos de criatura tipo D&D: Medium/Small 1x1, Large 2x2, Huge 3x3, Gargantuan 4x4.
+- Las fichas caidas pueden retirarse manualmente desde el controlador o desde el tablero sin borrar al combatiente.
+- Los eventos de area ya sincronizan origen, objetivo primario, afectados, forma y tamano; el board muestra pulso de area y feedback en cada token impactado.
+- Los eventos de dano ya preservan tipo de dano en el token del board (`lastEventDamageType`) y el tablero colorea/acentua impactos por elemento o dano de arma.
+- Los alientos/acciones SRD de monstruos empiezan a parsear salvacion, DC, mitad de dano y area para entrar al circuito mecanico del Combat Mode.
 - Las posiciones de tokens, HP, objetivo actual, accion enfocada y parte del estado tactico se sincronizan.
 - El movimiento usa origen de turno, por lo que volver hacia atras no deberia gastar movimiento adicional.
+- El movimiento desde stick/trackpad del controller ahora encola comandos mientras se guarda el token para no perder gestos cuando Firestore tarda.
 - El tablero puede desbloquearse para mover fichas directamente durante pruebas/setup.
+- El tablero ahora tiene seleccion multiple en setup/edit: arrastrar un recuadro selecciona varias fichas y tocar una casilla vacia mueve la formacion conservando posiciones relativas.
+- Los ataques a distancia ahora distinguen rango normal y rango largo; fuera de rango normal pero dentro de rango largo se permite atacar con desventaja.
+- Las TS de monstruos usan sus bonuses SRD cuando existen y vuelven a modifier de habilidad solo como fallback.
+- Las TS pueden recibir ventaja/desventaja automatica desde estado tactico: Rage en STR, Restrained en DEX y Magic Resistance contra fuentes spell/magic.
 - El entorno local estable recomendado es `flutter run -d web-server` mediante `tooling/run_web_server.ps1`.
 
 ## Principios De Diseño
@@ -82,6 +96,7 @@ Objetivo: que moverse en grilla sea confiable, visual y fiel al turno.
 Tareas:
 
 - Consolidar movimiento desde controller: flechas, movimiento restante, origen y posicion actual.
+- Convertir el stick actual en trackpad tactico con cola de movimiento visible, cancelacion y confirmacion opcional.
 - Consolidar movimiento desde board: seleccionar ficha y tocar casilla; drag como extra, no como dependencia.
 - Respetar speed real del combatiente.
 - Evitar doble gasto al retroceder sobre ruta ya recorrida.
@@ -98,10 +113,16 @@ Tareas:
   - Celdas fuera de movimiento.
   - Movimiento usado/restante.
   - Ruta tentativa.
+  - Selector rectangular para mover grupos de tokens en modo DM/setup.
 
 Criterio de listo:
 
 - El jugador puede planear, corregir y confirmar movimiento sin sentir que la app "le roba" pies.
+
+Estado:
+
+- Seleccion rectangular y movimiento de formacion implementados para setup/edit del board.
+- Pendiente: preview de ruta grupal, confirmacion opcional y reglas avanzadas de colision/terreno.
 
 ## Prioridad 3 - Targeting Y Rangos
 
@@ -110,6 +131,7 @@ Objetivo: que seleccionar objetivos sea natural desde controller o tablero.
 Tareas:
 
 - Target desde controller: cartas de enemigos/aliados segun accion.
+- Rango normal/largo con desventaja automatica para armas como shortbow 80/320.
 - Target desde board: tocar token para apuntar.
 - Reglas de target segun accion:
   - Hostil.
@@ -144,6 +166,7 @@ Tareas:
   - Total vs CA/DC.
   - Hit/miss/crit.
   - Dano/sanacion.
+  - Tipo de dano y efecto visual asociado.
   - Condiciones aplicadas.
 - Mantener log compacto para auditoria.
 - Hacer que el impacto visual se ancle al token objetivo.
@@ -319,6 +342,7 @@ Criterio de listo:
 ### Hito 1 - Controller Como HUD De Videojuego
 
 - El jugador debe ver primero: estado, economia de turno, recursos de clase, accion principal, bonus action, reaction y movimiento.
+- Estado 2026-05-21: telefono, tablet y escritorio comparten el mismo controlador escalable inspirado en una consola tactica; falta validar ergonomia real en dispositivos y pulir microcopys.
 - Los recursos de clase no deben aparecer como cartas crudas repetidas.
 - Cada clase importante debe tener una bandeja propia:
   - Monk Focus/Ki.
@@ -345,6 +369,7 @@ Criterio de listo:
 - Linea actor -> objetivo, distancia y validez.
 - Areas visibles para esfera, cono, linea y cubo.
 - Feedback de impacto anclado al token objetivo.
+- Estado 2026-05-21: las areas ya resuelven varios objetivos con geometria de tablero, muestran animacion de area post-resolucion y pulso en cada token afectado. Falta preview pre-confirmacion de todos los afectados y seleccion de punto vacio.
 
 ### Hito 4 - Dados 3D Reales
 

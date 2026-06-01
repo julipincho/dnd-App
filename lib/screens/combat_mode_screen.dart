@@ -7,6 +7,46 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../features/combat/application/services/combat_board_token_lookup.dart';
+import '../features/combat/application/services/combat_battle_board_session_service.dart';
+import '../features/combat/application/services/combat_battle_board_sync_service.dart';
+import '../features/combat/application/services/combat_dice_result_formatter.dart';
+import '../features/combat/application/services/combat_dice_roll_coordinator.dart';
+import '../features/combat/domain/models/combat_action.dart';
+import '../features/combat/domain/models/combat_feedback.dart';
+import '../features/combat/domain/models/combat_resolution_models.dart';
+import '../features/combat/domain/models/combatant.dart';
+import '../features/combat/domain/models/combat_turn_models.dart';
+import '../features/combat/domain/models/pending_combat_attack.dart';
+import '../features/combat/domain/rules/combat_board_geometry.dart';
+import '../features/combat/domain/rules/combat_board_token_sizing.dart';
+import '../features/combat/domain/rules/combat_damage_type_rules.dart';
+import '../features/combat/presentation/widgets/action_deck/combat_action_chips.dart';
+import '../features/combat/presentation/widgets/action_deck/combat_action_command_buttons.dart';
+import '../features/combat/presentation/widgets/action_deck/combat_action_empty_states.dart';
+import '../features/combat/presentation/widgets/action_deck/combat_action_frame.dart';
+import '../features/combat/presentation/widgets/action_deck/combat_catalog_filter_chip.dart';
+import '../features/combat/presentation/widgets/action_deck/combat_command_timing_button.dart';
+import '../features/combat/presentation/widgets/action_deck/combat_parchment_controls.dart';
+import '../features/combat/presentation/widgets/action_deck/combat_roll_mode_toggle.dart';
+import '../features/combat/presentation/widgets/action_deck/combat_action_sheets.dart';
+import '../features/combat/presentation/widgets/battle_board/combat_movement_controls.dart';
+import '../features/combat/presentation/widgets/battle_board/battle_board_floating_controller.dart';
+import '../features/combat/presentation/class_widgets/monk/monk_combat_flow_models.dart';
+import '../features/combat/presentation/widgets/combat_arena_backdrop.dart';
+import '../features/combat/presentation/widgets/combat_log/combat_feed_window.dart';
+import '../features/combat/presentation/widgets/combat_mode_debug_banner.dart';
+import '../features/combat/presentation/widgets/setup/combat_setup_primitives.dart';
+import '../features/combat/presentation/widgets/setup/combat_setup_view.dart';
+import '../features/combat/presentation/widgets/shared/combat_accent_colors.dart';
+import '../features/combat/presentation/widgets/shared/combat_cinematic_buttons.dart';
+import '../features/combat/presentation/widgets/shared/combat_cinematic_primitives.dart';
+import '../features/combat/presentation/widgets/shared/combat_compact_controls.dart';
+import '../features/combat/presentation/widgets/shared/combat_console_badges.dart';
+import '../features/combat/presentation/widgets/shared/combat_metric_widgets.dart';
+import '../features/combat/presentation/widgets/shared/combat_hp_widgets.dart';
+import '../features/combat/presentation/widgets/shared/combat_portrait_widgets.dart';
+import '../features/combat/presentation/widgets/shared/combat_status_chip.dart';
 import '../features/dice/models/dice_roll_result.dart';
 import '../features/dice/services/dice_roller_service.dart';
 import '../features/dice/widgets/dice_roller_modal.dart';
@@ -23,14 +63,18 @@ import '../providers/spell_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/battle_board_provider.dart';
 import '../services/character_combat_builder_service.dart';
+import '../services/class_data_service.dart';
 import '../services/combat_encounter_engine.dart';
 import '../services/custom_monster_repository.dart';
 import '../services/dice_color_preferences_service.dart';
+import '../services/monk_combat_kit_service.dart';
 import '../services/monster_repository.dart';
 import '../theme.dart';
 import '../utils/external_url_launcher.dart';
-import '../utils/image_path_utils.dart';
 import '../widgets/stitch_navigation.dart';
+
+const _battleBoardEventVisibleDuration = Duration(seconds: 15);
+const _showCombatModeDebugBanner = false;
 
 class CombatModeScreen extends StatefulWidget {
   final String? characterId;
@@ -47,45 +91,57 @@ class CombatModeScreen extends StatefulWidget {
 }
 
 class _CombatModeScreenState extends State<CombatModeScreen> {
-  late List<_Combatant> _combatants;
-  late List<_CombatLogEntry> _activity;
-  late List<_CombatAction> _characterActions;
+  late List<Combatant> _combatants;
+  late List<CombatLogEntry> _activity;
+  late List<CombatAction> _characterActions;
   encounter_models.CombatEncounter? _encounter;
   final Map<String, encounter_models.PreparedCombatAction> _engineActions = {};
-  final Map<String, _CombatCharacterSnapshot> _pendingCharacterCombatSnapshots =
+  final Map<String, CombatCharacterSnapshot> _pendingCharacterCombatSnapshots =
       {};
   Timer? _combatSnapshotFlushTimer;
-  final Map<String, List<_CombatAction>> _partyActionsByCombatantId = {};
-  final Map<String, List<_CombatAction>> _enemyActionsByCombatantId = {};
+  final Map<String, List<CombatAction>> _partyActionsByCombatantId = {};
+  final Map<String, List<CombatAction>> _enemyActionsByCombatantId = {};
   CharacterProvider? _characterProvider;
-  _CombatRollFeedback? _rollFeedback;
+  CombatRollFeedback? _rollFeedback;
+  final CombatBattleBoardSyncService _battleBoardSyncService =
+      const CombatBattleBoardSyncService();
   final Set<String> _spentTimings = {};
   final Set<String> _pendingDamageActions = {};
   final Set<String> _pendingHalfDamageActions = {};
+  PendingAreaSavingThrow? _pendingAreaSavingThrow;
   final Set<String> _spentReactionCombatantIds = {};
   final Set<String> _inactivePartyCombatantIds = {};
   final Set<String> _oncePerTurnActionUses = {};
+  final Set<String> _flurryUsedThisTurnCombatantIds = {};
+  final Set<String> _martialArtsEligibleCombatantIds = {};
   final Map<String, int> _actionAttackUsesByCombatantId = {};
   final Map<String, int> _movementBonusFeetByCombatantId = {};
-  final Map<String, _CombatAction> _preparedActions = {};
-  final Map<String, _ReadiedAction> _readiedActionsByCombatantId = {};
-  final List<_CombatAction> _queuedPreparedActions = [];
+  final Map<String, CombatAction> _preparedActions = {};
+  final Map<String, ReadiedAction> _readiedActionsByCombatantId = {};
+  final List<CombatAction> _queuedPreparedActions = [];
   int _queuedPreparedIndex = 0;
   int _activeIndex = 0;
   int _targetIndex = 2;
   int _round = 1;
   String _selectedCommandTiming = 'Action';
-  _CombatWorkspace _workspace = _CombatWorkspace.turn;
-  bool _dmView = true;
+  CombatWorkspace _workspace = CombatWorkspace.turn;
+  late bool _dmView;
+  bool _devCombatMode = false;
   bool _seededMonsters = false;
   bool _combatStarted = false;
   bool _openingBattleBoard = false;
   bool _showBattleBoardController = false;
   bool _battleBoardControllerExpanded = true;
+  bool _combatRollInFlight = false;
+  final Set<String> _activeCombatResolutionKeys = {};
   String? _activeBattleBoardSceneId;
   String? _selectedBattleBoardCombatantId;
-  _CombatAction? _focusedBattleBoardAction;
+  CombatAction? _focusedBattleBoardAction;
+  final CombatDiceRollCoordinator _diceRollCoordinator =
+      CombatDiceRollCoordinator();
   final Map<String, int> _battleBoardMovementUsedByCombatantId = {};
+  final Map<String, math.Point<int>> _queuedBattleBoardMovesByCombatantId = {};
+  final Set<String> _battleBoardMoveInFlightCombatantIds = {};
   bool _restoringBattleBoardScene = false;
   Color _diceColor = DiceColorPreferencesService.defaultColor;
   bool _monsterCatalogLoading = false;
@@ -105,9 +161,13 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
   String? _loadingCampaignId;
   String? _loadedPartyCampaignId;
   String? _sessionRestoreAttemptCampaignId;
-  bool _autoAdvanceScheduled = false;
-  _CombatRollMode _rollMode = _CombatRollMode.normal;
-  _MultiAttackProgress? _multiAttackProgress;
+  CombatRollMode _rollMode = CombatRollMode.normal;
+  MultiAttackProgress? _multiAttackProgress;
+
+  bool get _hasRouteCharacterId {
+    final characterId = widget.characterId?.trim();
+    return characterId != null && characterId.isNotEmpty;
+  }
 
   String? get _queuedPreparedActionName {
     if (_queuedPreparedActions.isEmpty ||
@@ -118,11 +178,11 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     return _queuedPreparedActions[_queuedPreparedIndex].name;
   }
 
-  bool get _hasAdvantage => _rollMode == _CombatRollMode.advantage;
+  bool get _hasAdvantage => _rollMode == CombatRollMode.advantage;
 
-  bool get _hasDisadvantage => _rollMode == _CombatRollMode.disadvantage;
+  bool get _hasDisadvantage => _rollMode == CombatRollMode.disadvantage;
 
-  void _selectRollMode(_CombatRollMode mode) {
+  void _selectRollMode(CombatRollMode mode) {
     if (_rollMode == mode) return;
     setState(() {
       _rollMode = mode;
@@ -133,8 +193,55 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     _multiAttackProgress = null;
   }
 
-  static const List<_CombatAction> _playerActions = [
-    _CombatAction(
+  void _clearClassTurnFlowState({String? combatantId}) {
+    if (combatantId == null) {
+      _flurryUsedThisTurnCombatantIds.clear();
+      _martialArtsEligibleCombatantIds.clear();
+      return;
+    }
+    _flurryUsedThisTurnCombatantIds.remove(combatantId);
+    _martialArtsEligibleCombatantIds.remove(combatantId);
+  }
+
+  bool _beginCombatResolution(String key) {
+    if (_activeCombatResolutionKeys.contains(key)) {
+      return false;
+    }
+    _activeCombatResolutionKeys.add(key);
+    return true;
+  }
+
+  void _endCombatResolution(String key) {
+    _activeCombatResolutionKeys.remove(key);
+  }
+
+  String _combatResolutionKey(
+    String phase,
+    CombatAction action, {
+    CombatActionRoll? rollType,
+    int? targetIndex,
+    int? stepIndex,
+    String? actorId,
+  }) {
+    final targetId = targetIndex == null ||
+            targetIndex < 0 ||
+            targetIndex >= _combatants.length
+        ? 'target:${_targetIndex.clamp(0, _combatants.length - 1)}'
+        : _combatants[targetIndex].id;
+    final roll = rollType == null ? '' : ':${rollType.name}';
+    final step = stepIndex == null ? '' : ':step$stepIndex';
+    return [
+          phase,
+          actorId ?? _activeCombatant.id,
+          _actionExecutionKey(action),
+          targetId,
+        ].join(':') +
+        roll +
+        step;
+  }
+
+  static const List<CombatAction> _playerActions = [
+    CombatAction(
       name: 'Longsword Strike',
       type: 'Weapon Attack',
       timing: 'Action',
@@ -144,9 +251,9 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       rangeFeet: 5,
       tags: ['Melee', 'Slashing', 'Prepared'],
       icon: Icons.gavel_outlined,
-      accentKind: _CombatAccentKind.action,
+      accentKind: CombatAccentKind.action,
     ),
-    _CombatAction(
+    CombatAction(
       name: 'Fire Bolt',
       type: 'Spell Attack',
       timing: 'Action',
@@ -156,9 +263,9 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       rangeFeet: 120,
       tags: ['Ranged', 'Fire', 'Cantrip'],
       icon: Icons.local_fire_department_outlined,
-      accentKind: _CombatAccentKind.magic,
+      accentKind: CombatAccentKind.magic,
     ),
-    _CombatAction(
+    CombatAction(
       name: 'Second Wind',
       type: 'Feature',
       timing: 'Bonus Action',
@@ -167,14 +274,14 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       critFormula: null,
       tags: ['Healing', '1 / Short Rest'],
       icon: Icons.favorite_border,
-      accentKind: _CombatAccentKind.support,
+      accentKind: CombatAccentKind.support,
       targetsSelf: true,
       isHealing: true,
     ),
   ];
 
-  static const List<_CombatAction> _enemyActions = [
-    _CombatAction(
+  static const List<CombatAction> _enemyActions = [
+    CombatAction(
       name: 'Commander Blade',
       type: 'Weapon Attack',
       timing: 'Action',
@@ -184,9 +291,9 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       rangeFeet: 5,
       tags: ['Melee', 'Martial', 'Enemy'],
       icon: Icons.gavel_outlined,
-      accentKind: _CombatAccentKind.action,
+      accentKind: CombatAccentKind.action,
     ),
-    _CombatAction(
+    CombatAction(
       name: 'Shortbow Shot',
       type: 'Ranged Attack',
       timing: 'Action',
@@ -196,9 +303,9 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       rangeFeet: 80,
       tags: ['Ranged', 'Piercing', 'Enemy'],
       icon: Icons.ads_click_outlined,
-      accentKind: _CombatAccentKind.read,
+      accentKind: CombatAccentKind.read,
     ),
-    _CombatAction(
+    CombatAction(
       name: 'Rallying Cry',
       type: 'Monster Feature',
       timing: 'Bonus Action',
@@ -207,7 +314,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       critFormula: null,
       tags: ['Morale', 'Healing', 'Enemy'],
       icon: Icons.record_voice_over_outlined,
-      accentKind: _CombatAccentKind.support,
+      accentKind: CombatAccentKind.support,
       targetsSelf: true,
       isHealing: true,
     ),
@@ -216,10 +323,11 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
   @override
   void initState() {
     super.initState();
+    _dmView = !_hasRouteCharacterId;
     _combatants = _buildDefaultCombatants();
     _characterActions = _playerActions;
     _activity = [
-      _CombatLogEntry.system(
+      CombatLogEntry.system(
         'Encounter prototype ready. Initiative order is loaded.',
       ),
     ];
@@ -257,6 +365,9 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
   @override
   void didUpdateWidget(covariant CombatModeScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.characterId != widget.characterId) {
+      _dmView = !_hasRouteCharacterId;
+    }
     if (oldWidget.characterId == widget.characterId &&
         oldWidget.campaignId == widget.campaignId) {
       return;
@@ -339,6 +450,10 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       actions: combatBuild.availableActions,
       primary: true,
     );
+    _queueNormalizedMonkCombatKitHydration(
+      character,
+      combatBuild.combatant.id,
+    );
     _combatants = [
       _combatantFromEngineCombatant(combatBuild.combatant),
       ..._combatants.skip(1),
@@ -351,7 +466,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     _activeIndex = 0;
     _targetIndex = _findDefaultTargetIndex(_activeIndex);
     _activity = [
-      _CombatLogEntry.system(
+      CombatLogEntry.system(
         '${character.name} entered Combat Mode. Demo enemies are staged.',
       ),
       ..._activity,
@@ -384,6 +499,10 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
             actions: combatBuild.availableActions,
             primary: true,
           );
+          _queueNormalizedMonkCombatKitHydration(
+            character,
+            combatBuild.combatant.id,
+          );
           _combatants = [
             _combatantFromEngineCombatant(combatBuild.combatant),
             ..._combatants.skip(1),
@@ -409,7 +528,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     _combatants = _buildDefaultCombatants();
     _characterActions = _playerActions;
     _activity = [
-      _CombatLogEntry.system(
+      CombatLogEntry.system(
         'Encounter prototype ready. Initiative order is loaded.',
       ),
     ];
@@ -419,11 +538,14 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     _encounter = _createEncounterFromCombatants(_combatants);
     _syncUiFromEncounter();
     _rollFeedback = null;
+    _activeCombatResolutionKeys.clear();
     _spentTimings.clear();
+    _clearClassTurnFlowState();
     _actionAttackUsesByCombatantId.clear();
     _movementBonusFeetByCombatantId.clear();
     _pendingDamageActions.clear();
     _pendingHalfDamageActions.clear();
+    _pendingAreaSavingThrow = null;
     _spentReactionCombatantIds.clear();
     _inactivePartyCombatantIds.clear();
     _oncePerTurnActionUses.clear();
@@ -435,7 +557,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     _targetIndex = _findDefaultTargetIndex(_activeIndex);
     _round = 1;
     _selectedCommandTiming = 'Action';
-    _workspace = _CombatWorkspace.turn;
+    _workspace = CombatWorkspace.turn;
     _seededMonsters = false;
     _stagedCustomMonsterCounts.clear();
     _combatStarted = false;
@@ -458,6 +580,402 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       compendiumEntries: compendiumProvider.entries,
       spells: spellProvider.spells,
     );
+  }
+
+  void _queueNormalizedMonkCombatKitHydration(
+    Character character,
+    String combatantId,
+  ) {
+    unawaited(
+      _hydrateNormalizedMonkCombatKit(
+        character: character,
+        combatantId: combatantId,
+      ),
+    );
+  }
+
+  Future<void> _hydrateNormalizedMonkCombatKit({
+    required Character character,
+    required String combatantId,
+  }) async {
+    final monkLevel = _classLevelForCharacter(character, 'monk');
+    if (monkLevel <= 0) return;
+    final subclassName = _subclassForCharacterClass(character, 'monk');
+    if (subclassName == null || subclassName.trim().isEmpty) return;
+
+    final progression = await ClassDataService.loadSubclassProgression(
+      'Monk',
+      subclassName,
+    );
+    if (!mounted) return;
+
+    final subclassFeatures = <Map<String, dynamic>>[
+      for (final entry in progression.entries)
+        if (entry.key <= monkLevel)
+          for (final feature in entry.value)
+            {
+              'name': feature.name,
+              'description': feature.description,
+              'source': 'subclass',
+              'level': feature.level,
+              'dataSource': 'classes_normalized',
+            },
+    ];
+
+    final update = <String, dynamic>{
+      'monkSubclass': subclassName.trim(),
+      'monkSubclassFeatures': subclassFeatures,
+      'monkCombatDataSource': 'classes_normalized',
+    };
+
+    setState(() {
+      final currentCombatant = _firstOrNull(
+        _combatants.where((combatant) => combatant.id == combatantId),
+      );
+      final subclassActions = currentCombatant == null
+          ? const <CombatAction>[]
+          : _normalizedMonkSubclassCombatActions(
+              combatant: currentCombatant,
+              subclassName: subclassName,
+              featureEntries: subclassFeatures,
+            );
+      if (subclassActions.isNotEmpty) {
+        final existingActions =
+            _partyActionsByCombatantId[combatantId] ?? const <CombatAction>[];
+        final mergedActions = _dedupeUiActions([
+          ...existingActions,
+          ...subclassActions,
+        ]);
+        _partyActionsByCombatantId[combatantId] = mergedActions;
+        if (_activeCombatant.id == combatantId) {
+          _characterActions = mergedActions;
+        }
+      }
+
+      _combatants = [
+        for (final combatant in _combatants)
+          if (combatant.id == combatantId)
+            combatant.copyWith(
+              metadata: {
+                ...combatant.metadata,
+                ...update,
+              },
+            )
+          else
+            combatant,
+      ];
+
+      final encounter = _encounter;
+      if (encounter != null) {
+        _encounter = encounter.copyWith(
+          combatants: [
+            for (final combatant in encounter.combatants)
+              if (combatant.id == combatantId)
+                combatant.copyWith(
+                  metadata: {
+                    ...combatant.metadata,
+                    ...update,
+                  },
+                )
+              else
+                combatant,
+          ],
+        );
+      }
+    });
+  }
+
+  List<CombatAction> _normalizedMonkSubclassCombatActions({
+    required Combatant combatant,
+    required String subclassName,
+    required List<Map<String, dynamic>> featureEntries,
+  }) {
+    final resourcePool =
+        _encounter?.combatantById(combatant.id)?.resources ?? const {};
+    final kiResourceKey = _resourceKeyWhere(
+            resourcePool.keys, _isKiResourceKey) ??
+        _resourceKeyWhere(combatant.resourceMaximums.keys, _isKiResourceKey) ??
+        'ki_points';
+    final monkLevel = _monkLevelForCombatant(combatant);
+    final proficiencyBonus = _proficiencyBonusForCombatant(combatant);
+    final dexMod = _abilityModifierForCombatant(combatant, 'DEX');
+    final wisMod = _abilityModifierForCombatant(combatant, 'WIS');
+    final martialDie = _monkMartialArtsDie(monkLevel);
+    final radiantAttackFormula =
+        _formatRollFormula('d20', dexMod + proficiencyBonus);
+    final martialWisFormula = _formatRollFormula(martialDie, wisMod);
+    final radiantDamageFormula = _formatRollFormula(martialDie, dexMod);
+    final normalizedSubclass = MonkCombatKitService.normalize(subclassName);
+    final actions = <CombatAction>[];
+
+    for (final feature in featureEntries) {
+      final name = feature['name']?.toString().trim() ?? '';
+      if (name.isEmpty) continue;
+      final detail = feature['description']?.toString().trim() ?? '';
+      final text = MonkCombatKitService.normalize('$name $detail');
+      final idBase = MonkCombatKitService.normalize(name)
+          .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+          .replaceAll(RegExp(r'^_+|_+$'), '');
+      final actionId = '${combatant.id}:normalized_monk_subclass:$idBase';
+
+      if (text.contains('shadow arts')) {
+        actions.add(
+          CombatAction(
+            id: actionId,
+            name: 'Shadow Arts',
+            type: 'Monk Tradition',
+            timing: 'Action',
+            attackFormula: null,
+            damageFormula: null,
+            critFormula: null,
+            tags: const [
+              'Monk',
+              'Shadow',
+              'Ki',
+              'Subclass',
+              'Spell-like',
+              'classes_normalized',
+            ],
+            icon: Icons.nights_stay_outlined,
+            accentKind: CombatAccentKind.magic,
+            resourceKey: kiResourceKey,
+            resourceCost: 2,
+            targetsSelf: true,
+            targetPolicy: 'self',
+          ),
+        );
+        continue;
+      }
+
+      if (text.contains('hand of healing')) {
+        actions.add(
+          CombatAction(
+            id: actionId,
+            name: 'Hand of Healing',
+            type: 'Monk Tradition',
+            timing: 'Action',
+            attackFormula: null,
+            damageFormula: martialWisFormula,
+            critFormula: null,
+            tags: const [
+              'Monk',
+              'Mercy',
+              'Ki',
+              'Healing',
+              'Subclass',
+              'classes_normalized',
+            ],
+            icon: Icons.healing_outlined,
+            accentKind: CombatAccentKind.support,
+            resourceKey: kiResourceKey,
+            resourceCost: 1,
+            targetPolicy: 'ally',
+            isHealing: true,
+          ),
+        );
+        continue;
+      }
+
+      if (text.contains('hand of harm')) {
+        actions.add(
+          CombatAction(
+            id: actionId,
+            name: 'Hand of Harm',
+            type: 'Monk Tradition',
+            timing: 'Free',
+            attackFormula: null,
+            damageFormula: martialWisFormula,
+            damageType: 'necrotic',
+            critFormula: _criticalFormulaForDamage(martialWisFormula),
+            tags: const [
+              'Monk',
+              'Mercy',
+              'Ki',
+              'On Hit',
+              'Necrotic',
+              'Subclass',
+              'classes_normalized',
+            ],
+            icon: Icons.back_hand_outlined,
+            accentKind: CombatAccentKind.magic,
+            resourceKey: kiResourceKey,
+            resourceCost: 1,
+            targetPolicy: 'hostile',
+          ),
+        );
+        continue;
+      }
+
+      if (text.contains('radiant sun bolt')) {
+        actions.add(
+          CombatAction(
+            id: actionId,
+            name: 'Radiant Sun Bolt',
+            type: 'Monk Tradition',
+            timing: 'Action',
+            attackFormula: radiantAttackFormula,
+            damageFormula: radiantDamageFormula,
+            damageType: 'radiant',
+            critFormula: _criticalFormulaForDamage(radiantDamageFormula),
+            rangeFeet: 30,
+            tags: const [
+              'Monk',
+              'Sun Soul',
+              'Ranged spell attack',
+              'Radiant',
+              'Subclass',
+              'classes_normalized',
+            ],
+            icon: Icons.wb_sunny_outlined,
+            accentKind: CombatAccentKind.magic,
+            targetPolicy: 'hostile',
+            usesAttackAction: true,
+            actionAttackSlots: monkLevel >= 5 ? 2 : 1,
+          ),
+        );
+        continue;
+      }
+
+      if (text.contains('arms of the astral self')) {
+        actions.add(
+          CombatAction(
+            id: actionId,
+            name: 'Arms of the Astral Self',
+            type: 'Monk Tradition',
+            timing: 'Bonus Action',
+            attackFormula: null,
+            damageFormula: null,
+            critFormula: null,
+            tags: const [
+              'Monk',
+              'Astral Self',
+              'Ki',
+              'Subclass',
+              'classes_normalized',
+            ],
+            icon: Icons.auto_awesome_outlined,
+            accentKind: CombatAccentKind.magic,
+            resourceKey: kiResourceKey,
+            resourceCost: 1,
+            targetsSelf: true,
+            targetPolicy: 'self',
+          ),
+        );
+        continue;
+      }
+
+      if (text.contains("kensei's shot") || text.contains('kensei shot')) {
+        actions.add(
+          CombatAction(
+            id: actionId,
+            name: "Kensei's Shot",
+            type: 'Monk Tradition',
+            timing: 'Bonus Action',
+            attackFormula: null,
+            damageFormula: null,
+            critFormula: null,
+            tags: const [
+              'Monk',
+              'Kensei',
+              'Bonus Action',
+              'Ranged weapon',
+              'Subclass',
+              'classes_normalized',
+            ],
+            icon: Icons.track_changes_outlined,
+            accentKind: CombatAccentKind.info,
+            targetsSelf: true,
+            targetPolicy: 'self',
+          ),
+        );
+        continue;
+      }
+
+      if (text.contains('elemental attunement') ||
+          (normalizedSubclass.contains('four elements') &&
+              text.contains('discipline'))) {
+        actions.add(
+          CombatAction(
+            id: actionId,
+            name: name,
+            type: 'Monk Discipline',
+            timing: 'Action',
+            attackFormula: null,
+            damageFormula: null,
+            critFormula: null,
+            tags: const [
+              'Monk',
+              'Four Elements',
+              'Subclass',
+              'classes_normalized',
+            ],
+            icon: Icons.blur_on_outlined,
+            accentKind: CombatAccentKind.magic,
+            targetsSelf: true,
+            targetPolicy: 'self',
+          ),
+        );
+      }
+    }
+
+    return actions;
+  }
+
+  int _monkLevelForCombatant(Combatant combatant) {
+    final classLevels = combatant.metadata['classLevels'];
+    if (classLevels is Map) {
+      for (final entry in classLevels.entries) {
+        final key = MonkCombatKitService.normalize(entry.key.toString());
+        if (!key.contains('monk') && !key.contains('monje')) continue;
+        final value = entry.value;
+        return value is num ? value.toInt() : int.tryParse('$value') ?? 0;
+      }
+    }
+    return 0;
+  }
+
+  int _proficiencyBonusForCombatant(Combatant combatant) {
+    final raw = combatant.metadata['proficiencyBonus'];
+    if (raw is num) return raw.toInt();
+    final parsed = int.tryParse(raw?.toString() ?? '');
+    if (parsed != null) return parsed;
+    final level = math.max(1, _monkLevelForCombatant(combatant));
+    return 2 + ((level - 1) ~/ 4);
+  }
+
+  int _abilityModifierForCombatant(Combatant combatant, String ability) {
+    final score = _intFromDynamicMap(
+          combatant.metadata['abilityScores'],
+          ability.toUpperCase(),
+        ) ??
+        10;
+    return ((score - 10) / 2).floor();
+  }
+
+  int _classLevelForCharacter(Character character, String className) {
+    final target = MonkCombatKitService.normalize(className);
+    var result = 0;
+    for (final entry in character.classLevels.entries) {
+      if (MonkCombatKitService.normalize(entry.key) != target) continue;
+      result = math.max(result, entry.value);
+    }
+    return result;
+  }
+
+  String? _subclassForCharacterClass(Character character, String className) {
+    final target = MonkCombatKitService.normalize(className);
+    for (final entry in character.classLevels.entries) {
+      if (MonkCombatKitService.normalize(entry.key) != target) continue;
+      final subclass = character.subclassForClass(entry.key)?.trim();
+      if (subclass != null && subclass.isNotEmpty) return subclass;
+    }
+    final legacySubclass = character.subclass?.trim();
+    if (MonkCombatKitService.normalize(character.charClass) == target &&
+        legacySubclass != null &&
+        legacySubclass.isNotEmpty) {
+      return legacySubclass;
+    }
+    return null;
   }
 
   void _registerCharacterActions({
@@ -546,10 +1064,12 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       _syncUiFromEncounter();
       _targetIndex = _findDefaultTargetIndex(_activeIndex);
       _spentTimings.clear();
+      _clearClassTurnFlowState();
       _actionAttackUsesByCombatantId.clear();
       _movementBonusFeetByCombatantId.clear();
       _pendingDamageActions.clear();
       _pendingHalfDamageActions.clear();
+      _pendingAreaSavingThrow = null;
       _spentReactionCombatantIds.clear();
       _inactivePartyCombatantIds.removeWhere(
         (id) => !partyBuilds.any((build) => build.combatant.id == id),
@@ -559,15 +1079,15 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       _clearMultiAttackProgress();
       _preparedActions.clear();
       _resetQueuedPreparedActions();
-      _rollFeedback = _CombatRollFeedback.manual(
+      _rollFeedback = CombatRollFeedback.manual(
         actor: 'DM',
         action: 'Combat begins',
         headline: 'COMBAT BEGINS',
         subline: '${partyBuilds.length} heroes enter initiative.',
-        accentKind: _CombatAccentKind.magic,
+        accentKind: CombatAccentKind.magic,
       );
       _activity = [
-        _CombatLogEntry.turn(
+        CombatLogEntry.turn(
           'Combat begins. ${partyBuilds.length} campaign characters joined the encounter.',
         ),
         ..._activity,
@@ -576,9 +1096,24 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       _loadingCampaignId = null;
     });
 
+    for (var index = 0; index < partyBuilds.length; index++) {
+      _queueNormalizedMonkCombatKitHydration(
+        orderedCharacters[index],
+        partyBuilds[index].combatant.id,
+      );
+    }
+
     final restoredSession =
         await _restoreActiveCombatSessionForCampaign(campaignId);
-    if (restoredSession) return;
+    if (restoredSession) {
+      for (var index = 0; index < partyBuilds.length; index++) {
+        _queueNormalizedMonkCombatKitHydration(
+          orderedCharacters[index],
+          partyBuilds[index].combatant.id,
+        );
+      }
+      return;
+    }
 
     if (resetEncounterScope) {
       _loadRealDemoMonsters(force: true);
@@ -613,7 +1148,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         _loadedPartyCampaignId = normalizedCampaignId;
         _activity.insert(
           0,
-          _CombatLogEntry.system(
+          CombatLogEntry.system(
             'Combat opened for this campaign, but no party characters were found.',
           ),
         );
@@ -662,14 +1197,14 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     if (encounterEnemies.isNotEmpty) return encounterEnemies;
 
     return _combatants
-        .where((combatant) => combatant.team == _CombatTeam.enemy)
+        .where((combatant) => combatant.team == CombatTeam.enemy)
         .map(_engineCombatantFromUi)
         .toList(growable: false);
   }
 
   List<encounter_models.Combatant> _freshDemoEnemyCombatants() {
     return _buildDefaultCombatants()
-        .where((combatant) => combatant.team == _CombatTeam.enemy)
+        .where((combatant) => combatant.team == CombatTeam.enemy)
         .map(_engineCombatantFromUi)
         .toList(growable: false);
   }
@@ -770,7 +1305,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         _monsterCatalogError = error.toString();
         _activity.insert(
           0,
-          _CombatLogEntry.system('Bestiary load failed: $error'),
+          CombatLogEntry.system('Bestiary load failed: $error'),
         );
       });
     }
@@ -987,7 +1522,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(tokens.radiusMd),
                   side: BorderSide(
-                    color: _CinematicColors.blood.withValues(alpha: 0.34),
+                    color: CombatCinematicColors.blood.withValues(alpha: 0.34),
                   ),
                 ),
                 title: Text(
@@ -1123,32 +1658,32 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
                           children: [
                             Row(
                               children: [
-                                _CompactNumberField(
+                                CombatCompactNumberField(
                                   controller: strController,
                                   label: 'STR',
                                 ),
                                 const SizedBox(width: 8),
-                                _CompactNumberField(
+                                CombatCompactNumberField(
                                   controller: dexController,
                                   label: 'DEX',
                                 ),
                                 const SizedBox(width: 8),
-                                _CompactNumberField(
+                                CombatCompactNumberField(
                                   controller: conController,
                                   label: 'CON',
                                 ),
                                 const SizedBox(width: 8),
-                                _CompactNumberField(
+                                CombatCompactNumberField(
                                   controller: intController,
                                   label: 'INT',
                                 ),
                                 const SizedBox(width: 8),
-                                _CompactNumberField(
+                                CombatCompactNumberField(
                                   controller: wisController,
                                   label: 'WIS',
                                 ),
                                 const SizedBox(width: 8),
-                                _CompactNumberField(
+                                CombatCompactNumberField(
                                   controller: chaController,
                                   label: 'CHA',
                                 ),
@@ -1284,7 +1819,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
                             child: const Text(
                               'Agrega acciones, reacciones o rasgos pasivos.',
                               style: TextStyle(
-                                color: _CinematicColors.paper,
+                                color: CombatCinematicColors.paper,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
@@ -1299,7 +1834,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
                               borderRadius:
                                   BorderRadius.circular(tokens.radiusSm),
                               border: Border.all(
-                                color: _CinematicColors.gold
+                                color: CombatCinematicColors.gold
                                     .withValues(alpha: 0.18),
                               ),
                             ),
@@ -1313,7 +1848,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
                                                   .CombatActionTiming.passive
                                           ? Icons.auto_awesome_outlined
                                           : Icons.casino_outlined,
-                                  color: _CinematicColors.goldBright,
+                                  color: CombatCinematicColors.goldBright,
                                   size: 20,
                                 ),
                                 const SizedBox(width: 10),
@@ -1327,7 +1862,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: const TextStyle(
-                                          color: _CinematicColors.paper,
+                                          color: CombatCinematicColors.paper,
                                           fontSize: 13,
                                           fontWeight: FontWeight.w900,
                                         ),
@@ -1561,7 +2096,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(tokens.radiusMd),
                   side: BorderSide(
-                    color: _CinematicColors.gold.withValues(alpha: 0.28),
+                    color: CombatCinematicColors.gold.withValues(alpha: 0.28),
                   ),
                 ),
                 title: Text(
@@ -2015,7 +2550,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       setState(() {
         _activity.insert(
           0,
-          _CombatLogEntry.system(
+          CombatLogEntry.system(
             'Select at least one party member before combat begins.',
           ),
         );
@@ -2026,8 +2561,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       setState(() {
         _activity.insert(
           0,
-          _CombatLogEntry.system(
-              'Add at least one enemy before combat begins.'),
+          CombatLogEntry.system('Add at least one enemy before combat begins.'),
         );
       });
       return;
@@ -2054,7 +2588,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     return _combatants
         .where(
           (combatant) =>
-              combatant.team == _CombatTeam.party &&
+              combatant.team == CombatTeam.party &&
               !_inactivePartyCombatantIds.contains(combatant.id),
         )
         .length;
@@ -2070,7 +2604,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     });
   }
 
-  _CombatCharacterSnapshot? _characterSnapshotForCombatantId(
+  CombatCharacterSnapshot? _characterSnapshotForCombatantId(
     String combatantId,
   ) {
     final engineCombatant = _encounter?.combatantById(combatantId);
@@ -2081,7 +2615,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       final characterId = engineCombatant.sourceId ??
           engineCombatant.metadata['characterId']?.toString();
       if (characterId == null || characterId.trim().isEmpty) return null;
-      return _CombatCharacterSnapshot(
+      return CombatCharacterSnapshot(
         characterId: characterId.trim(),
         currentHp: engineCombatant.hp,
         tempHp: engineCombatant.tempHp,
@@ -2091,13 +2625,13 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
 
     final uiIndex =
         _combatants.indexWhere((combatant) => combatant.id == combatantId);
-    if (uiIndex == -1 || _combatants[uiIndex].team != _CombatTeam.party) {
+    if (uiIndex == -1 || _combatants[uiIndex].team != CombatTeam.party) {
       return null;
     }
     final uiCombatant = _combatants[uiIndex];
     final characterId = uiCombatant.sourceId;
     if (characterId == null || characterId.trim().isEmpty) return null;
-    return _CombatCharacterSnapshot(
+    return CombatCharacterSnapshot(
       characterId: characterId.trim(),
       currentHp: uiCombatant.hp,
       tempHp: uiCombatant.tempHp,
@@ -2105,7 +2639,10 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     );
   }
 
-  void _queueCharacterCombatSnapshot(String combatantId) {
+  void _queueCharacterCombatSnapshot(
+    String combatantId, {
+    bool flushNow = false,
+  }) {
     final snapshot = _characterSnapshotForCombatantId(combatantId);
     if (snapshot == null) return;
     _pendingCharacterCombatSnapshots[snapshot.characterId] = snapshot;
@@ -2117,6 +2654,10 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         resources: snapshot.resources,
       );
     });
+    if (flushNow) {
+      unawaited(_flushCharacterCombatState());
+      return;
+    }
     _scheduleCharacterCombatSnapshotFlush();
   }
 
@@ -2139,7 +2680,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
   }
 
   Future<void> _flushCharacterCombatSnapshots(
-    List<_CombatCharacterSnapshot> snapshots,
+    List<CombatCharacterSnapshot> snapshots,
   ) async {
     final provider = _characterProvider;
     if (provider == null) return;
@@ -2192,17 +2733,26 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
 
       _activity.insert(
         0,
-        _CombatLogEntry.system(
-          'DM ${delta < 0 ? 'damaged' : 'healed'} ${combatant.name} for ${delta.abs()} HP.',
+        CombatLogEntry.system(
+          'HP ajustado: ${combatant.name} ${delta < 0 ? 'pierde' : 'recupera'} ${delta.abs()} HP.',
         ),
       );
     });
-    _queueCharacterCombatSnapshot(combatant.id);
+    _queueCharacterCombatSnapshot(combatant.id, flushNow: true);
+    if (_showBattleBoardController) {
+      unawaited(_syncBattleBoardTokensFromCombatState());
+    }
   }
 
   Future<void> _openHpAdjustmentSheet(int combatantIndex) async {
     if (combatantIndex < 0 || combatantIndex >= _combatants.length) return;
     final combatant = _combatants[combatantIndex];
+    if (!_ensureCanControlCombatant(
+      combatant,
+      actionLabel: 'ajustar HP',
+    )) {
+      return;
+    }
     final controller = TextEditingController(text: '5');
 
     void applyDelta(BuildContext sheetContext, int sign) {
@@ -2226,7 +2776,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         backgroundColor: Colors.transparent,
         isScrollControlled: true,
         builder: (sheetContext) {
-          return _HpAdjustmentSheet(
+          return CombatHpAdjustmentSheet(
             combatant: combatant,
             controller: controller,
             onSubtract: () => applyDelta(sheetContext, -1),
@@ -2290,7 +2840,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
                 )
                 .toList(growable: false);
         final fallbackParty = _combatants
-            .where((combatant) => combatant.team == _CombatTeam.party)
+            .where((combatant) => combatant.team == CombatTeam.party)
             .map(_engineCombatantFromUi)
             .toList(growable: false);
         final party = _partyForStagedEncounter(
@@ -2308,7 +2858,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         if (!beginCombat) {
           _activity.insert(
             0,
-            _CombatLogEntry.system('Encounter setup has no enemies staged.'),
+            CombatLogEntry.system('Encounter setup has no enemies staged.'),
           );
         }
       });
@@ -2324,7 +2874,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
               )
               .toList(growable: false);
       final fallbackParty = _combatants
-          .where((combatant) => combatant.team == _CombatTeam.party)
+          .where((combatant) => combatant.team == CombatTeam.party)
           .map(_engineCombatantFromUi)
           .toList(growable: false);
       final party = _partyForStagedEncounter(
@@ -2364,10 +2914,10 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       _targetIndex = _findDefaultTargetIndex(_activeIndex);
       _seededMonsters = true;
       _combatStarted = beginCombat || _combatStarted;
-      _workspace = _CombatWorkspace.turn;
+      _workspace = CombatWorkspace.turn;
       _activity.insert(
         0,
-        _CombatLogEntry.system(
+        CombatLogEntry.system(
           beginCombat
               ? 'Combat begins. ${builds.length} enemies enter initiative.'
               : 'Encounter setup updated: ${builds.length} enemies staged.',
@@ -2420,7 +2970,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
                 )
                 .toList(growable: false);
         final fallbackParty = _combatants
-            .where((combatant) => combatant.team == _CombatTeam.party)
+            .where((combatant) => combatant.team == CombatTeam.party)
             .map(_engineCombatantFromUi)
             .toList(growable: false);
         final party = _partyForStagedEncounter(
@@ -2459,7 +3009,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         _activeIndex = _activeIndex.clamp(0, _combatants.length - 1).toInt();
         _targetIndex = _findDefaultTargetIndex(_activeIndex);
         _activity = [
-          _CombatLogEntry.system(
+          CombatLogEntry.system(
             'SRD monsters loaded: Hobgoblin and Goblin are now using real statblocks.',
           ),
           ..._activity,
@@ -2471,7 +3021,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       setState(() {
         _activity.insert(
           0,
-          _CombatLogEntry.system(
+          CombatLogEntry.system(
             'Could not load SRD monsters. Demo enemies remain available.',
           ),
         );
@@ -2480,7 +3030,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
   }
 
   encounter_models.CombatEncounter _createEncounterFromCombatants(
-    List<_Combatant> combatants,
+    List<Combatant> combatants,
   ) {
     return _createEncounterFromEngineCombatants(
       combatants.map(_engineCombatantFromUi).toList(growable: false),
@@ -2532,7 +3082,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     }
   }
 
-  encounter_models.Combatant _engineCombatantFromUi(_Combatant combatant) {
+  encounter_models.Combatant _engineCombatantFromUi(Combatant combatant) {
     final id = combatant.id.isEmpty
         ? 'ui_${combatant.name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_')}'
         : combatant.id;
@@ -2540,10 +3090,10 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       id: id,
       name: combatant.name,
       sourceId: combatant.sourceId,
-      kind: combatant.team == _CombatTeam.party
+      kind: combatant.team == CombatTeam.party
           ? encounter_models.CombatantKind.playerCharacter
           : encounter_models.CombatantKind.monster,
-      team: combatant.team == _CombatTeam.party
+      team: combatant.team == CombatTeam.party
           ? encounter_models.CombatantTeam.party
           : encounter_models.CombatantTeam.enemy,
       role: combatant.role,
@@ -2626,7 +3176,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     }
   }
 
-  _Combatant get _activeCombatant => _combatants[_activeIndex];
+  Combatant get _activeCombatant => _combatants[_activeIndex];
 
   int get _safeTargetIndex {
     if (_combatants.isEmpty) return 0;
@@ -2638,12 +3188,12 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     return _findDefaultTargetIndex(_activeIndex);
   }
 
-  _Combatant get _selectedTarget => _combatants[_safeTargetIndex];
+  Combatant get _selectedTarget => _combatants[_safeTargetIndex];
 
   bool _isHostileTargetIndex(
     int targetIndex, {
     int? actorIndex,
-    List<_Combatant>? source,
+    List<Combatant>? source,
   }) {
     final list = source ?? _combatants;
     if (list.isEmpty || targetIndex < 0 || targetIndex >= list.length) {
@@ -2660,7 +3210,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
   bool _isSupportTargetIndex(
     int targetIndex, {
     int? actorIndex,
-    List<_Combatant>? source,
+    List<Combatant>? source,
   }) {
     final list = source ?? _combatants;
     if (list.isEmpty || targetIndex < 0 || targetIndex >= list.length) {
@@ -2675,7 +3225,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
 
   int? _firstHostileTargetIndex(
     int actorIndex, [
-    List<_Combatant>? source,
+    List<Combatant>? source,
   ]) {
     final list = source ?? _combatants;
     if (list.isEmpty) return null;
@@ -2722,7 +3272,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     return null;
   }
 
-  bool _actionNeedsHostileTarget(_CombatAction action) {
+  bool _actionNeedsHostileTarget(CombatAction action) {
     if (action.targetsSelf ||
         action.isHealing ||
         action.targetPolicy == 'ally' ||
@@ -2736,13 +3286,13 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         action.damageFormula != null;
   }
 
-  bool _actionAllowsSelfSupportTarget(_CombatAction action) {
+  bool _actionAllowsSelfSupportTarget(CombatAction action) {
     final text = '${action.name} ${action.tags.join(' ')}'.toLowerCase();
     return !text.contains('bardic inspiration');
   }
 
   bool _isValidTargetForAction(
-    _CombatAction action,
+    CombatAction action,
     int targetIndex, {
     int? actorIndex,
   }) {
@@ -2778,7 +3328,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     return true;
   }
 
-  String _targetUnavailableMessage(_CombatAction action, _Combatant actor) {
+  String _targetUnavailableMessage(CombatAction action, Combatant actor) {
     if (action.targetsSelf || action.targetPolicy == 'self') {
       return '${actor.name} must target self for ${action.name}.';
     }
@@ -2794,7 +3344,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     return '${actor.name} needs a hostile target for ${action.name}.';
   }
 
-  String _targetUnavailableSubline(_CombatAction action) {
+  String _targetUnavailableSubline(CombatAction action) {
     if (action.isHealing || action.targetPolicy == 'ally') {
       return _actionAllowsSelfSupportTarget(action)
           ? 'Choose a living ally or self before resolving.'
@@ -2806,42 +3356,42 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     return 'Choose a living enemy before rolling.';
   }
 
-  bool _actionIsOncePerTurn(_CombatAction action) {
+  bool _actionIsOncePerTurn(CombatAction action) {
     final text = '${action.name} ${action.tags.join(' ')}'.toLowerCase();
     return text.contains('once per turn') || text.contains('sneak attack');
   }
 
-  String _oncePerTurnActionKey(_Combatant actor, _CombatAction action) {
+  String _oncePerTurnActionKey(Combatant actor, CombatAction action) {
     return '${actor.id}|${action.id.isEmpty ? action.name : action.id}';
   }
 
-  bool _actionOncePerTurnUsed(_Combatant actor, _CombatAction action) {
+  bool _actionOncePerTurnUsed(Combatant actor, CombatAction action) {
     return _actionIsOncePerTurn(action) &&
         _oncePerTurnActionUses.contains(_oncePerTurnActionKey(actor, action));
   }
 
-  void _markOncePerTurnActionUse(_Combatant actor, _CombatAction action) {
+  void _markOncePerTurnActionUse(Combatant actor, CombatAction action) {
     if (!_actionIsOncePerTurn(action)) return;
     _oncePerTurnActionUses.add(_oncePerTurnActionKey(actor, action));
   }
 
   bool _actionUsesAttackSlot(
-    _CombatAction action,
-    _CombatActionRoll rollType,
+    CombatAction action,
+    CombatActionRoll rollType,
   ) {
     return action.timing == 'Action' &&
-        rollType == _CombatActionRoll.attack &&
+        rollType == CombatActionRoll.attack &&
         action.usesAttackAction &&
         action.attackFormula != null &&
         !action.hasMultiAttack &&
         !action.targetsSelf;
   }
 
-  bool _actionConsumesTurnTiming(_CombatAction action) {
+  bool _actionConsumesTurnTiming(CombatAction action) {
     return action.timing != 'Free';
   }
 
-  int _maxActionAttackSlots(_Combatant combatant) {
+  int _maxActionAttackSlots(Combatant combatant) {
     var maxAttacks = 1;
     for (final action in _actionsForCombatant(combatant)) {
       if (action.timing != 'Action' || !action.usesAttackAction) continue;
@@ -2850,22 +3400,42 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     return maxAttacks;
   }
 
-  bool _hasStartedAttackAction(_Combatant combatant) {
+  bool _hasStartedAttackAction(Combatant combatant) {
     return (_actionAttackUsesByCombatantId[combatant.id] ?? 0) > 0 &&
         !_spentTimings.contains('Action');
   }
 
-  bool _hasTakenAttackActionThisTurn(_Combatant combatant) {
+  bool _hasTakenAttackActionThisTurn(Combatant combatant) {
     return (_actionAttackUsesByCombatantId[combatant.id] ?? 0) > 0;
   }
 
-  bool _actionBlockedByStartedAttackAction(_CombatAction action) {
+  bool _hasMartialArtsEligibleAttackThisTurn(Combatant combatant) {
+    return _martialArtsEligibleCombatantIds.contains(combatant.id);
+  }
+
+  bool _attackQualifiesForMonkMartialArts(CombatAction action) {
+    if (!_actionsForCombatant(_activeCombatant)
+        .any(_actionIsMartialArtsBonusStrike)) {
+      return false;
+    }
+    if (action.timing != 'Action' || !action.usesAttackAction) return false;
+    final text = _rulesText(
+      '${action.name} ${action.type} ${action.tags.join(' ')}',
+    );
+    return text.contains('unarmed') ||
+        text.contains('martial arts') ||
+        text.contains('monk weapon') ||
+        text.contains('weapon attack') ||
+        text.contains('weapon');
+  }
+
+  bool _actionBlockedByStartedAttackAction(CombatAction action) {
     return action.timing == 'Action' &&
         _hasStartedAttackAction(_activeCombatant) &&
         !action.usesAttackAction;
   }
 
-  bool _actionRequiresAttackActionThisTurn(_CombatAction action) {
+  bool _actionRequiresAttackActionThisTurn(CombatAction action) {
     final text =
         '${action.name} ${action.type} ${action.tags.join(' ')}'.toLowerCase();
     return text.contains('requires attack action') ||
@@ -2874,8 +3444,8 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
   }
 
   String? _actionPrerequisiteBlockMessage(
-    _CombatAction action, {
-    _Combatant? actor,
+    CombatAction action, {
+    Combatant? actor,
   }) {
     final resolvedActor = actor ?? _activeCombatant;
     if (_actionRequiresAttackActionThisTurn(action) &&
@@ -2885,44 +3455,44 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     return null;
   }
 
-  bool _ensureActionPrerequisites(_CombatAction action) {
+  bool _ensureActionPrerequisites(CombatAction action) {
     final message = _actionPrerequisiteBlockMessage(action);
     if (message == null) return true;
     setState(() {
-      _activity.insert(0, _CombatLogEntry.system(message));
-      _rollFeedback = _CombatRollFeedback.manual(
+      _activity.insert(0, CombatLogEntry.system(message));
+      _rollFeedback = CombatRollFeedback.manual(
         actor: _activeCombatant.name,
         action: action.name,
         headline: 'NOT READY',
         subline: 'Take the Attack action first this turn.',
-        accentKind: _CombatAccentKind.read,
+        accentKind: CombatAccentKind.read,
       );
     });
     return false;
   }
 
-  String _startedAttackActionMessage(_CombatAction action) {
+  String _startedAttackActionMessage(CombatAction action) {
     final maxAttacks = _maxActionAttackSlots(_activeCombatant);
     final used = _actionAttackUsesByCombatantId[_activeCombatant.id] ?? 0;
     return '${_activeCombatant.name} is resolving the Attack action ($used/$maxAttacks). Finish remaining attacks before ${action.name}.';
   }
 
-  bool _hasAttackSlotRemaining(_CombatAction action) {
+  bool _hasAttackSlotRemaining(CombatAction action) {
     final maxAttacks = _maxActionAttackSlots(_activeCombatant);
     if (maxAttacks <= 1) return !_spentTimings.contains(action.timing);
     final used = _actionAttackUsesByCombatantId[_activeCombatant.id] ?? 0;
     return used < maxAttacks;
   }
 
-  String _attackSlotSpentMessage(_CombatAction action) {
+  String _attackSlotSpentMessage(CombatAction action) {
     final maxAttacks = _maxActionAttackSlots(_activeCombatant);
     if (maxAttacks <= 1) return '${action.timing} is already spent this turn.';
     return '${_activeCombatant.name} has used all $maxAttacks attacks for this Action.';
   }
 
   void _spendActionOrAttackSlot(
-    _CombatAction action,
-    _CombatActionRoll rollType,
+    CombatAction action,
+    CombatActionRoll rollType,
   ) {
     if (!_actionUsesAttackSlot(action, rollType)) {
       if (_actionConsumesTurnTiming(action)) {
@@ -2934,6 +3504,9 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     final maxAttacks = _maxActionAttackSlots(_activeCombatant);
     if (maxAttacks <= 1) {
       _actionAttackUsesByCombatantId[_activeCombatant.id] = 1;
+      if (_attackQualifiesForMonkMartialArts(action)) {
+        _martialArtsEligibleCombatantIds.add(_activeCombatant.id);
+      }
       _spentTimings.add(action.timing);
       return;
     }
@@ -2941,28 +3514,31 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     final used = _actionAttackUsesByCombatantId[_activeCombatant.id] ?? 0;
     final nextUsed = math.min(maxAttacks, used + 1);
     _actionAttackUsesByCombatantId[_activeCombatant.id] = nextUsed;
+    if (_attackQualifiesForMonkMartialArts(action)) {
+      _martialArtsEligibleCombatantIds.add(_activeCombatant.id);
+    }
     if (nextUsed >= maxAttacks) {
       _spentTimings.add(action.timing);
     }
     _activity.insert(
       0,
-      _CombatLogEntry.system(
+      CombatLogEntry.system(
         '${_activeCombatant.name} attack $nextUsed/$maxAttacks resolved.',
       ),
     );
   }
 
-  _CombatActionRoll _primaryRollTypeForAction(_CombatAction action) {
+  CombatActionRoll _primaryRollTypeForAction(CombatAction action) {
     if (action.attackFormula != null || action.hasMultiAttack) {
-      return _CombatActionRoll.attack;
+      return CombatActionRoll.attack;
     }
-    if (action.requiresSavingThrow) return _CombatActionRoll.savingThrow;
-    if (action.damageFormula != null) return _CombatActionRoll.damage;
-    return _CombatActionRoll.damage;
+    if (action.requiresSavingThrow) return CombatActionRoll.savingThrow;
+    if (action.damageFormula != null) return CombatActionRoll.damage;
+    return CombatActionRoll.damage;
   }
 
   int? _targetIndexForAction(
-    _CombatAction action, {
+    CombatAction action, {
     int? actorIndex,
     int? forcedTargetIndex,
   }) {
@@ -3044,7 +3620,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     return _findDefaultTargetIndex(resolvedActorIndex);
   }
 
-  bool _ensureActionTargetAvailable(_CombatAction action, {int? actorIndex}) {
+  bool _ensureActionTargetAvailable(CombatAction action, {int? actorIndex}) {
     if (_combatants.isEmpty) return false;
     final resolvedActorIndex =
         (actorIndex ?? _activeIndex).clamp(0, _combatants.length - 1).toInt();
@@ -3055,33 +3631,46 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     setState(() {
       _activity.insert(
         0,
-        _CombatLogEntry.system(
+        CombatLogEntry.system(
           _targetUnavailableMessage(action, actor),
         ),
       );
-      _rollFeedback = _CombatRollFeedback.manual(
+      _rollFeedback = CombatRollFeedback.manual(
         actor: actor.name,
         action: action.name,
         headline: 'NO TARGET',
         subline: _targetUnavailableSubline(action),
-        accentKind: _CombatAccentKind.read,
+        accentKind: CombatAccentKind.read,
       );
     });
     return false;
   }
 
-  List<_CombatAction> get _activeActions {
+  List<CombatAction> get _activeActions {
     return _actionsForCombatant(_activeCombatant);
   }
+
+  static const CombatAction _deathSavingThrowAction = CombatAction(
+    id: 'system:death_saving_throw',
+    name: 'Death Saving Throw',
+    type: 'Death Save',
+    timing: 'Action',
+    attackFormula: null,
+    damageFormula: null,
+    critFormula: null,
+    tags: ['Death Save', 'D20', 'Down'],
+    icon: Icons.monitor_heart_outlined,
+    accentKind: CombatAccentKind.read,
+  );
 
   Map<String, int> get _activeResourcePool {
     return _encounter?.combatantById(_activeCombatant.id)?.resources ?? {};
   }
 
-  _ActionEconomySnapshot get _activeEconomy {
+  CombatActionEconomySnapshot get _activeEconomy {
     final active = _activeCombatant;
     final readiedAction = _readiedActionsByCombatantId[active.id];
-    return _ActionEconomySnapshot(
+    return CombatActionEconomySnapshot(
       actionSpent: _spentTimings.contains('Action'),
       bonusActionSpent: _spentTimings.contains('Bonus Action'),
       reactionSpent: _spentReactionCombatantIds.contains(active.id),
@@ -3091,7 +3680,28 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     );
   }
 
-  int _effectiveMovementBudget(_Combatant combatant) {
+  PendingSavePromptData? _pendingSavePromptData() {
+    final pending = _pendingAreaSavingThrow;
+    if (pending == null || pending.isComplete) return null;
+    final targetIndex = _nextPendingAreaSaveTargetIndex(
+      pending,
+      controllableOnly: !_dmView && !_devCombatMode,
+    );
+    if (targetIndex == null) return null;
+    final target = _combatants[targetIndex];
+    if (!_canControlCombatant(target)) return null;
+    final ability = pending.action.saveAbility ?? 'DEX';
+    return PendingSavePromptData(
+      action: pending.action,
+      target: target,
+      ability: ability,
+      dc: pending.action.saveDc ?? 10,
+      formula: _savingThrowFormulaForTarget(target, ability),
+      remaining: pending.unresolvedTargetIds.length,
+    );
+  }
+
+  int _effectiveMovementBudget(Combatant combatant) {
     final baseSpeed = combatant.speed < 0 ? 0 : combatant.speed;
     final bonus = _movementBonusFeetByCombatantId[combatant.id] ?? 0;
     return baseSpeed + math.max(0, bonus);
@@ -3136,9 +3746,10 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     );
   }
 
-  bool _canControlCombatant(_Combatant combatant) {
+  bool _canControlCombatant(Combatant combatant) {
+    if (_devCombatMode) return true;
     if (_dmView) return true;
-    if (combatant.team == _CombatTeam.enemy) return false;
+    if (combatant.team == CombatTeam.enemy) return false;
 
     final routeCharacterId = widget.characterId?.trim();
     if (routeCharacterId != null && routeCharacterId.isNotEmpty) {
@@ -3152,22 +3763,25 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     return combatant.ownerUserId == userId;
   }
 
-  String _controlBlockedMessage(_Combatant combatant) {
-    if (combatant.team == _CombatTeam.enemy) {
+  String _controlBlockedMessage(Combatant combatant) {
+    if (!_dmView && !_devCombatMode) {
+      return 'Vista jugador: activa Modo prueba para probar todo el flujo.';
+    }
+    if (combatant.team == CombatTeam.enemy) {
       return 'Vista jugador: los enemigos los dirige el DM.';
     }
     return 'Vista jugador: solo puedes resolver acciones de tu personaje.';
   }
 
   bool _ensureCanControlCombatant(
-    _Combatant combatant, {
+    Combatant combatant, {
     String actionLabel = 'resolver acciones',
   }) {
     if (_canControlCombatant(combatant)) return true;
     final message = '${_controlBlockedMessage(combatant)} No puedes '
         '$actionLabel de ${combatant.name}.';
     setState(() {
-      _activity.insert(0, _CombatLogEntry.system(message));
+      _activity.insert(0, CombatLogEntry.system(message));
     });
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -3183,8 +3797,8 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     _ensureCanControlCombatant(_activeCombatant);
   }
 
-  List<_ReactionOption> get _reactionOptions {
-    final options = <_ReactionOption>[];
+  List<ReactionOption> get _reactionOptions {
+    final options = <ReactionOption>[];
     for (var index = 0; index < _combatants.length; index++) {
       if (index == _activeIndex) continue;
       final combatant = _combatants[index];
@@ -3196,7 +3810,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
           continue;
         }
         options.add(
-          _ReactionOption(
+          ReactionOption(
             actorIndex: index,
             combatant: combatant,
             action: readiedAction.action,
@@ -3214,7 +3828,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
           continue;
         }
         options.add(
-          _ReactionOption(
+          ReactionOption(
             actorIndex: index,
             combatant: combatant,
             action: action,
@@ -3226,14 +3840,112 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     return options.take(24).toList(growable: false);
   }
 
-  List<_CombatAction> _actionsForCombatant(_Combatant combatant) {
-    final actions = combatant.team == _CombatTeam.party
+  List<CombatAction> _actionsForCombatant(Combatant combatant) {
+    if (_combatantCanOnlyDeathSave(combatant)) {
+      return const [_deathSavingThrowAction];
+    }
+    if (combatant.hp <= 0) return const [];
+
+    final actions = combatant.team == CombatTeam.party
         ? _partyActionsByCombatantId[combatant.id] ?? _characterActions
         : _enemyActionsByCombatantId[combatant.id] ?? _enemyActions;
-    return _dedupeUiActions(actions.where(_actionAppearsInMenu).toList());
+    final visible = _dedupeUiActions(
+      actions.where(_actionAppearsInMenu).toList(),
+    );
+    final visibleWithFallback = _withMonkFlurryFallback(combatant, visible);
+    if (visibleWithFallback.isNotEmpty) return visibleWithFallback;
+
+    final engineCombatant = _encounter?.combatantById(combatant.id);
+    final preparedActions = engineCombatant?.preparedActions ??
+        const <encounter_models.PreparedCombatAction>[];
+    if (preparedActions.isEmpty) return visible;
+
+    final hydrated = preparedActions
+        .map((action) => action.copyWith(actorId: combatant.id))
+        .map(_combatActionFromPreparedAction)
+        .where(_actionAppearsInMenu)
+        .toList(growable: false);
+    if (hydrated.isEmpty) return visible;
+
+    if (combatant.team == CombatTeam.party) {
+      _partyActionsByCombatantId[combatant.id] = hydrated;
+    } else {
+      _enemyActionsByCombatantId[combatant.id] = hydrated;
+    }
+    return _withMonkFlurryFallback(combatant, _dedupeUiActions(hydrated));
   }
 
-  bool _actionAppearsInMenu(_CombatAction action) {
+  List<CombatAction> _withMonkFlurryFallback(
+    Combatant combatant,
+    List<CombatAction> actions,
+  ) {
+    if (combatant.team != CombatTeam.party) return actions;
+    if (actions.any(_actionIsFlurryOfBlows)) return actions;
+    final martialArts =
+        _firstOrNull(actions.where(_actionIsMartialArtsBonusStrike));
+    if (martialArts == null) return actions;
+    final resourcePool =
+        _encounter?.combatantById(combatant.id)?.resources ?? const {};
+    final resourceKey = _classKitResourceKey(actions, resourcePool) ??
+        _resourceKeyWhere(resourcePool.keys, _isKiResourceKey) ??
+        _resourceKeyWhere(combatant.resourceMaximums.keys, _isKiResourceKey);
+    if (resourceKey == null) return actions;
+
+    final steps = martialArts.multiAttackSteps.isNotEmpty
+        ? [
+            for (var index = 0; index < 2; index++)
+              martialArts.multiAttackSteps[
+                  index % martialArts.multiAttackSteps.length],
+          ]
+        : [
+            for (var index = 0; index < 2; index++)
+              MultiAttackStep(
+                name: 'Unarmed Strike',
+                attackFormula: martialArts.attackFormula,
+                damageFormula: martialArts.damageFormula,
+                critFormula: martialArts.critFormula,
+                tags: martialArts.tags,
+              ),
+          ];
+
+    return [
+      ...actions,
+      CombatAction(
+        id: '${combatant.id}:synthetic_flurry_of_blows',
+        name: 'Flurry of Blows',
+        type: 'Monk Technique',
+        timing: 'Bonus Action',
+        attackFormula: martialArts.attackFormula,
+        damageFormula: martialArts.damageFormula,
+        critFormula: martialArts.critFormula,
+        rangeFeet: martialArts.rangeFeet ?? 5,
+        damageType: martialArts.damageType ?? 'bludgeoning',
+        tags: const [
+          'Monk',
+          'Ki',
+          'Bonus Action',
+          '2 attacks',
+          'Unarmed',
+          'Melee',
+          'Bludgeoning',
+          'Requires Attack action',
+        ],
+        icon: Icons.flash_on_rounded,
+        accentKind: CombatAccentKind.info,
+        resourceKey: resourceKey,
+        resourceCost: 1,
+        targetPolicy: 'hostile',
+        usesAttackAction: false,
+        multiAttackSteps: steps,
+      ),
+    ];
+  }
+
+  bool _combatantCanOnlyDeathSave(Combatant combatant) {
+    return combatant.team == CombatTeam.party && combatant.hp <= 0;
+  }
+
+  bool _actionAppearsInMenu(CombatAction action) {
     final text = _rulesText(
       '${action.name} ${action.type} ${action.tags.join(' ')} ${action.resourceKey ?? ''}',
     );
@@ -3258,7 +3970,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     return true;
   }
 
-  bool _isRawKiActionCard(_CombatAction action, String text) {
+  bool _isRawKiActionCard(CombatAction action, String text) {
     final name = _rulesText(action.name);
     final isRawName = name == 'ki' ||
         name == 'ki points' ||
@@ -3281,7 +3993,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         text.contains('puntos de enfoque');
   }
 
-  bool _isModeledResourceCard(_CombatAction action, String text) {
+  bool _isModeledResourceCard(CombatAction action, String text) {
     if (action.type.trim().toLowerCase() != 'resource') return false;
     return text.contains('ki') ||
         text.contains('focus point') ||
@@ -3327,9 +4039,9 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         .replaceAll('Ã±', 'n');
   }
 
-  List<_CombatAction> _dedupeUiActions(List<_CombatAction> actions) {
+  List<CombatAction> _dedupeUiActions(List<CombatAction> actions) {
     final seen = <String>{};
-    final result = <_CombatAction>[];
+    final result = <CombatAction>[];
     for (final action in actions) {
       final key = [
         action.name.trim().toLowerCase(),
@@ -3347,7 +4059,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     return result;
   }
 
-  List<_CombatAction> _reactionActionsForCombatant(_Combatant combatant) {
+  List<CombatAction> _reactionActionsForCombatant(Combatant combatant) {
     final actions = _actionsForCombatant(combatant);
     final explicitReactions = actions
         .where((action) => action.timing == 'Reaction')
@@ -3363,7 +4075,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     ];
   }
 
-  bool _looksLikeOpportunityAttackSource(_CombatAction action) {
+  bool _looksLikeOpportunityAttackSource(CombatAction action) {
     if (action.attackFormula == null || action.targetsSelf) return false;
     if (action.hasMultiAttack) return false;
     final text =
@@ -3381,8 +4093,8 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         text.contains('weapon attack');
   }
 
-  _CombatAction _opportunityAttackFrom(_CombatAction source) {
-    return _CombatAction(
+  CombatAction _opportunityAttackFrom(CombatAction source) {
+    return CombatAction(
       id: source.id.isEmpty
           ? '${source.name}|opportunity'
           : '${source.id}|opportunity',
@@ -3391,8 +4103,10 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       timing: 'Reaction',
       attackFormula: source.attackFormula,
       damageFormula: source.damageFormula,
+      damageType: source.damageType,
       critFormula: source.critFormula,
       rangeFeet: source.rangeFeet ?? 5,
+      longRangeFeet: source.longRangeFeet,
       tags: [
         'Reaction',
         'Opportunity',
@@ -3411,7 +4125,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       }
       _activity.insert(
         0,
-        _CombatLogEntry.system(
+        CombatLogEntry.system(
           'DM requested initiative. Waiting for party rolls.',
         ),
       );
@@ -3419,15 +4133,21 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
   }
 
   void _rollInitiativeForAll() {
-    final updated = <_Combatant>[];
+    if (_combatRollInFlight) return;
+    unawaited(_rollInitiativeForAllAsync());
+  }
+
+  Future<void> _rollInitiativeForAllAsync() async {
+    final updated = <Combatant>[];
     var encounter = _encounter;
 
     for (final combatant in _combatants) {
       final bonus = combatant.initiativeBonus;
-      final result = DiceRollerService.rollFormula(
+      final result = await _rollCombatFormulaAwaitingBoard(
         formula: _formatRollFormula('d20', bonus),
         label: '${combatant.name} Initiative',
       );
+      if (!mounted) return;
       updated.add(combatant.copyWith(initiative: result.total));
       if (encounter != null) {
         encounter = CombatEncounterEngine.setInitiative(
@@ -3450,10 +4170,12 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         _targetIndex = _findDefaultTargetIndex(0, updated);
       }
       _spentTimings.clear();
+      _clearClassTurnFlowState();
       _actionAttackUsesByCombatantId.clear();
       _movementBonusFeetByCombatantId.clear();
       _pendingDamageActions.clear();
       _pendingHalfDamageActions.clear();
+      _pendingAreaSavingThrow = null;
       _spentReactionCombatantIds.clear();
       _oncePerTurnActionUses.clear();
       _readiedActionsByCombatantId.clear();
@@ -3461,13 +4183,14 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       _preparedActions.clear();
       _resetQueuedPreparedActions();
       _rollFeedback = null;
+      _activeCombatResolutionKeys.clear();
       _activity.removeWhere(
         (entry) =>
             entry.title == 'DM requested initiative. Waiting for party rolls.',
       );
       _activity.insert(
         0,
-        _CombatLogEntry.system('Initiative rolled. Round 1 begins.'),
+        CombatLogEntry.system('Initiative rolled. Round 1 begins.'),
       );
     });
   }
@@ -3479,7 +4202,18 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     )) {
       return;
     }
-    _autoAdvanceScheduled = false;
+    final pendingArea = _pendingAreaSavingThrow;
+    if (pendingArea != null && !pendingArea.isComplete) {
+      setState(() {
+        _activity.insert(
+          0,
+          CombatLogEntry.system(
+            'Resolve all ${pendingArea.action.name} saving throws before ending the turn.',
+          ),
+        );
+      });
+      return;
+    }
     final endingCombatantId = _activeCombatant.id;
     setState(() {
       final previousRound = _round;
@@ -3488,25 +4222,27 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         _encounter = CombatEncounterEngine.nextTurn(encounter);
         _syncUiFromEncounter();
         if (_round != previousRound) {
-          _activity.insert(0, _CombatLogEntry.system('Round $_round begins.'));
+          _activity.insert(0, CombatLogEntry.system('Round $_round begins.'));
         }
       } else {
         var nextIndex = _activeIndex + 1;
         if (nextIndex >= _combatants.length) {
           nextIndex = 0;
           _round += 1;
-          _activity.insert(0, _CombatLogEntry.system('Round $_round begins.'));
+          _activity.insert(0, CombatLogEntry.system('Round $_round begins.'));
         }
         _activeIndex = nextIndex;
         _targetIndex = _findDefaultTargetIndex(nextIndex);
       }
 
       _spentTimings.clear();
+      _clearClassTurnFlowState(combatantId: endingCombatantId);
       _actionAttackUsesByCombatantId.remove(endingCombatantId);
       _actionAttackUsesByCombatantId.remove(_activeCombatant.id);
       _movementBonusFeetByCombatantId.clear();
       _pendingDamageActions.clear();
       _pendingHalfDamageActions.clear();
+      _pendingAreaSavingThrow = null;
       _spentReactionCombatantIds.remove(_activeCombatant.id);
       _oncePerTurnActionUses.removeWhere(
         (key) => key.startsWith('${_activeCombatant.id}|'),
@@ -3516,7 +4252,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       if (expiredReady != null) {
         _activity.insert(
           0,
-          _CombatLogEntry.system(
+          CombatLogEntry.system(
             '${_activeCombatant.name} readied action expired.',
           ),
         );
@@ -3526,9 +4262,10 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       _resetQueuedPreparedActions();
       _selectedCommandTiming = 'Action';
       _rollFeedback = null;
+      _activeCombatResolutionKeys.clear();
       _activity.insert(
         0,
-        _CombatLogEntry.turn('${_activeCombatant.name} takes the turn.'),
+        CombatLogEntry.turn('${_activeCombatant.name} takes the turn.'),
       );
       _battleBoardMovementUsedByCombatantId[_activeCombatant.id] = 0;
       _selectedBattleBoardCombatantId = _activeCombatant.id;
@@ -3540,53 +4277,142 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
   }
 
   void _scheduleAutoAdvanceTurn(String reason) {
-    if (_autoAdvanceScheduled) return;
-    final activeId = _activeCombatant.id;
-    final round = _round;
-    _autoAdvanceScheduled = true;
-
-    Future.delayed(const Duration(milliseconds: 950), () {
-      if (!mounted || !_autoAdvanceScheduled) return;
-      if (_combatants.isEmpty ||
-          _activeCombatant.id != activeId ||
-          _round != round ||
-          _pendingDamageActions.isNotEmpty ||
-          _queuedPreparedActions.isNotEmpty) {
-        _autoAdvanceScheduled = false;
-        return;
-      }
-      _activity.insert(0, _CombatLogEntry.system(reason));
-      _nextTurn();
-    });
+    _activity.insert(
+      0,
+      CombatLogEntry.system('$reason Turn stays active until End Turn.'),
+    );
   }
 
   DiceRollResult _rollCombatFormula({
     required String formula,
     required String label,
     bool useRollMode = false,
+    bool forceAdvantage = false,
+    bool forceDisadvantage = false,
   }) {
+    final hasAdvantage = (useRollMode && _hasAdvantage) || forceAdvantage;
+    final hasDisadvantage =
+        (useRollMode && _hasDisadvantage) || forceDisadvantage;
+    final cancelled = hasAdvantage && hasDisadvantage;
     return DiceRollerService.rollFormula(
       formula: formula,
       label: label,
-      advantage: useRollMode && _hasAdvantage,
-      disadvantage: useRollMode && _hasDisadvantage,
+      advantage: !cancelled && hasAdvantage,
+      disadvantage: !cancelled && hasDisadvantage,
     );
   }
 
+  Future<DiceRollResult> _rollCombatFormulaAwaitingBoard({
+    required String formula,
+    required String label,
+    bool useRollMode = false,
+    bool forceAdvantage = false,
+    bool forceDisadvantage = false,
+  }) async {
+    if (_showBattleBoardController && _activeBattleBoardSceneId != null) {
+      setState(() {
+        _combatRollInFlight = true;
+        _rollFeedback = CombatRollFeedback.manual(
+          actor: _activeCombatant.name,
+          action: label,
+          headline: 'ROLLING',
+          subline: 'Waiting for the 3D dice...',
+          accentKind: CombatAccentKind.info,
+        );
+      });
+    }
+
+    final fallback = _rollCombatFormula(
+      formula: formula,
+      label: label,
+      useRollMode: useRollMode,
+      forceAdvantage: forceAdvantage,
+      forceDisadvantage: forceDisadvantage,
+    );
+    final sceneId = _activeBattleBoardSceneId;
+    if (!_showBattleBoardController || sceneId == null) {
+      return fallback;
+    }
+
+    final notation =
+        CombatDiceResultFormatter.diceBoxNotation(fallback) ?? fallback.formula;
+    if (notation.trim().isEmpty) {
+      if (mounted) {
+        setState(() {
+          _combatRollInFlight = false;
+        });
+      }
+      return fallback;
+    }
+    final eventId = _diceRollCoordinator.nextEventId();
+
+    try {
+      await _syncBattleBoardTokensFromCombatState(
+        eventLabel: 'ROLLING',
+        eventKind: 'focus',
+        eventDiceNotation: notation,
+        eventResultLabel: '',
+        eventResultDetail: '',
+        eventAuthoritativeDice: '',
+        eventIdOverride: eventId,
+      );
+      if (!mounted) return fallback;
+
+      final boardToken =
+          await _diceRollCoordinator.waitForBattleBoardRollResult(
+        boardProvider: context.read<BattleBoardProvider>(),
+        sceneId: sceneId,
+        eventId: eventId,
+        isActive: () => mounted,
+      );
+      if (boardToken == null) {
+        _activity.insert(
+          0,
+          CombatLogEntry.system(
+            '3D dice result was not received in time; using local fallback.',
+          ),
+        );
+        return fallback;
+      }
+
+      return _diceRollCoordinator.rollResultFromBoardToken(
+        fallback,
+        boardToken,
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _combatRollInFlight = false;
+        });
+      }
+    }
+  }
+
+  String? _consumeBoardResolvedRollEventId() {
+    return _diceRollCoordinator.consumeBoardResolvedRollEventId();
+  }
+
   void _rollManualSavingThrow(String ability) {
+    if (_combatRollInFlight) return;
+    unawaited(_rollManualSavingThrowAsync(ability));
+  }
+
+  Future<void> _rollManualSavingThrowAsync(String ability) async {
     if (!_ensureCanControlCombatant(_activeCombatant)) return;
     final target = _selectedTarget;
     final normalizedAbility = ability.trim();
     if (normalizedAbility.isEmpty) return;
-    final result = _rollCombatFormula(
+    final result = await _rollCombatFormulaAwaitingBoard(
       formula: _savingThrowFormulaForTarget(target, normalizedAbility),
       label: '${target.name} $normalizedAbility Save',
       useRollMode: true,
+      forceAdvantage: _savingThrowHasAdvantage(target, normalizedAbility),
+      forceDisadvantage: _savingThrowHasDisadvantage(target, normalizedAbility),
     );
     setState(() {
       _activity.insert(
         0,
-        _CombatLogEntry.roll(
+        CombatLogEntry.roll(
           actor: target.name,
           action: '$normalizedAbility saving throw',
           result: result,
@@ -3594,13 +4420,13 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
               '${result.formula} - ${result.rollsText}. ${target.name} rolls $normalizedAbility save: ${result.total}.',
         ),
       );
-      _rollFeedback = _CombatRollFeedback(
+      _rollFeedback = CombatRollFeedback(
         actor: target.name,
         action: '$normalizedAbility Save',
         result: result,
         headline: 'SAVE ${result.total}',
         subline: '${target.name} tira $normalizedAbility',
-        accentKind: _CombatAccentKind.read,
+        accentKind: CombatAccentKind.read,
       );
     });
     if (_showBattleBoardController) {
@@ -3608,24 +4434,59 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         _syncBattleBoardTokensFromCombatState(
           eventLabel: 'SAVE ${result.total}',
           eventKind: 'focus',
-          eventDiceNotation: _diceBoxNotationForRollResult(result) ?? '',
+          eventDiceNotation:
+              CombatDiceResultFormatter.diceBoxNotation(result) ?? '',
           eventResultLabel: 'SAVE ${result.total}',
-          eventResultDetail: _diceResultDetail(result),
+          eventResultDetail: CombatDiceResultFormatter.detail(result),
+          eventAuthoritativeDice:
+              CombatDiceResultFormatter.authoritativeDiceJson(result),
+          eventIdOverride: _consumeBoardResolvedRollEventId(),
         ),
       );
     }
   }
 
-  void _rollAction(_CombatAction action, _CombatActionRoll rollType) {
-    if (!_ensureCanControlCombatant(_activeCombatant)) return;
-    if (!_ensureActionTargetAvailable(action)) return;
-    if (action.hasMultiAttack) {
-      _rollMultiAttackStep(action, rollType);
+  void _rollAction(CombatAction action, CombatActionRoll rollType) {
+    if (_combatRollInFlight) return;
+    unawaited(_rollActionAsync(action, rollType));
+  }
+
+  Future<void> _rollActionAsync(
+    CombatAction action,
+    CombatActionRoll rollType,
+  ) async {
+    if (_isDeathSavingThrowAction(action)) {
+      _rollDeathSavingThrowForActiveCombatant();
       return;
     }
 
     final actionKey = _actionExecutionKey(action);
-    final canResolvePendingDamage = rollType != _CombatActionRoll.attack &&
+    if (_pendingAreaSavingThrow?.matches(
+          actorId: _activeCombatant.id,
+          actionKey: actionKey,
+        ) ==
+        true) {
+      await _rollPendingAreaSavingThrowAsync(action);
+      return;
+    }
+
+    if (!_ensureCanControlCombatant(_activeCombatant)) return;
+    if (!_ensureActionTargetAvailable(action)) return;
+    if (action.hasMultiAttack) {
+      if (_actionIsMartialArtsBonusStrike(action) &&
+          !_multiAttackProgressMatches(action)) {
+        _activateMartialArtsBonusStrike(action);
+        return;
+      }
+      if (_actionIsFlurryOfBlows(action) &&
+          !_multiAttackProgressMatches(action)) {
+        _activateFlurryOfBlows(action);
+        return;
+      }
+      await _rollMultiAttackStepAsync(action, rollType);
+      return;
+    }
+    final canResolvePendingDamage = rollType != CombatActionRoll.attack &&
         _pendingDamageActions.contains(actionKey);
     final usesAttackSlot = _actionUsesAttackSlot(action, rollType);
     if (!canResolvePendingDamage && !_ensureActionPrerequisites(action)) {
@@ -3640,7 +4501,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       setState(() {
         _activity.insert(
           0,
-          _CombatLogEntry.system(resourceBlock),
+          CombatLogEntry.system(resourceBlock),
         );
       });
       return;
@@ -3651,7 +4512,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       setState(() {
         _activity.insert(
           0,
-          _CombatLogEntry.system(_attackSlotSpentMessage(action)),
+          CombatLogEntry.system(_attackSlotSpentMessage(action)),
         );
       });
       return;
@@ -3661,7 +4522,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       setState(() {
         _activity.insert(
           0,
-          _CombatLogEntry.system(
+          CombatLogEntry.system(
             '${action.name} has already been used this turn.',
           ),
         );
@@ -3673,7 +4534,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       setState(() {
         _activity.insert(
           0,
-          _CombatLogEntry.system(_startedAttackActionMessage(action)),
+          CombatLogEntry.system(_startedAttackActionMessage(action)),
         );
       });
       return;
@@ -3685,7 +4546,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       setState(() {
         _activity.insert(
           0,
-          _CombatLogEntry.system(
+          CombatLogEntry.system(
             '${action.timing} is already spent this turn.',
           ),
         );
@@ -3693,7 +4554,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       return;
     }
     if (!canResolvePendingDamage &&
-        rollType == _CombatActionRoll.savingThrow &&
+        rollType == CombatActionRoll.savingThrow &&
         action.requiresSavingThrow &&
         action.hasAreaEffect) {
       _resolveAreaSavingThrowAction(action);
@@ -3704,8 +4565,8 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     final initialTarget =
         initialTargetIndex == null ? null : _combatants[initialTargetIndex];
     final formula = switch (rollType) {
-      _CombatActionRoll.attack => action.attackFormula,
-      _CombatActionRoll.savingThrow => action.requiresSavingThrow
+      CombatActionRoll.attack => action.attackFormula,
+      CombatActionRoll.savingThrow => action.requiresSavingThrow
           ? initialTarget == null
               ? null
               : _savingThrowFormulaForTarget(
@@ -3713,301 +4574,492 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
                   action.saveAbility!,
                 )
           : null,
-      _CombatActionRoll.damage => action.damageFormula,
-      _CombatActionRoll.critical => action.critFormula,
+      CombatActionRoll.damage => action.damageFormula,
+      CombatActionRoll.critical => action.critFormula,
     };
 
     if (formula == null) return;
 
     final label = switch (rollType) {
-      _CombatActionRoll.attack => '${action.name} Attack',
-      _CombatActionRoll.savingThrow =>
+      CombatActionRoll.attack => '${action.name} Attack',
+      CombatActionRoll.savingThrow =>
         '${initialTarget?.name ?? 'Target'} ${action.saveAbility} Save',
-      _CombatActionRoll.damage => '${action.name} Damage',
-      _CombatActionRoll.critical => '${action.name} Critical',
+      CombatActionRoll.damage => '${action.name} Damage',
+      CombatActionRoll.critical => '${action.name} Critical',
     };
 
-    final result = _rollCombatFormula(
-      formula: formula,
-      label: label,
-      useRollMode: rollType == _CombatActionRoll.attack ||
-          rollType == _CombatActionRoll.savingThrow,
+    final resolutionKey = _combatResolutionKey(
+      canResolvePendingDamage ? 'resolve-damage' : 'roll-action',
+      action,
+      rollType: rollType,
+      targetIndex: initialTargetIndex,
     );
-    final boardEventDiceNotation = _diceBoxNotationForRollResult(result) ?? '';
-
-    String? boardEventLabel;
-    var boardEventKind = 'focus';
-    setState(() {
-      if (!canResolvePendingDamage) {
-        _resetQueuedPreparedActions();
-      }
-      String? detail;
-      String headline;
-      String? subline;
-      _CombatAccentKind feedbackKind = action.accentKind;
-      if (rollType == _CombatActionRoll.attack ||
-          rollType == _CombatActionRoll.savingThrow ||
-          !canResolvePendingDamage) {
-        _spendActionOrAttackSlot(action, rollType);
-        _markOncePerTurnActionUse(_activeCombatant, action);
-        _spendEngineActionResource(action);
-        final economyMessage = _applyActionEconomyEffect(action);
-        if (economyMessage != null) {
-          _activity.insert(0, _CombatLogEntry.system(economyMessage));
-        }
-        final condition = _applyActionState(action);
-        if (condition != null) {
-          _applyEngineCondition(
-            actor: _activeCombatant,
-            target: _activeCombatant,
-            name: condition,
-            sourceActionName: action.name,
-          );
-          _syncUiFromEncounter();
-        } else {
-          _syncUiFromEncounter();
-        }
-      }
-
-      if (rollType == _CombatActionRoll.attack) {
-        final targetIndex = _targetIndexForAction(action);
-        if (targetIndex == null) return;
-        final target = _combatants[targetIndex];
-        final outcome = _attackOutcome(result, target, action);
-        if (outcome == 'hit' || outcome == 'critical hit') {
-          _pendingDamageActions.add(actionKey);
-          _pendingHalfDamageActions.remove(actionKey);
-          _queueOnHitPromptIfAvailable(target.name);
-          _selectBestCommandTimingAfterAttackRoll(didHit: true);
-        } else {
-          _pendingDamageActions.remove(actionKey);
-          _pendingHalfDamageActions.remove(actionKey);
-          _selectBestCommandTimingAfterAttackRoll(didHit: false);
-        }
-        headline = outcome.toUpperCase();
-        subline = '${_activeCombatant.name} vs ${target.name} AC ${target.ac}';
-        feedbackKind = switch (outcome) {
-          'critical hit' => _CombatAccentKind.support,
-          'hit' => _CombatAccentKind.action,
-          'automatic miss' => _CombatAccentKind.info,
-          _ => _CombatAccentKind.read,
-        };
-        boardEventLabel = switch (outcome) {
-          'critical hit' => 'CRIT ${result.total}',
-          'hit' => 'HIT ${result.total}',
-          _ => 'MISS ${result.total}',
-        };
-        boardEventKind = switch (outcome) {
-          'critical hit' => 'critical',
-          'hit' => 'hit',
-          _ => 'miss',
-        };
-        detail =
-            '${result.formula} - ${result.rollsText}. ${target.name} AC ${target.ac}: $outcome.';
-      } else if (rollType == _CombatActionRoll.savingThrow) {
-        final targetIndex = _targetIndexForAction(action);
-        if (targetIndex == null) return;
-        final target = _combatants[targetIndex];
-        final saveDc = action.saveDc ?? 10;
-        final success = result.total >= saveDc;
-        if (!success) {
-          final failureCondition = _savingThrowFailureCondition(action);
-          if (failureCondition != null) {
-            final nextCombatants = [..._combatants];
-            nextCombatants[targetIndex] = _combatantWithCondition(
-              target,
-              failureCondition,
-            );
-            _combatants = nextCombatants;
-            _applyEngineCondition(
-              actor: _activeCombatant,
-              target: target,
-              name: failureCondition,
-              sourceActionName: action.name,
-            );
-            _syncUiFromEncounter();
-          }
-        }
-        if (action.damageFormula != null &&
-            _savingThrowUsesEvasion(action, target)) {
-          if (success) {
-            _pendingDamageActions.remove(actionKey);
-            _pendingHalfDamageActions.remove(actionKey);
-            _activity.insert(
-              0,
-              _CombatLogEntry.system(
-                '${target.name} avoids all ${action.name} damage with Evasion.',
-              ),
-            );
-          } else {
-            _pendingDamageActions.add(actionKey);
-            _pendingHalfDamageActions.add(actionKey);
-          }
-        } else if (!success && action.damageFormula != null) {
-          _pendingDamageActions.add(actionKey);
-          _pendingHalfDamageActions.remove(actionKey);
-        } else if (success &&
-            action.damageFormula != null &&
-            action.halfDamageOnSave) {
-          _pendingDamageActions.add(actionKey);
-          _pendingHalfDamageActions.add(actionKey);
-        } else {
-          _pendingDamageActions.remove(actionKey);
-          _pendingHalfDamageActions.remove(actionKey);
-        }
-        headline = success ? 'SAVE SUCCESS' : 'SAVE FAILED';
-        subline =
-            '${target.name} ${action.saveAbility} ${result.total} vs DC $saveDc';
-        feedbackKind =
-            success ? _CombatAccentKind.read : _CombatAccentKind.magic;
-        boardEventLabel =
-            success ? 'SAVE ${result.total}' : 'FAIL ${result.total}';
-        boardEventKind = success ? 'miss' : 'hit';
-        detail =
-            '${result.formula} - ${result.rollsText}. ${target.name} ${success ? 'succeeds' : 'fails'} ${action.saveAbility} save vs DC $saveDc.';
-      } else {
-        final targetIndex = _targetIndexForAction(action);
-        if (targetIndex == null) return;
-        final target = _combatants[targetIndex];
+    if (!_beginCombatResolution(resolutionKey)) return;
+    try {
+      final result = await _rollCombatFormulaAwaitingBoard(
+        formula: formula,
+        label: label,
+        useRollMode: rollType == CombatActionRoll.attack ||
+            rollType == CombatActionRoll.savingThrow,
+        forceAdvantage: rollType == CombatActionRoll.savingThrow &&
+            initialTarget != null &&
+            action.saveAbility != null &&
+            _savingThrowHasAdvantage(
+              initialTarget,
+              action.saveAbility!,
+              sourceAction: action,
+            ),
+        forceDisadvantage: rollType == CombatActionRoll.savingThrow &&
+                initialTarget != null &&
+                action.saveAbility != null
+            ? _savingThrowHasDisadvantage(
+                initialTarget,
+                action.saveAbility!,
+                sourceAction: action,
+              )
+            : rollType == CombatActionRoll.attack &&
+                _attackHasLongRangeDisadvantage(action),
+      );
+      final boardEventDiceNotation =
+          CombatDiceResultFormatter.diceBoxNotation(result) ?? '';
+      DiceRollResult? passiveDamageResultForResolvedDamage;
+      if (rollType == CombatActionRoll.damage ||
+          rollType == CombatActionRoll.critical) {
+        final passiveTargetIndex = _targetIndexForAction(action);
         final isHalfDamage =
             !action.isHealing && _pendingHalfDamageActions.contains(actionKey);
-        final damageBonus = isHalfDamage
-            ? 0
-            : _situationalDamageBonus(_activeCombatant, action);
-        final passiveDamageFormula = !action.isHealing && !isHalfDamage
-            ? _passiveExtraHitDamageFormula(
-                _activeCombatant,
-                action,
-                critical: rollType == _CombatActionRoll.critical,
-              )
-            : null;
-        final passiveDamageResult = passiveDamageFormula == null
+        final passiveDamageFormula =
+            passiveTargetIndex == null || action.isHealing || isHalfDamage
+                ? null
+                : _passiveExtraHitDamageFormula(
+                    _activeCombatant,
+                    action,
+                    critical: rollType == CombatActionRoll.critical,
+                  );
+        passiveDamageResultForResolvedDamage = passiveDamageFormula == null
             ? null
-            : DiceRollerService.rollFormula(
+            : await _rollCombatFormulaAwaitingBoard(
                 formula: passiveDamageFormula,
                 label: 'Improved Divine Smite',
               );
-        final amount = isHalfDamage
-            ? (result.total / 2).floor()
-            : result.total + damageBonus + (passiveDamageResult?.total ?? 0);
-        final hpResult = _resolveHpChange(
-          target,
-          amount,
-          healing: action.isHealing,
-        );
-        final nextCombatants = [..._combatants];
-        nextCombatants[targetIndex] = target.copyWith(
-          hp: hpResult.hp,
-          tempHp: hpResult.tempHp,
-        );
-        _combatants = nextCombatants;
-        _applyEngineHpChange(
-          actor: _activeCombatant,
-          target: target,
-          amount: amount,
-          healing: action.isHealing,
-          action: action,
-          formula: result.formula,
-        );
-        _syncUiFromEncounter();
-
-        final verb = action.isHealing ? 'recovers' : 'takes';
-        final suffix = action.isHealing
-            ? 'HP'
-            : isHalfDamage
-                ? 'half damage'
-                : 'damage';
-        final passiveDetail = passiveDamageResult == null
-            ? ''
-            : ' Improved Divine Smite adds ${passiveDamageResult.total} radiant (${passiveDamageResult.rollsText}).';
-        headline = action.isHealing
-            ? 'HEAL $amount'
-            : isHalfDamage
-                ? '$amount HALF DAMAGE'
-                : '$amount DAMAGE';
-        subline = _hpChangeLine(target, hpResult);
-        feedbackKind = action.isHealing
-            ? _CombatAccentKind.support
-            : _CombatAccentKind.action;
-        boardEventLabel = action.isHealing ? 'HEAL $amount' : '$amount DAMAGE';
-        boardEventKind = action.isHealing ? 'heal' : 'damage';
-        detail =
-            '${result.formula} - ${result.rollsText}.$passiveDetail ${target.name} $verb $amount $suffix (${_hpChangeLine(target, hpResult)}).';
-
-        if (!action.isHealing && target.hp > 0 && hpResult.hp == 0) {
-          _activity.insert(
-            0,
-            _CombatLogEntry.system('${target.name} is down.'),
-          );
-          _targetIndex = _findDefaultTargetIndex(_activeIndex);
-        }
-        _pendingDamageActions.remove(actionKey);
-        _pendingHalfDamageActions.remove(actionKey);
-        _selectBestCommandTimingAfterDamageResolution();
       }
 
-      _activity.insert(
-        0,
-        _CombatLogEntry.roll(
+      String? boardEventLabel;
+      var boardEventKind = 'focus';
+      setState(() {
+        if (!canResolvePendingDamage) {
+          _resetQueuedPreparedActions();
+        }
+        String? detail;
+        String headline;
+        String? subline;
+        CombatAccentKind feedbackKind = action.accentKind;
+        if (rollType == CombatActionRoll.attack ||
+            rollType == CombatActionRoll.savingThrow ||
+            !canResolvePendingDamage) {
+          _spendActionOrAttackSlot(action, rollType);
+          _markOncePerTurnActionUse(_activeCombatant, action);
+          _spendEngineActionResource(action);
+          final economyMessage = _applyActionEconomyEffect(action);
+          if (economyMessage != null) {
+            _activity.insert(0, CombatLogEntry.system(economyMessage));
+          }
+          final condition = _applyActionState(action);
+          if (condition != null) {
+            _applyEngineCondition(
+              actor: _activeCombatant,
+              target: _activeCombatant,
+              name: condition,
+              sourceActionName: action.name,
+            );
+            _syncUiFromEncounter();
+          } else {
+            _syncUiFromEncounter();
+          }
+        }
+
+        if (rollType == CombatActionRoll.attack) {
+          final targetIndex = _targetIndexForAction(action);
+          if (targetIndex == null) return;
+          final target = _combatants[targetIndex];
+          final outcome = _attackOutcome(result, target, action);
+          if (outcome == 'hit' || outcome == 'critical hit') {
+            _pendingDamageActions.add(actionKey);
+            _pendingHalfDamageActions.remove(actionKey);
+            _queueOnHitPromptIfAvailable(target.name);
+            _selectBestCommandTimingAfterAttackRoll(didHit: true);
+          } else {
+            _pendingDamageActions.remove(actionKey);
+            _pendingHalfDamageActions.remove(actionKey);
+            _selectBestCommandTimingAfterAttackRoll(didHit: false);
+          }
+          headline = outcome.toUpperCase();
+          subline =
+              '${_activeCombatant.name} vs ${target.name} AC ${target.ac}';
+          feedbackKind = switch (outcome) {
+            'critical hit' => CombatAccentKind.support,
+            'hit' => CombatAccentKind.action,
+            'automatic miss' => CombatAccentKind.info,
+            _ => CombatAccentKind.read,
+          };
+          boardEventLabel = switch (outcome) {
+            'critical hit' => 'CRIT ${result.total}',
+            'hit' => 'HIT ${result.total}',
+            _ => 'MISS ${result.total}',
+          };
+          boardEventKind = switch (outcome) {
+            'critical hit' => 'critical',
+            'hit' => 'hit',
+            _ => 'miss',
+          };
+          detail =
+              '${result.formula} - ${result.rollsText}. ${target.name} AC ${target.ac}: $outcome.';
+        } else if (rollType == CombatActionRoll.savingThrow) {
+          final targetIndex = _targetIndexForAction(action);
+          if (targetIndex == null) return;
+          final target = _combatants[targetIndex];
+          final saveDc = action.saveDc ?? 10;
+          final success = result.total >= saveDc;
+          if (!success) {
+            final failureCondition = _savingThrowFailureCondition(action);
+            if (failureCondition != null) {
+              final nextCombatants = [..._combatants];
+              nextCombatants[targetIndex] = _combatantWithCondition(
+                target,
+                failureCondition,
+              );
+              _combatants = nextCombatants;
+              _applyEngineCondition(
+                actor: _activeCombatant,
+                target: target,
+                name: failureCondition,
+                sourceActionName: action.name,
+              );
+              _syncUiFromEncounter();
+            }
+          }
+          if (action.damageFormula != null &&
+              _savingThrowUsesEvasion(action, target)) {
+            if (success) {
+              _pendingDamageActions.remove(actionKey);
+              _pendingHalfDamageActions.remove(actionKey);
+              _activity.insert(
+                0,
+                CombatLogEntry.system(
+                  '${target.name} avoids all ${action.name} damage with Evasion.',
+                ),
+              );
+            } else {
+              _pendingDamageActions.add(actionKey);
+              _pendingHalfDamageActions.add(actionKey);
+            }
+          } else if (!success && action.damageFormula != null) {
+            _pendingDamageActions.add(actionKey);
+            _pendingHalfDamageActions.remove(actionKey);
+          } else if (success &&
+              action.damageFormula != null &&
+              action.halfDamageOnSave) {
+            _pendingDamageActions.add(actionKey);
+            _pendingHalfDamageActions.add(actionKey);
+          } else {
+            _pendingDamageActions.remove(actionKey);
+            _pendingHalfDamageActions.remove(actionKey);
+          }
+          headline = success ? 'SAVE SUCCESS' : 'SAVE FAILED';
+          subline =
+              '${target.name} ${action.saveAbility} ${result.total} vs DC $saveDc';
+          feedbackKind =
+              success ? CombatAccentKind.read : CombatAccentKind.magic;
+          boardEventLabel =
+              success ? 'SAVE ${result.total}' : 'FAIL ${result.total}';
+          boardEventKind = success ? 'miss' : 'hit';
+          detail =
+              '${result.formula} - ${result.rollsText}. ${target.name} ${success ? 'succeeds' : 'fails'} ${action.saveAbility} save vs DC $saveDc.';
+        } else {
+          final targetIndex = _targetIndexForAction(action);
+          if (targetIndex == null) return;
+          final target = _combatants[targetIndex];
+          final isHalfDamage = !action.isHealing &&
+              _pendingHalfDamageActions.contains(actionKey);
+          final damageBonus = isHalfDamage
+              ? 0
+              : _situationalDamageBonus(_activeCombatant, action);
+          final passiveDamageResult = passiveDamageResultForResolvedDamage;
+          final amount = isHalfDamage
+              ? (result.total / 2).floor()
+              : result.total + damageBonus + (passiveDamageResult?.total ?? 0);
+          final hpResult = _resolveHpChange(
+            target,
+            amount,
+            healing: action.isHealing,
+          );
+          final nextCombatants = [..._combatants];
+          nextCombatants[targetIndex] = target.copyWith(
+            hp: hpResult.hp,
+            tempHp: hpResult.tempHp,
+          );
+          _combatants = nextCombatants;
+          _applyEngineHpChange(
+            actor: _activeCombatant,
+            target: target,
+            amount: amount,
+            healing: action.isHealing,
+            action: action,
+            formula: result.formula,
+          );
+          _syncUiFromEncounter();
+
+          final verb = action.isHealing ? 'recovers' : 'takes';
+          final suffix = action.isHealing
+              ? 'HP'
+              : isHalfDamage
+                  ? 'half damage'
+                  : 'damage';
+          final passiveDetail = passiveDamageResult == null
+              ? ''
+              : ' Improved Divine Smite adds ${passiveDamageResult.total} radiant (${passiveDamageResult.rollsText}).';
+          headline = action.isHealing
+              ? 'HEAL $amount'
+              : isHalfDamage
+                  ? '$amount HALF DAMAGE'
+                  : '$amount DAMAGE';
+          subline = _hpChangeLine(target, hpResult);
+          feedbackKind = action.isHealing
+              ? CombatAccentKind.support
+              : CombatAccentKind.action;
+          boardEventLabel =
+              action.isHealing ? 'HEAL $amount' : '$amount DAMAGE';
+          boardEventKind = action.isHealing ? 'heal' : 'damage';
+          detail =
+              '${result.formula} - ${result.rollsText}.$passiveDetail ${target.name} $verb $amount $suffix (${_hpChangeLine(target, hpResult)}).';
+
+          if (!action.isHealing && target.hp > 0 && hpResult.hp == 0) {
+            _activity.insert(
+              0,
+              CombatLogEntry.system('${target.name} is down.'),
+            );
+            _targetIndex = _findDefaultTargetIndex(_activeIndex);
+          }
+          _pendingDamageActions.remove(actionKey);
+          _pendingHalfDamageActions.remove(actionKey);
+          _selectBestCommandTimingAfterDamageResolution();
+        }
+
+        _activity.insert(
+          0,
+          CombatLogEntry.roll(
+            actor: _activeCombatant.name,
+            action: action.name,
+            result: result,
+            detail: detail,
+          ),
+        );
+        _rollFeedback = CombatRollFeedback(
           actor: _activeCombatant.name,
           action: action.name,
           result: result,
-          detail: detail,
+          headline: headline,
+          subline: subline,
+          accentKind: feedbackKind,
+        );
+      });
+      unawaited(
+        _syncBattleBoardTokensFromCombatState(
+          eventLabel: boardEventLabel,
+          eventKind: boardEventKind,
+          eventDiceNotation: boardEventDiceNotation,
+          eventResultLabel: boardEventLabel ?? '',
+          eventResultDetail: CombatDiceResultFormatter.detail(result),
+          eventAuthoritativeDice:
+              CombatDiceResultFormatter.authoritativeDiceJson(result),
+          eventIdOverride: _consumeBoardResolvedRollEventId(),
+          eventDamageType: action.isHealing ? '' : action.damageType ?? '',
         ),
       );
-      _rollFeedback = _CombatRollFeedback(
-        actor: _activeCombatant.name,
-        action: action.name,
-        result: result,
-        headline: headline,
-        subline: subline,
-        accentKind: feedbackKind,
-      );
-    });
-    unawaited(
-      _syncBattleBoardTokensFromCombatState(
-        eventLabel: boardEventLabel,
-        eventKind: boardEventKind,
-        eventDiceNotation: boardEventDiceNotation,
-        eventResultLabel: boardEventLabel ?? '',
-        eventResultDetail: _diceResultDetail(result),
-      ),
-    );
+    } finally {
+      _endCombatResolution(resolutionKey);
+    }
   }
 
-  void _resolveAreaSavingThrowAction(_CombatAction action) {
+  Future<void> _rollDeathSavingThrowForActiveCombatant() async {
+    final combatant = _activeCombatant;
+    if (!_combatantCanOnlyDeathSave(combatant)) return;
+    if (!_ensureCanControlCombatant(
+      combatant,
+      actionLabel: 'hacer death save',
+    )) {
+      return;
+    }
+
+    final result = await _rollCombatFormulaAwaitingBoard(
+      formula: 'd20',
+      label: '${combatant.name} Death Saving Throw',
+      useRollMode: true,
+    );
+    final roll = _naturalD20(result) ?? result.total;
+    final characterId =
+        _characterSnapshotForCombatantId(combatant.id)?.characterId.trim();
+    var message = '';
+    var healedToOne = false;
+
+    setState(() {
+      if (roll == 1) {
+        message = 'Natural 1: two death save failures.';
+      } else if (roll == 20) {
+        message = 'Natural 20: ${combatant.name} regains 1 HP.';
+        healedToOne = true;
+        final nextCombatants = [..._combatants];
+        nextCombatants[_activeIndex] = combatant.copyWith(hp: 1);
+        _combatants = nextCombatants;
+        final encounter = _encounter;
+        if (encounter != null) {
+          _encounter = CombatEncounterEngine.applyHealing(
+            encounter,
+            sourceId: combatant.id,
+            targetId: combatant.id,
+            amount: 1,
+            formula: 'Death Save natural 20',
+          );
+          _syncUiFromEncounter();
+        }
+      } else if (roll >= 10) {
+        message = 'Death save success.';
+      } else {
+        message = 'Death save failure.';
+      }
+      _activity.insert(
+        0,
+        CombatLogEntry.roll(
+          actor: combatant.name,
+          action: 'Death Saving Throw',
+          result: result,
+          detail: '${result.formula} - ${result.rollsText}. $message',
+        ),
+      );
+      _rollFeedback = CombatRollFeedback(
+        actor: combatant.name,
+        action: 'Death Saving Throw',
+        result: result,
+        headline: roll == 20
+            ? 'NAT 20'
+            : roll == 1
+                ? 'NAT 1'
+                : roll >= 10
+                    ? 'SUCCESS'
+                    : 'FAILURE',
+        subline: message,
+        accentKind:
+            roll >= 10 ? CombatAccentKind.read : CombatAccentKind.action,
+      );
+    });
+
+    if (characterId != null && characterId.isNotEmpty) {
+      final provider = _characterProvider;
+      if (provider != null) {
+        await provider.updateCharacterById(characterId, (character) {
+          if ((character.currentHp ?? 0) > 0 && !healedToOne) return;
+          if (roll == 1) {
+            character.deathSaveFailures =
+                (character.deathSaveFailures + 2).clamp(0, 3).toInt();
+          } else if (roll == 20) {
+            character.currentHp = 1;
+            character.deathSaveSuccesses = 0;
+            character.deathSaveFailures = 0;
+          } else if (roll >= 10) {
+            character.deathSaveSuccesses =
+                (character.deathSaveSuccesses + 1).clamp(0, 3).toInt();
+          } else {
+            character.deathSaveFailures =
+                (character.deathSaveFailures + 1).clamp(0, 3).toInt();
+          }
+        });
+      }
+    }
+
+    if (healedToOne) {
+      _queueCharacterCombatSnapshot(combatant.id, flushNow: true);
+    }
+    if (_showBattleBoardController) {
+      unawaited(
+        _syncBattleBoardTokensFromCombatState(
+          eventLabel: roll >= 10 ? 'DEATH SAVE OK' : 'DEATH SAVE FAIL',
+          eventKind: roll >= 10 ? 'focus' : 'blocked',
+          eventDiceNotation:
+              CombatDiceResultFormatter.diceBoxNotation(result) ?? '',
+          eventResultLabel:
+              roll >= 10 ? 'SAVE ${result.total}' : 'FAIL ${result.total}',
+          eventResultDetail: CombatDiceResultFormatter.detail(result),
+          eventAuthoritativeDice:
+              CombatDiceResultFormatter.authoritativeDiceJson(result),
+          eventIdOverride: _consumeBoardResolvedRollEventId(),
+          eventTargetIds: {combatant.id},
+          eventDiceTargetId: combatant.id,
+          eventSourceRefId: combatant.id,
+          eventPrimaryTargetRefId: combatant.id,
+        ),
+      );
+    }
+  }
+
+  void _resolveAreaSavingThrowAction(CombatAction action) {
+    final actionKey = _actionExecutionKey(action);
+    final existingPending = _pendingAreaSavingThrow;
+    if (existingPending != null) {
+      if (existingPending.matches(
+        actorId: _activeCombatant.id,
+        actionKey: actionKey,
+      )) {
+        unawaited(_rollPendingAreaSavingThrowAsync(action));
+        return;
+      }
+
+      setState(() {
+        _activity.insert(
+          0,
+          CombatLogEntry.system(
+            'Resolve ${existingPending.action.name} before starting ${action.name}.',
+          ),
+        );
+      });
+      return;
+    }
+
     final targetIndices = _areaTargetIndicesForAction(action);
     if (targetIndices.isEmpty) {
       setState(() {
         _activity.insert(
           0,
-          _CombatLogEntry.system('${action.name} has no affected targets.'),
+          CombatLogEntry.system('${action.name} has no affected targets.'),
         );
       });
       return;
     }
 
     final saveDc = action.saveDc ?? 10;
-    final damageResult = action.damageFormula == null
-        ? null
-        : DiceRollerService.rollFormula(
-            formula: action.damageFormula!,
-            label: '${action.name} Damage',
-          );
-    DiceRollResult? lastSaveResult;
-    var successes = 0;
-    var failures = 0;
-    var totalDamage = 0;
+    final affectedTargetIds = <String>{
+      for (final index in targetIndices)
+        if (index >= 0 && index < _combatants.length) _combatants[index].id,
+    };
+    final primaryTargetIndex = _targetIndexForAction(action);
+    final primaryTargetId =
+        primaryTargetIndex == null ? null : _combatants[primaryTargetIndex].id;
+    final diceTargetId =
+        primaryTargetId != null && affectedTargetIds.contains(primaryTargetId)
+            ? primaryTargetId
+            : affectedTargetIds.isEmpty
+                ? primaryTargetId
+                : affectedTargetIds.first;
+    final areaAimPoint = _areaAimPointForAction(action);
 
     setState(() {
       _resetQueuedPreparedActions();
-      _pendingDamageActions.remove(_actionExecutionKey(action));
-      _pendingHalfDamageActions.remove(_actionExecutionKey(action));
-      _spendActionOrAttackSlot(action, _CombatActionRoll.savingThrow);
+      _pendingDamageActions.add(actionKey);
+      _pendingHalfDamageActions.remove(actionKey);
+      _spendActionOrAttackSlot(action, CombatActionRoll.savingThrow);
       _spendEngineActionResource(action);
       final economyMessage = _applyActionEconomyEffect(action);
       if (economyMessage != null) {
-        _activity.insert(0, _CombatLogEntry.system(economyMessage));
+        _activity.insert(0, CombatLogEntry.system(economyMessage));
       }
       final condition = _applyActionState(action);
       if (condition != null) {
@@ -4018,38 +5070,152 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
           sourceActionName: action.name,
         );
       }
+      _pendingAreaSavingThrow = PendingAreaSavingThrow(
+        actorId: _activeCombatant.id,
+        actionKey: actionKey,
+        action: action,
+        targetIds: targetIndices
+            .where((index) => index >= 0 && index < _combatants.length)
+            .map((index) => _combatants[index].id)
+            .toList(growable: false),
+        primaryTargetId: primaryTargetId,
+        diceTargetId: diceTargetId,
+        areaAimPoint: areaAimPoint,
+      );
+      final pending = _pendingAreaSavingThrow;
+      final firstSaveIndex =
+          pending == null ? null : _nextPendingAreaSaveTargetIndex(pending);
+      final firstSaveTarget =
+          firstSaveIndex == null ? null : _combatants[firstSaveIndex];
+      if (firstSaveIndex != null) {
+        _targetIndex = firstSaveIndex;
+      }
+      _activity.insert(
+        0,
+        CombatLogEntry.system(
+          '${action.name}: waiting for ${targetIndices.length} ${action.saveAbility} saving throw${targetIndices.length == 1 ? '' : 's'} before damage.',
+        ),
+      );
+      _rollFeedback = CombatRollFeedback.manual(
+        actor: _activeCombatant.name,
+        action: action.name,
+        headline: 'SAVES PENDING',
+        subline: firstSaveTarget == null
+            ? '${targetIndices.length} target${targetIndices.length == 1 ? '' : 's'} - DC $saveDc ${action.saveAbility}'
+            : '${firstSaveTarget.name} must roll ${action.saveAbility} DC $saveDc',
+        accentKind: CombatAccentKind.magic,
+      );
+    });
 
-      var nextEncounter = _encounter;
-      final nextCombatants = [..._combatants];
-      for (final targetIndex in targetIndices) {
-        if (targetIndex < 0 || targetIndex >= nextCombatants.length) continue;
-        final target = nextCombatants[targetIndex];
-        if (target.hp <= 0) continue;
+    if (_showBattleBoardController) {
+      unawaited(
+        _syncBattleBoardTokensFromCombatState(
+          eventLabel: 'SAVE DC $saveDc',
+          eventKind: 'focus',
+          eventDiceNotation: '',
+          eventResultLabel: 'SAVE DC $saveDc',
+          eventResultDetail:
+              '${targetIndices.length} target${targetIndices.length == 1 ? '' : 's'} must roll ${action.saveAbility}.',
+          eventAuthoritativeDice: '',
+          eventDamageType: action.damageType ?? '',
+          eventTargetIds: affectedTargetIds,
+          eventDiceTargetId: diceTargetId,
+          eventSourceRefId: _activeCombatant.id,
+          eventPrimaryTargetRefId: primaryTargetId,
+          eventAreaShape: action.areaShape,
+          eventAreaFeet: action.areaFeet,
+          eventAreaTargetX: areaAimPoint?.x,
+          eventAreaTargetY: areaAimPoint?.y,
+        ),
+      );
+    }
+  }
 
-        final saveResult = _rollCombatFormula(
-          formula: _savingThrowFormulaForTarget(target, action.saveAbility!),
-          label: '${target.name} ${action.saveAbility} Save',
-          useRollMode: true,
+  void _rollPendingAreaSavingThrow(CombatAction action) {
+    if (_combatRollInFlight) return;
+    unawaited(_rollPendingAreaSavingThrowAsync(action));
+  }
+
+  Future<void> _rollPendingAreaSavingThrowAsync(CombatAction action) async {
+    final pending = _pendingAreaSavingThrow;
+    if (pending == null) return;
+    final targetIndex = _nextPendingAreaSaveTargetIndex(
+      pending,
+      controllableOnly: !_dmView && !_devCombatMode,
+    );
+    if (targetIndex == null) {
+      final nextAnyTarget = _nextPendingAreaSaveTargetIndex(pending);
+      if (nextAnyTarget == null) {
+        await _finishPendingAreaSavingThrowAsync();
+      } else {
+        final target = _combatants[nextAnyTarget];
+        setState(() {
+          _activity.insert(
+            0,
+            CombatLogEntry.system(
+              'Waiting for ${target.name} to roll ${pending.action.saveAbility} save.',
+            ),
+          );
+          _rollFeedback = CombatRollFeedback.manual(
+            actor: target.name,
+            action: '${pending.action.name} save',
+            headline: 'SAVE REQUIRED',
+            subline:
+                '${target.name} must roll ${pending.action.saveAbility} DC ${pending.action.saveDc ?? 10}',
+            accentKind: CombatAccentKind.magic,
+          );
+        });
+      }
+      return;
+    }
+
+    final target = _combatants[targetIndex];
+    final resolutionKey =
+        'area-save:${pending.actorId}:${pending.actionKey}:${target.id}';
+    if (!_beginCombatResolution(resolutionKey)) return;
+    try {
+      final saveDc = pending.action.saveDc ?? 10;
+      final saveResult = await _rollCombatFormulaAwaitingBoard(
+        formula: _savingThrowFormulaForTarget(
+          target,
+          pending.action.saveAbility!,
+        ),
+        label: '${target.name} ${pending.action.saveAbility} Save',
+        useRollMode: true,
+        forceAdvantage: _savingThrowHasAdvantage(
+          target,
+          pending.action.saveAbility!,
+          sourceAction: pending.action,
+        ),
+        forceDisadvantage: _savingThrowHasDisadvantage(
+          target,
+          pending.action.saveAbility!,
+          sourceAction: pending.action,
+        ),
+      );
+      final success = saveResult.total >= saveDc;
+      final failureCondition = _savingThrowFailureCondition(pending.action);
+      var completed = false;
+
+      setState(() {
+        var nextEncounter = _encounter;
+        final nextCombatants = [..._combatants];
+        pending.outcomes[target.id] = PendingAreaSaveOutcome(
+          result: saveResult,
+          success: success,
         );
-        lastSaveResult = saveResult;
-        final success = saveResult.total >= saveDc;
-        if (success) {
-          successes += 1;
-        } else {
-          failures += 1;
-        }
+
         _activity.insert(
           0,
-          _CombatLogEntry.roll(
+          CombatLogEntry.roll(
             actor: target.name,
-            action: '${action.name} save',
+            action: '${pending.action.name} save',
             result: saveResult,
             detail:
-                '${saveResult.formula} - ${saveResult.rollsText}. ${target.name} ${success ? 'succeeds' : 'fails'} ${action.saveAbility} save vs DC $saveDc.',
+                '${saveResult.formula} - ${saveResult.rollsText}. ${target.name} ${success ? 'succeeds' : 'fails'} ${pending.action.saveAbility} save vs DC $saveDc.',
           ),
         );
 
-        final failureCondition = _savingThrowFailureCondition(action);
         if (!success && failureCondition != null) {
           nextCombatants[targetIndex] = _combatantWithCondition(
             nextCombatants[targetIndex],
@@ -4062,118 +5228,287 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
                 id: '${target.id}_${failureCondition.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_')}',
                 name: failureCondition,
                 kind: encounter_models.CombatEffectKind.condition,
-                sourceCombatantId: _activeCombatant.id,
+                sourceCombatantId: pending.actorId,
                 targetCombatantId: target.id,
                 startedRound: _round,
                 endsAtRound: _round + 10,
                 visibleToPlayers: true,
-                mechanics: {'sourceAction': action.name},
+                mechanics: {'sourceAction': pending.action.name},
               ),
             );
           }
           _activity.insert(
             0,
-            _CombatLogEntry.system('${target.name} is $failureCondition.'),
+            CombatLogEntry.system('${target.name} is $failureCondition.'),
           );
         }
 
-        if (damageResult == null || (success && !action.halfDamageOnSave)) {
-          continue;
-        }
-
-        final amount = _savingThrowDamageAmount(
-          action: action,
-          target: target,
-          success: success,
-          rolledDamage: damageResult.total,
-        );
-        if (amount <= 0) {
-          _activity.insert(
-            0,
-            _CombatLogEntry.system(
-              '${target.name} avoids all ${action.name} damage with Evasion.',
-            ),
-          );
-          continue;
-        }
-        final hpResult = _resolveHpChange(target, amount, healing: false);
-        nextCombatants[targetIndex] = target.copyWith(
-          hp: hpResult.hp,
-          tempHp: hpResult.tempHp,
-        );
-        totalDamage += amount;
+        _combatants = nextCombatants;
         if (nextEncounter != null) {
-          nextEncounter = CombatEncounterEngine.applyDamage(
-            nextEncounter,
-            sourceId: _activeCombatant.id,
-            targetId: target.id,
-            amount: amount,
-            actionId: action.id.isEmpty ? null : action.id,
-            formula: damageResult.formula,
-          );
-          _queueCharacterCombatSnapshot(target.id);
+          _encounter = nextEncounter;
+          _syncUiFromEncounter();
         }
-        _activity.insert(
-          0,
-          _CombatLogEntry.roll(
-            actor: _activeCombatant.name,
-            action: '${action.name} damage',
-            result: damageResult,
-            detail:
-                '${damageResult.formula} - ${damageResult.rollsText}. ${target.name} takes $amount ${_savingThrowDamageLabel(action: action, target: target, success: success)} (${_hpChangeLine(target, hpResult)}).',
+
+        final remaining = pending.unresolvedTargetIds.length;
+        _rollFeedback = CombatRollFeedback(
+          actor: target.name,
+          action: '${pending.action.name} save',
+          result: saveResult,
+          headline: success ? 'SAVE SUCCESS' : 'SAVE FAILED',
+          subline: remaining == 0
+              ? 'All saves resolved'
+              : '$remaining save${remaining == 1 ? '' : 's'} remaining',
+          accentKind: success ? CombatAccentKind.read : CombatAccentKind.magic,
+        );
+
+        final nextTargetIndex = _nextPendingAreaSaveTargetIndex(pending);
+        if (nextTargetIndex != null) {
+          _targetIndex = nextTargetIndex;
+        }
+        completed = pending.isComplete;
+      });
+
+      if (_showBattleBoardController) {
+        unawaited(
+          _syncBattleBoardTokensFromCombatState(
+            eventLabel: success
+                ? 'SAVE ${saveResult.total}'
+                : 'FAIL ${saveResult.total}',
+            eventKind: success ? 'miss' : 'hit',
+            eventDiceNotation:
+                CombatDiceResultFormatter.diceBoxNotation(saveResult) ?? '',
+            eventResultLabel: success
+                ? 'SAVE ${saveResult.total}'
+                : 'FAIL ${saveResult.total}',
+            eventResultDetail: CombatDiceResultFormatter.detail(saveResult),
+            eventAuthoritativeDice:
+                CombatDiceResultFormatter.authoritativeDiceJson(saveResult),
+            eventIdOverride: _consumeBoardResolvedRollEventId(),
+            eventDamageType: pending.action.damageType ?? '',
+            eventTargetIds: pending.targetIds.toSet(),
+            eventDiceTargetId: target.id,
+            eventSourceRefId: pending.actorId,
+            eventPrimaryTargetRefId: pending.primaryTargetId,
+            eventAreaShape: pending.action.areaShape,
+            eventAreaFeet: pending.action.areaFeet,
+            eventAreaTargetX: pending.areaAimPoint?.x,
+            eventAreaTargetY: pending.areaAimPoint?.y,
           ),
         );
-        if (target.hp > 0 && hpResult.hp == 0) {
-          _activity.insert(
-            0,
-            _CombatLogEntry.system('${target.name} is down.'),
-          );
-        }
       }
 
-      _combatants = nextCombatants;
-      if (nextEncounter != null) {
-        _encounter = nextEncounter;
-        _syncUiFromEncounter();
+      if (completed) {
+        await _finishPendingAreaSavingThrowAsync();
       }
-      _rollFeedback = _CombatRollFeedback(
-        actor: _activeCombatant.name,
-        action: action.name,
-        result: damageResult ?? lastSaveResult,
-        headline: damageResult == null
-            ? '$failures FAILED / $successes SAVED'
-            : '$totalDamage AREA DAMAGE',
-        subline:
-            '${targetIndices.length} target${targetIndices.length == 1 ? '' : 's'} - DC $saveDc ${action.saveAbility}',
-        accentKind:
-            totalDamage > 0 ? _CombatAccentKind.magic : _CombatAccentKind.read,
-      );
-    });
-
-    if (_showBattleBoardController) {
-      unawaited(
-        _syncBattleBoardTokensFromCombatState(
-          eventLabel:
-              damageResult == null ? '$failures FAIL' : '$totalDamage AREA',
-          eventKind: totalDamage > 0 ? 'damage' : 'focus',
-          eventDiceNotation: damageResult == null
-              ? lastSaveResult == null
-                  ? ''
-                  : _diceBoxNotationForRollResult(lastSaveResult!) ?? ''
-              : _diceBoxNotationForRollResult(damageResult) ?? '',
-          eventResultLabel:
-              damageResult == null ? '$failures FAIL' : '$totalDamage AREA',
-          eventResultDetail: damageResult == null
-              ? lastSaveResult == null
-                  ? '${targetIndices.length} targets - DC $saveDc'
-                  : _diceResultDetail(lastSaveResult!)
-              : _diceResultDetail(damageResult),
-        ),
-      );
+    } finally {
+      _endCombatResolution(resolutionKey);
     }
   }
 
-  List<int> _areaTargetIndicesForAction(_CombatAction action) {
+  void _finishPendingAreaSavingThrow() {
+    unawaited(_finishPendingAreaSavingThrowAsync());
+  }
+
+  Future<void> _finishPendingAreaSavingThrowAsync() async {
+    final pending = _pendingAreaSavingThrow;
+    if (pending == null) return;
+    final action = pending.action;
+    final actionKey = pending.actionKey;
+    final resolutionKey = 'area-finish:${pending.actorId}:$actionKey';
+    if (!_beginCombatResolution(resolutionKey)) return;
+    try {
+      final saveDc = action.saveDc ?? 10;
+      final damageResult = action.damageFormula == null
+          ? null
+          : await _rollCombatFormulaAwaitingBoard(
+              formula: action.damageFormula!,
+              label: '${action.name} Damage',
+            );
+      final successes =
+          pending.outcomes.values.where((item) => item.success).length;
+      final failures = pending.outcomes.length - successes;
+      var totalDamage = 0;
+
+      setState(() {
+        var nextEncounter = _encounter;
+        final nextCombatants = [..._combatants];
+
+        if (damageResult != null) {
+          for (final targetId in pending.targetIds) {
+            final outcome = pending.outcomes[targetId];
+            if (outcome == null) continue;
+            final targetIndex = _combatantIndexById(targetId, nextCombatants);
+            if (targetIndex == null) continue;
+            final target = nextCombatants[targetIndex];
+            if (target.hp <= 0) continue;
+            if (outcome.success && !action.halfDamageOnSave) continue;
+
+            final damageResolution = _resolveSavingThrowDamage(
+              action: action,
+              target: target,
+              success: outcome.success,
+              rolledDamage: damageResult.total,
+            );
+            final amount = damageResolution.amount;
+            if (damageResolution.absorbElementsAction != null) {
+              _applyAbsorbElementsReactionCost(
+                target,
+                damageResolution.absorbElementsAction!,
+                encounterOverride: (next) => nextEncounter = next,
+                currentEncounter: nextEncounter,
+              );
+            }
+            if (amount <= 0) {
+              _activity.insert(
+                0,
+                CombatLogEntry.system(
+                  '${target.name} avoids all ${action.name} damage${damageResolution.labelSuffix}.',
+                ),
+              );
+              continue;
+            }
+
+            final hpResult = _resolveHpChange(target, amount, healing: false);
+            nextCombatants[targetIndex] = target.copyWith(
+              hp: hpResult.hp,
+              tempHp: hpResult.tempHp,
+            );
+            totalDamage += amount;
+            final encounterForDamage = nextEncounter;
+            if (encounterForDamage != null) {
+              nextEncounter = CombatEncounterEngine.applyDamage(
+                encounterForDamage,
+                sourceId: pending.actorId,
+                targetId: target.id,
+                amount: amount,
+                actionId: action.id.isEmpty ? null : action.id,
+                formula: damageResult.formula,
+              );
+              _queueCharacterCombatSnapshot(target.id);
+            }
+            _activity.insert(
+              0,
+              CombatLogEntry.roll(
+                actor: _activeCombatant.name,
+                action: '${action.name} damage',
+                result: damageResult,
+                detail:
+                    '${damageResult.formula} - ${damageResult.rollsText}. ${target.name} takes $amount ${damageResolution.label} (${_hpChangeLine(target, hpResult)}).',
+              ),
+            );
+            if (target.hp > 0 && hpResult.hp == 0) {
+              _activity.insert(
+                0,
+                CombatLogEntry.system('${target.name} is down.'),
+              );
+            }
+          }
+        }
+
+        _combatants = nextCombatants;
+        if (nextEncounter != null) {
+          _encounter = nextEncounter;
+          _syncUiFromEncounter();
+        }
+        _pendingDamageActions.remove(actionKey);
+        _pendingHalfDamageActions.remove(actionKey);
+        _pendingAreaSavingThrow = null;
+        _selectBestCommandTimingAfterDamageResolution();
+        _activity.insert(
+          0,
+          CombatLogEntry.system(
+            damageResult == null
+                ? '${action.name} saves resolved: $failures failed / $successes saved.'
+                : '${action.name} resolved after all saves: $totalDamage total damage.',
+          ),
+        );
+        _rollFeedback = CombatRollFeedback(
+          actor: _activeCombatant.name,
+          action: action.name,
+          result: damageResult ??
+              (pending.outcomes.isEmpty
+                  ? null
+                  : pending.outcomes.values.last.result),
+          headline: damageResult == null
+              ? '$failures FAILED / $successes SAVED'
+              : '$totalDamage AREA DAMAGE',
+          subline:
+              '${pending.targetIds.length} target${pending.targetIds.length == 1 ? '' : 's'} - DC $saveDc ${action.saveAbility}',
+          accentKind:
+              totalDamage > 0 ? CombatAccentKind.magic : CombatAccentKind.read,
+        );
+      });
+
+      if (_showBattleBoardController) {
+        unawaited(
+          _syncBattleBoardTokensFromCombatState(
+            eventLabel:
+                damageResult == null ? '$failures FAIL' : '$totalDamage AREA',
+            eventKind: totalDamage > 0 ? 'damage' : 'focus',
+            eventDiceNotation: damageResult == null
+                ? ''
+                : CombatDiceResultFormatter.diceBoxNotation(damageResult) ?? '',
+            eventResultLabel:
+                damageResult == null ? '$failures FAIL' : '$totalDamage AREA',
+            eventResultDetail: damageResult == null
+                ? '${pending.targetIds.length} targets - DC $saveDc'
+                : CombatDiceResultFormatter.detail(damageResult),
+            eventAuthoritativeDice: damageResult == null
+                ? ''
+                : CombatDiceResultFormatter.authoritativeDiceJson(damageResult),
+            eventIdOverride: damageResult == null
+                ? null
+                : _consumeBoardResolvedRollEventId(),
+            eventDamageType: action.damageType ?? '',
+            eventTargetIds: pending.targetIds.toSet(),
+            eventDiceTargetId: pending.diceTargetId,
+            eventSourceRefId: pending.actorId,
+            eventPrimaryTargetRefId: pending.primaryTargetId,
+            eventAreaShape: action.areaShape,
+            eventAreaFeet: action.areaFeet,
+            eventAreaTargetX: pending.areaAimPoint?.x,
+            eventAreaTargetY: pending.areaAimPoint?.y,
+          ),
+        );
+      }
+    } finally {
+      _endCombatResolution(resolutionKey);
+    }
+  }
+
+  int? _nextPendingAreaSaveTargetIndex(
+    PendingAreaSavingThrow pending, {
+    bool controllableOnly = false,
+  }) {
+    if (pending.unresolvedTargetIds.isEmpty) return null;
+    final selectedId = _selectedTarget.id;
+    if (pending.unresolvedTargetIds.contains(selectedId)) {
+      final selectedIndex = _combatantIndexById(selectedId);
+      if (selectedIndex != null &&
+          _combatants[selectedIndex].hp > 0 &&
+          (!controllableOnly ||
+              _canControlCombatant(_combatants[selectedIndex]))) {
+        return selectedIndex;
+      }
+    }
+    for (final targetId in pending.unresolvedTargetIds) {
+      final index = _combatantIndexById(targetId);
+      if (index != null &&
+          _combatants[index].hp > 0 &&
+          (!controllableOnly || _canControlCombatant(_combatants[index]))) {
+        return index;
+      }
+    }
+    return null;
+  }
+
+  int? _combatantIndexById(String combatantId, [List<Combatant>? source]) {
+    final list = source ?? _combatants;
+    final index = list.indexWhere((combatant) => combatant.id == combatantId);
+    return index < 0 ? null : index;
+  }
+
+  List<int> _areaTargetIndicesForAction(CombatAction action) {
     final primaryTargetIndex = _targetIndexForAction(action);
     if (primaryTargetIndex == null) return const [];
     if (!action.hasAreaEffect) return [primaryTargetIndex];
@@ -4184,34 +5519,208 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     final sceneTokens = boardProvider.tokens
         .where((token) => token.sceneId == sceneId)
         .toList(growable: false);
-    final primaryToken =
-        _boardTokenByRef(sceneTokens, _combatants[primaryTargetIndex].id);
-    final actorToken = _boardTokenByRef(sceneTokens, _activeCombatant.id);
+    final primaryToken = CombatBoardTokenLookup.byRef(
+        sceneTokens, _combatants[primaryTargetIndex].id);
+    final actorToken =
+        CombatBoardTokenLookup.byRef(sceneTokens, _activeCombatant.id);
     if (primaryToken == null) return [primaryTargetIndex];
+    final aimToken = _areaAimTokenForAction(
+      action: action,
+      sceneId: sceneId,
+      sceneTokens: sceneTokens,
+      fallbackToken: primaryToken,
+    );
 
-    final affected = <int>{primaryTargetIndex};
-    final shape = action.areaShape.toLowerCase();
+    final affected = <int>{};
     for (var index = 0; index < _combatants.length; index++) {
       final candidate = _combatants[index];
       if (candidate.hp <= 0) continue;
-      if (!_isHostileTargetIndex(index)) continue;
-      final token = _boardTokenByRef(sceneTokens, candidate.id);
+      if (candidate.id == _activeCombatant.id) continue;
+      final token = CombatBoardTokenLookup.byRef(sceneTokens, candidate.id);
       if (token == null) continue;
 
-      final distanceFromOrigin = _boardDistanceFeet(primaryToken, token);
-      final distanceFromActor = actorToken == null
-          ? distanceFromOrigin
-          : _boardDistanceFeet(actorToken, token);
-      final affectedByShape = shape == 'line' || shape == 'cone'
-          ? distanceFromActor <= action.areaFeet
-          : distanceFromOrigin <= action.areaFeet;
+      final affectedByShape = _areaActionAffectsToken(
+        action: action,
+        originToken: aimToken,
+        candidateToken: token,
+        actorToken: actorToken,
+      );
       if (affectedByShape) affected.add(index);
     }
 
     return affected.toList(growable: false)..sort();
   }
 
-  String? _savingThrowFailureCondition(_CombatAction action) {
+  BoardToken _areaAimTokenForAction({
+    required CombatAction action,
+    required String sceneId,
+    required List<BoardToken> sceneTokens,
+    required BoardToken fallbackToken,
+  }) {
+    final activeToken =
+        CombatBoardTokenLookup.byRef(sceneTokens, _activeCombatant.id);
+    final aimX = activeToken?.selectedActionAimX ?? -1;
+    final aimY = activeToken?.selectedActionAimY ?? -1;
+    if (action.hasAreaEffect && aimX >= 0 && aimY >= 0) {
+      return BoardToken.create(
+        id: '${sceneId}_area_aim',
+        sceneId: sceneId,
+        refId: 'area-aim',
+        type: 'area',
+        name: 'Area Aim',
+        x: aimX,
+        y: aimY,
+        isVisible: false,
+      );
+    }
+    return fallbackToken;
+  }
+
+  math.Point<int>? _areaAimPointForAction(CombatAction action) {
+    if (!action.hasAreaEffect) return null;
+    final sceneId = _activeBattleBoardSceneId;
+    if (sceneId == null) return null;
+    final boardProvider = context.read<BattleBoardProvider>();
+    final sceneTokens = boardProvider.tokens
+        .where((token) => token.sceneId == sceneId)
+        .toList(growable: false);
+    final activeToken =
+        CombatBoardTokenLookup.byRef(sceneTokens, _activeCombatant.id);
+    if (activeToken != null &&
+        activeToken.selectedActionAimX >= 0 &&
+        activeToken.selectedActionAimY >= 0) {
+      return math.Point<int>(
+        activeToken.selectedActionAimX,
+        activeToken.selectedActionAimY,
+      );
+    }
+    final targetIndex = _targetIndexForAction(action);
+    if (targetIndex == null) return null;
+    final targetToken =
+        CombatBoardTokenLookup.byRef(sceneTokens, _combatants[targetIndex].id);
+    if (targetToken == null) return null;
+    return math.Point<int>(targetToken.x, targetToken.y);
+  }
+
+  bool _areaActionAffectsToken({
+    required CombatAction action,
+    required BoardToken originToken,
+    required BoardToken candidateToken,
+    BoardToken? actorToken,
+  }) {
+    final shape = action.areaShape.toLowerCase().trim();
+    final areaFeet = action.areaFeet;
+    if (areaFeet <= 0) return false;
+
+    if (shape == 'line') {
+      final origin = actorToken;
+      if (origin == null) {
+        return _tokenCenterDistanceFeet(originToken, candidateToken) <=
+            areaFeet;
+      }
+      return _tokenIsInLineArea(
+        actorToken: origin,
+        targetToken: originToken,
+        candidateToken: candidateToken,
+        lengthFeet: areaFeet,
+      );
+    }
+
+    if (shape == 'cone') {
+      final origin = actorToken;
+      if (origin == null) {
+        return _tokenCenterDistanceFeet(originToken, candidateToken) <=
+            areaFeet;
+      }
+      return _tokenIsInConeArea(
+        actorToken: origin,
+        targetToken: originToken,
+        candidateToken: candidateToken,
+        lengthFeet: areaFeet,
+      );
+    }
+
+    if (shape == 'cube') {
+      final origin = _tokenCenterFeet(originToken);
+      final candidate = _tokenCenterFeet(candidateToken);
+      final halfSideFeet = math.max(5.0, areaFeet / 2);
+      return (candidate.dx - origin.dx).abs() <= halfSideFeet &&
+          (candidate.dy - origin.dy).abs() <= halfSideFeet;
+    }
+
+    return _tokenCenterDistanceFeet(originToken, candidateToken) <= areaFeet;
+  }
+
+  bool _tokenIsInLineArea({
+    required BoardToken actorToken,
+    required BoardToken targetToken,
+    required BoardToken candidateToken,
+    required int lengthFeet,
+  }) {
+    final start = _tokenCenterFeet(actorToken);
+    final aim = _tokenCenterFeet(targetToken);
+    final candidate = _tokenCenterFeet(candidateToken);
+    final direction = aim - start;
+    final directionLength = direction.distance;
+    if (directionLength <= 0.001) {
+      return _tokenCenterDistanceFeet(actorToken, candidateToken) <= 5;
+    }
+
+    final candidateVector = candidate - start;
+    final projection = (candidateVector.dx * direction.dx +
+            candidateVector.dy * direction.dy) /
+        directionLength;
+    if (projection < 0 || projection > lengthFeet) return false;
+
+    final cross =
+        (candidateVector.dx * direction.dy - candidateVector.dy * direction.dx)
+            .abs();
+    final perpendicular = cross / directionLength;
+    final halfWidthFeet = 2.5 + candidateToken.size * 2.5;
+    return perpendicular <= halfWidthFeet;
+  }
+
+  bool _tokenIsInConeArea({
+    required BoardToken actorToken,
+    required BoardToken targetToken,
+    required BoardToken candidateToken,
+    required int lengthFeet,
+  }) {
+    final start = _tokenCenterFeet(actorToken);
+    final aim = _tokenCenterFeet(targetToken);
+    final candidate = _tokenCenterFeet(candidateToken);
+    final direction = aim - start;
+    final directionLength = direction.distance;
+    if (directionLength <= 0.001) {
+      return _tokenCenterDistanceFeet(actorToken, candidateToken) <= lengthFeet;
+    }
+
+    final candidateVector = candidate - start;
+    final candidateDistance = candidateVector.distance;
+    if (candidateDistance <= 0.001) return true;
+    if (candidateDistance > lengthFeet + candidateToken.size * 2.5) {
+      return false;
+    }
+
+    final cosine = (candidateVector.dx * direction.dx +
+            candidateVector.dy * direction.dy) /
+        (candidateDistance * directionLength);
+    const halfConeCosine = 0.8660254038; // 30 degrees.
+    return cosine >= halfConeCosine;
+  }
+
+  Offset _tokenCenterFeet(BoardToken token) {
+    return Offset(
+      (token.x + token.size / 2) * 5,
+      (token.y + token.size / 2) * 5,
+    );
+  }
+
+  double _tokenCenterDistanceFeet(BoardToken a, BoardToken b) {
+    return (_tokenCenterFeet(a) - _tokenCenterFeet(b)).distance;
+  }
+
+  String? _savingThrowFailureCondition(CombatAction action) {
     final text = '${action.name} ${action.tags.join(' ')}'.toLowerCase();
     if (text.contains('turn undead')) return 'Turned';
     if (text.contains('stunning strike') || text.contains('stunned')) {
@@ -4230,10 +5739,19 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     if (text.contains('pushing attack') || text.contains('pushed')) {
       return 'Pushed';
     }
+    if (text.contains('weakening breath') || text.contains('weakened')) {
+      return 'Weakened';
+    }
+    if (text.contains('sleep breath') || text.contains('unconscious')) {
+      return 'Unconscious';
+    }
+    if (text.contains('poisoned')) return 'Poisoned';
+    if (text.contains('restrained')) return 'Restrained';
+    if (text.contains('paralyzed')) return 'Paralyzed';
     return null;
   }
 
-  _Combatant _combatantWithCondition(_Combatant combatant, String condition) {
+  Combatant _combatantWithCondition(Combatant combatant, String condition) {
     if (combatant.conditions.contains(condition)) return combatant;
     return combatant.copyWith(
       conditions: [
@@ -4243,7 +5761,12 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     );
   }
 
-  void _useReaction(int actorIndex, _CombatAction action) {
+  void _useReaction(int actorIndex, CombatAction action) {
+    if (_combatRollInFlight) return;
+    unawaited(_useReactionAsync(actorIndex, action));
+  }
+
+  Future<void> _useReactionAsync(int actorIndex, CombatAction action) async {
     if (actorIndex < 0 ||
         actorIndex >= _combatants.length ||
         actorIndex == _activeIndex) {
@@ -4262,7 +5785,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       setState(() {
         _activity.insert(
           0,
-          _CombatLogEntry.system(
+          CombatLogEntry.system(
             '${actor.name} cannot use ${action.name} against an ally.',
           ),
         );
@@ -4274,7 +5797,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       setState(() {
         _activity.insert(
           0,
-          _CombatLogEntry.system(
+          CombatLogEntry.system(
             '${actor.name} has already spent a reaction.',
           ),
         );
@@ -4285,7 +5808,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     final resourceBlock = _reactionResourceBlockMessage(actor, action);
     if (resourceBlock != null) {
       setState(() {
-        _activity.insert(0, _CombatLogEntry.system(resourceBlock));
+        _activity.insert(0, CombatLogEntry.system(resourceBlock));
       });
       return;
     }
@@ -4300,7 +5823,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       }
       _activity.insert(
         0,
-        _CombatLogEntry.system(
+        CombatLogEntry.system(
           isReadiedAction
               ? '${actor.name} triggers readied action: ${action.name}.'
               : '${actor.name} uses reaction: ${action.name}.',
@@ -4309,17 +5832,21 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       if (!isReadiedAction) {
         _spendEngineActionResourceForCombatant(action, actor);
       }
-      _rollFeedback = _resolvePreparedAction(
-        action,
-        actorIndex: actorIndex,
-        forcedTargetIndex: _activeIndex,
-      );
+    });
+    final feedback = await _resolvePreparedAction(
+      action,
+      actorIndex: actorIndex,
+      forcedTargetIndex: _activeIndex,
+    );
+    if (!mounted) return;
+    setState(() {
+      _rollFeedback = feedback;
     });
   }
 
   String? _reactionResourceBlockMessage(
-    _Combatant actor,
-    _CombatAction action,
+    Combatant actor,
+    CombatAction action,
   ) {
     final resourceKey = action.resourceKey;
     final resourceCost = action.resourceCost;
@@ -4331,14 +5858,14 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     return '${actor.name} cannot react: ${_readableActionResourceName(resourceKey)} is depleted.';
   }
 
-  Future<void> _readyAction(_CombatAction action) async {
+  Future<void> _readyAction(CombatAction action) async {
     if (!_ensureCanControlCombatant(_activeCombatant)) return;
     if (!_ensureActionTargetAvailable(action)) return;
     if (action.timing != 'Action') {
       setState(() {
         _activity.insert(
           0,
-          _CombatLogEntry.system(
+          CombatLogEntry.system(
             'Ready requires an Action. Choose an Action first.',
           ),
         );
@@ -4349,7 +5876,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       setState(() {
         _activity.insert(
           0,
-          _CombatLogEntry.system(
+          CombatLogEntry.system(
             '${_activeCombatant.name} has already spent Action this turn.',
           ),
         );
@@ -4360,7 +5887,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       setState(() {
         _activity.insert(
           0,
-          _CombatLogEntry.system(
+          CombatLogEntry.system(
             '${_activeCombatant.name} needs an available reaction to Ready.',
           ),
         );
@@ -4370,7 +5897,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     final resourceBlock = _actionResourceBlockMessage(action);
     if (resourceBlock != null) {
       setState(() {
-        _activity.insert(0, _CombatLogEntry.system(resourceBlock));
+        _activity.insert(0, CombatLogEntry.system(resourceBlock));
       });
       return;
     }
@@ -4405,7 +5932,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         }
       }
       _syncUiFromEncounter();
-      _readiedActionsByCombatantId[_activeCombatant.id] = _ReadiedAction(
+      _readiedActionsByCombatantId[_activeCombatant.id] = ReadiedAction(
         combatantId: _activeCombatant.id,
         action: action,
         trigger: trigger.trim(),
@@ -4413,7 +5940,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         targetId: _combatants[targetIndex].id,
         concentrationRequired: concentrationRequired,
       );
-      _rollFeedback = _CombatRollFeedback.manual(
+      _rollFeedback = CombatRollFeedback.manual(
         actor: _activeCombatant.name,
         action: 'Ready ${action.name}',
         headline: 'READY',
@@ -4422,14 +5949,14 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       );
       _activity.insert(
         0,
-        _CombatLogEntry.system(
+        CombatLogEntry.system(
           '${_activeCombatant.name} readies ${action.name}: ${trigger.trim()}',
         ),
       );
     });
   }
 
-  Future<String?> _askReadyTrigger(_CombatAction action) {
+  Future<String?> _askReadyTrigger(CombatAction action) {
     final controller = TextEditingController(
       text: 'When a hostile creature acts within range',
     );
@@ -4463,14 +5990,14 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     );
   }
 
-  bool _actionRequiresConcentrationToReady(_CombatAction action) {
+  bool _actionRequiresConcentrationToReady(CombatAction action) {
     final text =
         '${action.name} ${action.type} ${action.tags.join(' ')}'.toLowerCase();
     return text.contains('spell') && !text.contains('cantrip');
   }
 
-  _CombatAction _concentrationReadyMarker(_CombatAction action) {
-    return _CombatAction(
+  CombatAction _concentrationReadyMarker(CombatAction action) {
+    return CombatAction(
       id: '${action.id}|ready_concentration',
       name: 'Ready ${action.name}',
       type: 'Concentration',
@@ -4480,215 +6007,486 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       critFormula: null,
       tags: const ['Concentration'],
       icon: Icons.psychology_alt_outlined,
-      accentKind: _CombatAccentKind.magic,
+      accentKind: CombatAccentKind.magic,
       targetsSelf: true,
     );
   }
 
   void _rollMultiAttackStep(
-    _CombatAction action,
-    _CombatActionRoll rollType,
+    CombatAction action,
+    CombatActionRoll rollType,
   ) {
+    if (_combatRollInFlight) return;
+    unawaited(_rollMultiAttackStepAsync(action, rollType));
+  }
+
+  Future<void> _rollMultiAttackStepAsync(
+    CombatAction action,
+    CombatActionRoll rollType,
+  ) async {
     if (!_ensureCanControlCombatant(_activeCombatant)) return;
     final actionKey = _actionExecutionKey(action);
     final currentProgress = _multiAttackProgress;
-    final hasActiveProgress = currentProgress != null &&
-        currentProgress.actionKey == actionKey &&
-        currentProgress.stepIndex < action.multiAttackSteps.length;
+    final currentStepIndex =
+        currentProgress?.pendingStepIndex ?? currentProgress?.stepIndex ?? 0;
+    final currentTargetIndex =
+        currentProgress?.pendingTargetIndex ?? _targetIndexForAction(action);
+    final resolutionKey = _combatResolutionKey(
+      currentProgress?.hasPendingDamage == true
+          ? 'multi-damage-request'
+          : 'multi-step',
+      action,
+      rollType: rollType,
+      targetIndex: currentTargetIndex,
+      stepIndex: currentStepIndex,
+    );
+    if (!_beginCombatResolution(resolutionKey)) return;
+    try {
+      final hasActiveProgress = currentProgress != null &&
+          currentProgress.actionKey == actionKey &&
+          currentProgress.stepIndex < action.multiAttackSteps.length;
 
-    if (!hasActiveProgress && !_ensureActionTargetAvailable(action)) return;
-    if (!hasActiveProgress && !_ensureActionPrerequisites(action)) return;
-    if (!hasActiveProgress && !_ensureBattleBoardActionRange(action)) return;
-    _focusedBattleBoardAction = action;
-
-    if (!hasActiveProgress) {
-      final resourceBlock = _actionResourceBlockMessage(action);
-      if (resourceBlock != null) {
-        setState(() {
-          _activity.insert(0, _CombatLogEntry.system(resourceBlock));
-        });
-        return;
-      }
-      if (_spentTimings.contains(action.timing)) {
-        setState(() {
-          _activity.insert(
-            0,
-            _CombatLogEntry.system(
-              '${action.timing} is already spent this turn.',
-            ),
-          );
-        });
-        return;
-      }
-    }
-
-    String? boardEventLabel;
-    var boardEventKind = 'focus';
-    var boardEventDiceNotation = '';
-    var boardEventResultLabel = '';
-    var boardEventResultDetail = '';
-    setState(() {
-      var progress = hasActiveProgress
-          ? currentProgress
-          : _MultiAttackProgress(actionKey: actionKey);
+      if (!hasActiveProgress && !_ensureActionTargetAvailable(action)) return;
+      if (!hasActiveProgress && !_ensureActionPrerequisites(action)) return;
+      if (!hasActiveProgress && !_ensureBattleBoardActionRange(action)) return;
+      _focusedBattleBoardAction = action;
 
       if (!hasActiveProgress) {
-        _resetQueuedPreparedActions();
-        _pendingDamageActions.remove(actionKey);
-        _pendingHalfDamageActions.remove(actionKey);
-        _spentTimings.add(action.timing);
-        _spendEngineActionResource(action);
-        final economyMessage = _applyActionEconomyEffect(action);
-        if (economyMessage != null) {
-          _activity.insert(0, _CombatLogEntry.system(economyMessage));
+        final resourceBlock = _actionResourceBlockMessage(action);
+        if (resourceBlock != null) {
+          setState(() {
+            _activity.insert(0, CombatLogEntry.system(resourceBlock));
+          });
+          return;
         }
-        _multiAttackProgress = progress;
-        _activity.insert(
-          0,
-          _CombatLogEntry.system(
-            '${_activeCombatant.name} starts ${action.name}: ${action.multiAttackSteps.length} attacks.',
-          ),
-        );
+        if (_spentTimings.contains(action.timing)) {
+          setState(() {
+            _activity.insert(
+              0,
+              CombatLogEntry.system(
+                '${action.timing} is already spent this turn.',
+              ),
+            );
+          });
+          return;
+        }
       }
 
-      if (progress.hasPendingDamage) {
-        if (rollType == _CombatActionRoll.attack ||
-            rollType == _CombatActionRoll.savingThrow) {
+      DiceRollResult? boardAttackResult;
+      if (rollType == CombatActionRoll.attack ||
+          rollType == CombatActionRoll.savingThrow) {
+        final previewProgress = hasActiveProgress
+            ? currentProgress
+            : MultiAttackProgress(
+                actionKey: actionKey,
+                pendingAttacks: _pendingCombatAttacksForAction(action),
+              );
+        if (!previewProgress.hasPendingDamage &&
+            previewProgress.stepIndex < action.multiAttackSteps.length) {
+          final step = action.multiAttackSteps[previewProgress.stepIndex];
+          final attackFormula = step.attackFormula;
+          final targetIndex = _targetIndexForAction(action);
+          if (attackFormula != null && targetIndex != null) {
+            final stepNumber = previewProgress.stepIndex + 1;
+            final stepLabel = '${action.name} $stepNumber: ${step.name}';
+            boardAttackResult = await _rollCombatFormulaAwaitingBoard(
+              formula: attackFormula,
+              label: '$stepLabel Attack',
+              useRollMode: true,
+              forceDisadvantage: _attackHasLongRangeDisadvantage(action),
+            );
+          }
+        }
+      }
+
+      String? boardEventLabel;
+      var boardEventKind = 'focus';
+      var boardEventDiceNotation = '';
+      var boardEventResultLabel = '';
+      var boardEventResultDetail = '';
+      var boardEventAuthoritativeDice = '';
+      setState(() {
+        var progress = hasActiveProgress
+            ? currentProgress
+            : MultiAttackProgress(
+                actionKey: actionKey,
+                pendingAttacks: _pendingCombatAttacksForAction(action),
+              );
+
+        if (!hasActiveProgress) {
+          _resetQueuedPreparedActions();
+          _pendingDamageActions.remove(actionKey);
+          _pendingHalfDamageActions.remove(actionKey);
+          _spentTimings.add(action.timing);
+          _spendEngineActionResource(action);
+          final economyMessage = _applyActionEconomyEffect(action);
+          if (economyMessage != null) {
+            _activity.insert(0, CombatLogEntry.system(economyMessage));
+          }
+          _multiAttackProgress = progress;
           _activity.insert(
             0,
-            _CombatLogEntry.system(
-              'Resolve ${action.name} damage before the next attack.',
+            CombatLogEntry.system(
+              '${_activeCombatant.name} starts ${action.name}: ${action.multiAttackSteps.length} attacks.',
+            ),
+          );
+        }
+
+        if (progress.hasPendingDamage) {
+          if (rollType == CombatActionRoll.attack ||
+              rollType == CombatActionRoll.savingThrow) {
+            _activity.insert(
+              0,
+              CombatLogEntry.system(
+                'Resolve ${action.name} damage before the next attack.',
+              ),
+            );
+            return;
+          }
+          _resolveMultiAttackPendingDamage(action, progress);
+          return;
+        }
+
+        if (rollType == CombatActionRoll.damage ||
+            rollType == CombatActionRoll.critical) {
+          _activity.insert(
+            0,
+            CombatLogEntry.system(
+              'Roll the next ${action.name} attack before damage.',
             ),
           );
           return;
         }
-        _resolveMultiAttackPendingDamage(action, progress);
-        return;
-      }
 
-      if (rollType == _CombatActionRoll.damage ||
-          rollType == _CombatActionRoll.critical) {
-        _activity.insert(
-          0,
-          _CombatLogEntry.system(
-            'Roll the next ${action.name} attack before damage.',
-          ),
-        );
-        return;
-      }
+        if (progress.stepIndex >= action.multiAttackSteps.length) {
+          _finishMultiAttackProgress(action, progress);
+          return;
+        }
 
-      if (progress.stepIndex >= action.multiAttackSteps.length) {
-        _finishMultiAttackProgress(action, progress);
-        return;
-      }
+        final step = action.multiAttackSteps[progress.stepIndex];
+        if (step.attackFormula == null && step.damageFormula != null) {
+          final targetIndex = _targetIndexForAction(action);
+          if (targetIndex == null) return;
+          progress
+            ..pendingStepIndex = progress.stepIndex
+            ..pendingTargetIndex = targetIndex
+            ..pendingCritical = false;
+          progress.markDamagePending(progress.stepIndex);
+          _pendingDamageActions.add(actionKey);
+          _resolveMultiAttackPendingDamage(action, progress);
+          return;
+        }
 
-      final step = action.multiAttackSteps[progress.stepIndex];
-      if (step.attackFormula == null && step.damageFormula != null) {
+        final attackFormula = step.attackFormula;
+        if (attackFormula == null) {
+          progress.markResolved(progress.stepIndex);
+          progress.stepIndex += 1;
+          _advanceMultiAttackAfterStep(action, progress);
+          return;
+        }
+
         final targetIndex = _targetIndexForAction(action);
         if (targetIndex == null) return;
-        progress
-          ..pendingStepIndex = progress.stepIndex
-          ..pendingTargetIndex = targetIndex
-          ..pendingCritical = false;
-        _pendingDamageActions.add(actionKey);
-        _resolveMultiAttackPendingDamage(action, progress);
-        return;
-      }
+        final target = _combatants[targetIndex];
+        final stepNumber = progress.stepIndex + 1;
+        final stepLabel = '${action.name} $stepNumber: ${step.name}';
+        final result = boardAttackResult ??
+            _rollCombatFormula(
+              formula: attackFormula,
+              label: '$stepLabel Attack',
+              useRollMode: true,
+              forceDisadvantage: _attackHasLongRangeDisadvantage(action),
+            );
+        final outcome = _attackOutcome(result, target, action);
+        final didHit = outcome == 'hit' || outcome == 'critical hit';
+        final didCrit = outcome == 'critical hit';
+        progress.attackCount += 1;
+        if (didCrit) progress.critCount += 1;
 
-      final attackFormula = step.attackFormula;
-      if (attackFormula == null) {
-        progress.stepIndex += 1;
-        _advanceMultiAttackAfterStep(action, progress);
-        return;
-      }
+        _activity.insert(
+          0,
+          CombatLogEntry.roll(
+            actor: _activeCombatant.name,
+            action: '$stepLabel attack',
+            result: result,
+            detail:
+                '${result.formula} - ${result.rollsText}. ${target.name} AC ${target.ac}: $outcome.',
+          ),
+        );
 
-      final targetIndex = _targetIndexForAction(action);
-      if (targetIndex == null) return;
-      final target = _combatants[targetIndex];
-      final stepNumber = progress.stepIndex + 1;
-      final stepLabel = '${action.name} $stepNumber: ${step.name}';
-      final result = _rollCombatFormula(
-        formula: attackFormula,
-        label: '$stepLabel Attack',
-        useRollMode: true,
-      );
-      final outcome = _attackOutcome(result, target, action);
-      final didHit = outcome == 'hit' || outcome == 'critical hit';
-      final didCrit = outcome == 'critical hit';
-      progress.attackCount += 1;
-      if (didCrit) progress.critCount += 1;
+        if (didHit && step.damageFormula != null) {
+          progress
+            ..pendingStepIndex = progress.stepIndex
+            ..pendingTargetIndex = targetIndex
+            ..pendingCritical = didCrit;
+          progress.markDamagePending(progress.stepIndex);
+          _pendingDamageActions.add(actionKey);
+          _queueOnHitPromptIfAvailable(target.name);
+          _selectBestCommandTimingAfterAttackRoll(didHit: true);
+        } else {
+          progress.markResolved(
+            progress.stepIndex,
+            status: PendingCombatAttackStatus.missed,
+          );
+          progress.stepIndex += 1;
+          _pendingDamageActions.remove(actionKey);
+          _selectBestCommandTimingAfterAttackRoll(didHit: false);
+          _advanceMultiAttackAfterStep(action, progress);
+        }
+        boardEventLabel = didCrit
+            ? 'CRIT ${result.total}'
+            : didHit
+                ? 'HIT ${result.total}'
+                : 'MISS ${result.total}';
+        boardEventKind = didCrit
+            ? 'critical'
+            : didHit
+                ? 'hit'
+                : 'miss';
+        boardEventDiceNotation =
+            CombatDiceResultFormatter.diceBoxNotation(result) ?? '';
+        boardEventResultLabel = boardEventLabel ?? '';
+        boardEventResultDetail = CombatDiceResultFormatter.detail(result);
+        boardEventAuthoritativeDice =
+            CombatDiceResultFormatter.authoritativeDiceJson(result);
 
-      _activity.insert(
-        0,
-        _CombatLogEntry.roll(
+        _rollFeedback = CombatRollFeedback(
           actor: _activeCombatant.name,
-          action: '$stepLabel attack',
+          action: action.name,
           result: result,
-          detail:
-              '${result.formula} - ${result.rollsText}. ${target.name} AC ${target.ac}: $outcome.',
-        ),
-      );
-
-      if (didHit && step.damageFormula != null) {
-        progress
-          ..pendingStepIndex = progress.stepIndex
-          ..pendingTargetIndex = targetIndex
-          ..pendingCritical = didCrit;
-        _pendingDamageActions.add(actionKey);
-        _queueOnHitPromptIfAvailable(target.name);
-        _selectBestCommandTimingAfterAttackRoll(didHit: true);
-      } else {
-        progress.stepIndex += 1;
-        _pendingDamageActions.remove(actionKey);
-        _selectBestCommandTimingAfterAttackRoll(didHit: false);
-        _advanceMultiAttackAfterStep(action, progress);
+          headline: outcome.toUpperCase(),
+          subline:
+              'Attack $stepNumber/${action.multiAttackSteps.length} vs ${target.name}',
+          accentKind: switch (outcome) {
+            'critical hit' => CombatAccentKind.support,
+            'hit' => CombatAccentKind.action,
+            'automatic miss' => CombatAccentKind.info,
+            _ => CombatAccentKind.read,
+          },
+        );
+      });
+      if (_showBattleBoardController) {
+        final boardRollEventId = boardAttackResult == null
+            ? null
+            : _consumeBoardResolvedRollEventId();
+        unawaited(
+          _syncBattleBoardTokensFromCombatState(
+            eventLabel: boardEventLabel,
+            eventKind: boardEventKind,
+            eventDiceNotation: boardEventDiceNotation,
+            eventResultLabel: boardEventResultLabel,
+            eventResultDetail: boardEventResultDetail,
+            eventAuthoritativeDice: boardEventAuthoritativeDice,
+            eventIdOverride: boardRollEventId,
+          ),
+        );
       }
-      boardEventLabel = didCrit
-          ? 'CRIT ${result.total}'
-          : didHit
-              ? 'HIT ${result.total}'
-              : 'MISS ${result.total}';
-      boardEventKind = didCrit
-          ? 'critical'
-          : didHit
-              ? 'hit'
-              : 'miss';
-      boardEventDiceNotation = _diceBoxNotationForRollResult(result) ?? '';
-      boardEventResultLabel = boardEventLabel ?? '';
-      boardEventResultDetail = _diceResultDetail(result);
-
-      _rollFeedback = _CombatRollFeedback(
-        actor: _activeCombatant.name,
-        action: action.name,
-        result: result,
-        headline: outcome.toUpperCase(),
-        subline:
-            'Attack $stepNumber/${action.multiAttackSteps.length} vs ${target.name}',
-        accentKind: switch (outcome) {
-          'critical hit' => _CombatAccentKind.support,
-          'hit' => _CombatAccentKind.action,
-          'automatic miss' => _CombatAccentKind.info,
-          _ => _CombatAccentKind.read,
-        },
-      );
-    });
-    if (_showBattleBoardController) {
-      unawaited(
-        _syncBattleBoardTokensFromCombatState(
-          eventLabel: boardEventLabel,
-          eventKind: boardEventKind,
-          eventDiceNotation: boardEventDiceNotation,
-          eventResultLabel: boardEventResultLabel,
-          eventResultDetail: boardEventResultDetail,
-        ),
-      );
+    } finally {
+      _endCombatResolution(resolutionKey);
     }
   }
 
+  bool _multiAttackProgressMatches(CombatAction action) {
+    final progress = _multiAttackProgress;
+    return progress != null &&
+        progress.actionKey == _actionExecutionKey(action) &&
+        progress.stepIndex < action.multiAttackSteps.length;
+  }
+
+  void _activateMartialArtsBonusStrike(CombatAction action) {
+    if (!_ensureCanControlCombatant(_activeCombatant)) return;
+    if (!_ensureActionTargetAvailable(action)) return;
+    if (!_ensureActionPrerequisites(action)) return;
+    if (!_ensureBattleBoardActionRange(action)) return;
+
+    final actionKey = _actionExecutionKey(action);
+    final activeProgress = _multiAttackProgress;
+    if (activeProgress != null && activeProgress.actionKey == actionKey) {
+      setState(() {
+        _selectedCommandTiming = 'Action';
+        _activity.insert(
+          0,
+          CombatLogEntry.system(
+            '${action.name} is already active: resolve the bonus strike.',
+          ),
+        );
+      });
+      return;
+    }
+
+    if (!_hasMartialArtsEligibleAttackThisTurn(_activeCombatant)) {
+      setState(() {
+        _activity.insert(
+          0,
+          CombatLogEntry.system(
+            '${action.name} requires an unarmed strike or monk weapon Attack action first this turn.',
+          ),
+        );
+      });
+      return;
+    }
+
+    if (_pendingDamageActions.any((pendingKey) => pendingKey != actionKey)) {
+      setState(() {
+        _activity.insert(
+          0,
+          CombatLogEntry.system(
+            'Resolve pending damage before activating ${action.name}.',
+          ),
+        );
+      });
+      return;
+    }
+
+    if (_spentTimings.contains(action.timing)) {
+      setState(() {
+        _activity.insert(
+          0,
+          CombatLogEntry.system(
+            '${action.name} cannot be activated: ${action.timing} is already spent.',
+          ),
+        );
+      });
+      return;
+    }
+
+    setState(() {
+      _resetQueuedPreparedActions();
+      _pendingDamageActions.remove(actionKey);
+      _pendingHalfDamageActions.remove(actionKey);
+      _spentTimings.add(action.timing);
+      _multiAttackProgress = MultiAttackProgress(
+        actionKey: actionKey,
+        pendingAttacks: _pendingCombatAttacksForAction(
+          action,
+          labelPrefix: 'Martial Arts Strike',
+          source: PendingCombatAttackSource.martialArts,
+        ),
+      );
+      _selectedCommandTiming = 'Action';
+      _activity.insert(
+        0,
+        CombatLogEntry.system(
+          '${_activeCombatant.name} uses Martial Arts as a Bonus Action: 1 bonus strike ready.',
+        ),
+      );
+      _rollFeedback = CombatRollFeedback.manual(
+        actor: _activeCombatant.name,
+        action: action.name,
+        headline: 'MARTIAL ARTS',
+        subline: '1 bonus unarmed strike ready.',
+        accentKind: CombatAccentKind.info,
+      );
+    });
+  }
+
+  void _activateFlurryOfBlows(CombatAction action) {
+    if (!_ensureCanControlCombatant(_activeCombatant)) return;
+    if (!_ensureActionTargetAvailable(action)) return;
+    if (!_ensureActionPrerequisites(action)) return;
+    if (!_ensureBattleBoardActionRange(action)) return;
+
+    final actionKey = _actionExecutionKey(action);
+    final activeProgress = _multiAttackProgress;
+    if (activeProgress != null && activeProgress.actionKey == actionKey) {
+      setState(() {
+        _selectedCommandTiming = 'Action';
+        _activity.insert(
+          0,
+          CombatLogEntry.system(
+            '${action.name} is already active: resolve the remaining strikes.',
+          ),
+        );
+      });
+      return;
+    }
+
+    if (_flurryUsedThisTurnCombatantIds.contains(_activeCombatant.id)) {
+      setState(() {
+        _activity.insert(
+          0,
+          CombatLogEntry.system(
+            '${action.name} has already been used this turn.',
+          ),
+        );
+      });
+      return;
+    }
+
+    if (_pendingDamageActions.any((pendingKey) => pendingKey != actionKey)) {
+      setState(() {
+        _activity.insert(
+          0,
+          CombatLogEntry.system(
+            'Resolve pending damage before activating ${action.name}.',
+          ),
+        );
+      });
+      return;
+    }
+
+    final resourceBlock = _actionResourceBlockMessage(action);
+    if (resourceBlock != null) {
+      setState(() {
+        _activity.insert(0, CombatLogEntry.system(resourceBlock));
+      });
+      return;
+    }
+    if (_spentTimings.contains(action.timing)) {
+      setState(() {
+        _activity.insert(
+          0,
+          CombatLogEntry.system(
+            '${action.name} cannot be activated: ${action.timing} is already spent.',
+          ),
+        );
+      });
+      return;
+    }
+
+    setState(() {
+      _resetQueuedPreparedActions();
+      _pendingDamageActions.remove(actionKey);
+      _pendingHalfDamageActions.remove(actionKey);
+      _spentTimings.add(action.timing);
+      _spendEngineActionResource(action);
+      _flurryUsedThisTurnCombatantIds.add(_activeCombatant.id);
+      _multiAttackProgress = MultiAttackProgress(
+        actionKey: actionKey,
+        pendingAttacks: _pendingCombatAttacksForAction(
+          action,
+          labelPrefix: 'Flurry Strike',
+          source: PendingCombatAttackSource.flurryOfBlows,
+        ),
+      );
+      _selectedCommandTiming = 'Action';
+      _activity.insert(
+        0,
+        CombatLogEntry.system(
+          '${_activeCombatant.name} spends 1 Ki and activates ${action.name}: ${action.multiAttackSteps.length} strikes ready.',
+        ),
+      );
+      _rollFeedback = CombatRollFeedback.manual(
+        actor: _activeCombatant.name,
+        action: action.name,
+        headline: 'FLURRY ACTIVE',
+        subline: '${action.multiAttackSteps.length} unarmed strikes ready.',
+        accentKind: CombatAccentKind.info,
+      );
+    });
+  }
+
   void _resolveMultiAttackPendingDamage(
-    _CombatAction action,
-    _MultiAttackProgress progress,
+    CombatAction action,
+    MultiAttackProgress progress,
   ) {
+    unawaited(_resolveMultiAttackPendingDamageAsync(action, progress));
+  }
+
+  Future<void> _resolveMultiAttackPendingDamageAsync(
+    CombatAction action,
+    MultiAttackProgress progress,
+  ) async {
     final actionKey = _actionExecutionKey(action);
     final stepIndex = progress.pendingStepIndex;
     final targetIndex = progress.pendingTargetIndex;
@@ -4698,106 +6496,139 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         stepIndex >= action.multiAttackSteps.length ||
         targetIndex < 0 ||
         targetIndex >= _combatants.length) {
-      _pendingDamageActions.remove(actionKey);
-      progress.clearPendingDamage();
+      setState(() {
+        _pendingDamageActions.remove(actionKey);
+        progress.clearPendingDamage();
+      });
       return;
     }
 
-    final step = action.multiAttackSteps[stepIndex];
-    final wasCritical = progress.pendingCritical;
-    final damageFormula = progress.pendingCritical
-        ? step.critFormula ?? step.damageFormula
-        : step.damageFormula;
-    if (damageFormula == null) {
-      progress
-        ..clearPendingDamage()
-        ..stepIndex = stepIndex + 1;
-      _pendingDamageActions.remove(actionKey);
-      _advanceMultiAttackAfterStep(action, progress);
-      return;
-    }
-
-    final target = _combatants[targetIndex];
-    final stepNumber = stepIndex + 1;
-    final stepLabel = '${action.name} $stepNumber: ${step.name}';
-    final result = _rollCombatFormula(
-      formula: damageFormula,
-      label: '$stepLabel Damage',
+    final resolutionKey = _combatResolutionKey(
+      'multi-damage',
+      action,
+      rollType: CombatActionRoll.damage,
+      targetIndex: targetIndex,
+      stepIndex: stepIndex,
     );
-    final amount =
-        result.total + _situationalDamageBonus(_activeCombatant, action);
-    final hpResult = _resolveHpChange(target, amount, healing: false);
-    _combatants = [
-      for (var index = 0; index < _combatants.length; index++)
-        index == targetIndex
-            ? target.copyWith(hp: hpResult.hp, tempHp: hpResult.tempHp)
-            : _combatants[index],
-    ];
-    _applyEngineHpChange(
-      actor: _activeCombatant,
-      target: target,
-      amount: amount,
-      healing: false,
-      action: action,
-      formula: result.formula,
-    );
-    _syncUiFromEncounter();
+    if (!_beginCombatResolution(resolutionKey)) return;
+    try {
+      final step = action.multiAttackSteps[stepIndex];
+      final wasCritical = progress.pendingCritical;
+      final damageFormula = progress.pendingCritical
+          ? step.critFormula ?? step.damageFormula
+          : step.damageFormula;
+      if (damageFormula == null) {
+        setState(() {
+          progress
+            ..clearPendingDamage()
+            ..stepIndex = stepIndex + 1;
+          _pendingDamageActions.remove(actionKey);
+          _advanceMultiAttackAfterStep(action, progress);
+        });
+        return;
+      }
 
-    progress
-      ..totalDamage += amount
-      ..hitCount += 1
-      ..lastHpLine = _hpChangeLine(target, hpResult)
-      ..clearPendingDamage()
-      ..stepIndex = stepIndex + 1;
-    _pendingDamageActions.remove(actionKey);
-    _pendingHalfDamageActions.remove(actionKey);
-    _selectBestCommandTimingAfterDamageResolution();
-
-    _activity.insert(
-      0,
-      _CombatLogEntry.roll(
-        actor: _activeCombatant.name,
-        action: '$stepLabel damage',
-        result: result,
-        detail:
-            '${result.formula} - ${result.rollsText}. ${target.name} takes $amount damage (${progress.lastHpLine}).',
-      ),
-    );
-
-    if (target.hp > 0 && hpResult.hp == 0) {
-      _activity.insert(0, _CombatLogEntry.system('${target.name} is down.'));
-      _targetIndex = _findDefaultTargetIndex(_activeIndex);
-    }
-
-    final completed = progress.stepIndex >= action.multiAttackSteps.length;
-    _rollFeedback = _CombatRollFeedback(
-      actor: _activeCombatant.name,
-      action: action.name,
-      result: result,
-      headline: wasCritical ? 'CRIT $amount DAMAGE' : '$amount DAMAGE',
-      subline: completed
-          ? 'Multiattack complete: ${progress.hitCount}/${progress.attackCount} hits'
-          : 'Attack $stepNumber/${action.multiAttackSteps.length} damage',
-      accentKind: wasCritical ? _CombatAccentKind.support : action.accentKind,
-    );
-
-    _advanceMultiAttackAfterStep(action, progress);
-    if (_showBattleBoardController) {
-      unawaited(
-        _syncBattleBoardTokensFromCombatState(
-          eventLabel: '$amount DAMAGE',
-          eventKind: wasCritical ? 'critical' : 'damage',
-          eventDiceNotation: _diceBoxNotationForRollResult(result) ?? '',
-          eventResultLabel: '$amount DAMAGE',
-          eventResultDetail: _diceResultDetail(result),
-        ),
+      final stepNumber = stepIndex + 1;
+      final stepLabel = '${action.name} $stepNumber: ${step.name}';
+      final result = await _rollCombatFormulaAwaitingBoard(
+        formula: damageFormula,
+        label: '$stepLabel Damage',
       );
+      final amount =
+          result.total + _situationalDamageBonus(_activeCombatant, action);
+      var completed = false;
+      setState(() {
+        final currentTarget = _combatants[targetIndex];
+        final hpResult =
+            _resolveHpChange(currentTarget, amount, healing: false);
+        _combatants = [
+          for (var index = 0; index < _combatants.length; index++)
+            index == targetIndex
+                ? currentTarget.copyWith(
+                    hp: hpResult.hp,
+                    tempHp: hpResult.tempHp,
+                  )
+                : _combatants[index],
+        ];
+        _applyEngineHpChange(
+          actor: _activeCombatant,
+          target: currentTarget,
+          amount: amount,
+          healing: false,
+          action: action,
+          formula: result.formula,
+        );
+        _syncUiFromEncounter();
+
+        progress
+          ..totalDamage += amount
+          ..hitCount += 1
+          ..lastHpLine = _hpChangeLine(currentTarget, hpResult)
+          ..markResolved(stepIndex)
+          ..clearPendingDamage()
+          ..stepIndex = stepIndex + 1;
+        _pendingDamageActions.remove(actionKey);
+        _pendingHalfDamageActions.remove(actionKey);
+        _selectBestCommandTimingAfterDamageResolution();
+
+        _activity.insert(
+          0,
+          CombatLogEntry.roll(
+            actor: _activeCombatant.name,
+            action: '$stepLabel damage',
+            result: result,
+            detail:
+                '${result.formula} - ${result.rollsText}. ${currentTarget.name} takes $amount damage (${progress.lastHpLine}).',
+          ),
+        );
+
+        if (currentTarget.hp > 0 && hpResult.hp == 0) {
+          _activity.insert(
+            0,
+            CombatLogEntry.system('${currentTarget.name} is down.'),
+          );
+          _targetIndex = _findDefaultTargetIndex(_activeIndex);
+        }
+
+        completed = progress.stepIndex >= action.multiAttackSteps.length;
+        _rollFeedback = CombatRollFeedback(
+          actor: _activeCombatant.name,
+          action: action.name,
+          result: result,
+          headline: wasCritical ? 'CRIT $amount DAMAGE' : '$amount DAMAGE',
+          subline: completed
+              ? 'Multiattack complete: ${progress.hitCount}/${progress.attackCount} hits'
+              : 'Attack $stepNumber/${action.multiAttackSteps.length} damage',
+          accentKind:
+              wasCritical ? CombatAccentKind.support : action.accentKind,
+        );
+
+        _advanceMultiAttackAfterStep(action, progress);
+      });
+      if (_showBattleBoardController) {
+        unawaited(
+          _syncBattleBoardTokensFromCombatState(
+            eventLabel: '$amount DAMAGE',
+            eventKind: wasCritical ? 'critical' : 'damage',
+            eventDiceNotation:
+                CombatDiceResultFormatter.diceBoxNotation(result) ?? '',
+            eventResultLabel: '$amount DAMAGE',
+            eventResultDetail: CombatDiceResultFormatter.detail(result),
+            eventAuthoritativeDice:
+                CombatDiceResultFormatter.authoritativeDiceJson(result),
+            eventIdOverride: _consumeBoardResolvedRollEventId(),
+            eventDamageType: action.damageType ?? '',
+          ),
+        );
+      }
+    } finally {
+      _endCombatResolution(resolutionKey);
     }
   }
 
   void _advanceMultiAttackAfterStep(
-    _CombatAction action,
-    _MultiAttackProgress progress,
+    CombatAction action,
+    MultiAttackProgress progress,
   ) {
     if (progress.stepIndex >= action.multiAttackSteps.length) {
       _finishMultiAttackProgress(action, progress);
@@ -4806,34 +6637,44 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     final nextStep = action.multiAttackSteps[progress.stepIndex];
     _activity.insert(
       0,
-      _CombatLogEntry.system(
+      CombatLogEntry.system(
         'Next ${action.name} roll: ${progress.stepIndex + 1}/${action.multiAttackSteps.length} ${nextStep.name}.',
       ),
     );
   }
 
   void _finishMultiAttackProgress(
-    _CombatAction action,
-    _MultiAttackProgress progress,
+    CombatAction action,
+    MultiAttackProgress progress,
   ) {
     final actionKey = _actionExecutionKey(action);
     _pendingDamageActions.remove(actionKey);
     _pendingHalfDamageActions.remove(actionKey);
     _activity.insert(
       0,
-      _CombatLogEntry.system(
+      CombatLogEntry.system(
         '${action.name} complete: ${progress.hitCount}/${progress.attackCount} hits, ${progress.totalDamage} total damage.',
       ),
     );
     _multiAttackProgress = null;
   }
 
-  void _useAction(_CombatAction action) {
+  void _useAction(CombatAction action) {
     if (!_ensureCanControlCombatant(_activeCombatant)) return;
     if (!_ensureActionTargetAvailable(action)) return;
     if (!_ensureActionPrerequisites(action)) return;
     if (action.hasMultiAttack) {
-      _rollMultiAttackStep(action, _CombatActionRoll.attack);
+      if (_actionIsMartialArtsBonusStrike(action) &&
+          !_multiAttackProgressMatches(action)) {
+        _activateMartialArtsBonusStrike(action);
+        return;
+      }
+      if (_actionIsFlurryOfBlows(action) &&
+          !_multiAttackProgressMatches(action)) {
+        _activateFlurryOfBlows(action);
+        return;
+      }
+      _rollMultiAttackStep(action, CombatActionRoll.attack);
       return;
     }
     if (!_ensureBattleBoardActionRange(action)) return;
@@ -4841,7 +6682,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     final resourceBlock = _actionResourceBlockMessage(action);
     if (resourceBlock != null) {
       setState(() {
-        _activity.insert(0, _CombatLogEntry.system(resourceBlock));
+        _activity.insert(0, CombatLogEntry.system(resourceBlock));
       });
       return;
     }
@@ -4849,7 +6690,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       setState(() {
         _activity.insert(
           0,
-          _CombatLogEntry.system(_startedAttackActionMessage(action)),
+          CombatLogEntry.system(_startedAttackActionMessage(action)),
         );
       });
       return;
@@ -4859,7 +6700,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       setState(() {
         _activity.insert(
           0,
-          _CombatLogEntry.system(
+          CombatLogEntry.system(
             '${action.timing} is already spent this turn.',
           ),
         );
@@ -4879,8 +6720,6 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       final condition = _applyActionState(action, actorIndex: stateTargetIndex);
       _spendEngineActionResource(action);
       final economyMessage = _applyActionEconomyEffect(action);
-      final resolvedFeedback =
-          action.hasMultiAttack ? _resolvePreparedAction(action) : null;
       if (condition != null) {
         _applyEngineCondition(
           actor: _activeCombatant,
@@ -4889,10 +6728,10 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
           sourceActionName: action.name,
         );
         if (condition == 'Inspired') {
-          _rollMode = _CombatRollMode.advantage;
+          _rollMode = CombatRollMode.advantage;
           _activity.insert(
             0,
-            _CombatLogEntry.system(
+            CombatLogEntry.system(
               '${_activeCombatant.name} will roll the next d20 with advantage.',
             ),
           );
@@ -4901,26 +6740,25 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       _syncUiFromEncounter();
       _activity.insert(
         0,
-        _CombatLogEntry.system('${_activeCombatant.name} used ${action.name}.'),
+        CombatLogEntry.system('${_activeCombatant.name} used ${action.name}.'),
       );
       if (economyMessage != null) {
-        _activity.insert(0, _CombatLogEntry.system(economyMessage));
+        _activity.insert(0, CombatLogEntry.system(economyMessage));
       }
-      _rollFeedback = resolvedFeedback ??
-          _CombatRollFeedback.manual(
-            actor: _activeCombatant.name,
-            action: action.name,
-            headline: action.grantsAction
-                ? 'ACTION SURGE'
-                : condition == null
-                    ? 'READY'
-                    : condition.toUpperCase(),
-            subline: economyMessage ??
-                (condition == null
-                    ? action.tags.take(3).join(' - ')
-                    : '${stateTarget.name} is now $condition'),
-            accentKind: action.accentKind,
-          );
+      _rollFeedback = CombatRollFeedback.manual(
+        actor: _activeCombatant.name,
+        action: action.name,
+        headline: action.grantsAction
+            ? 'ACTION SURGE'
+            : condition == null
+                ? 'READY'
+                : condition.toUpperCase(),
+        subline: economyMessage ??
+            (condition == null
+                ? action.tags.take(3).join(' - ')
+                : '${stateTarget.name} is now $condition'),
+        accentKind: action.accentKind,
+      );
     });
     if (_showBattleBoardController) {
       unawaited(
@@ -4932,7 +6770,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     }
   }
 
-  void _prepareAction(_CombatAction action) {
+  void _prepareAction(CombatAction action) {
     if (!_ensureCanControlCombatant(_activeCombatant)) return;
     if (!_ensureActionTargetAvailable(action)) return;
     setState(() {
@@ -4942,7 +6780,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
             _pendingDamageActions.contains(_actionExecutionKey(action));
         _activity.insert(
           0,
-          _CombatLogEntry.system(
+          CombatLogEntry.system(
             hasPendingDamage
                 ? '${action.name} has pending damage to resolve.'
                 : '${action.name} cannot be prepared: ${action.timing} is already spent.',
@@ -4952,13 +6790,13 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       }
       final resourceBlock = _actionResourceBlockMessage(action);
       if (resourceBlock != null) {
-        _activity.insert(0, _CombatLogEntry.system(resourceBlock));
+        _activity.insert(0, CombatLogEntry.system(resourceBlock));
         return;
       }
       if (_actionBlockedByStartedAttackAction(action)) {
         _activity.insert(
           0,
-          _CombatLogEntry.system(_startedAttackActionMessage(action)),
+          CombatLogEntry.system(_startedAttackActionMessage(action)),
         );
         return;
       }
@@ -4977,7 +6815,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         }
         _activity.insert(
           0,
-          _CombatLogEntry.system('${action.name} removed from the turn plan.'),
+          CombatLogEntry.system('${action.name} removed from the turn plan.'),
         );
         return;
       }
@@ -5002,9 +6840,38 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       }
       _activity.insert(
         0,
-        _CombatLogEntry.system('${action.name} prepared for ${action.timing}.'),
+        CombatLogEntry.system('${action.name} prepared for ${action.timing}.'),
       );
     });
+  }
+
+  void _focusActionForController(CombatAction action) {
+    if (!_ensureCanControlCombatant(
+      _activeCombatant,
+      actionLabel: 'seleccionar acciones',
+    )) {
+      return;
+    }
+    final targetIndex = _targetIndexForAction(action);
+    if (targetIndex == null) {
+      _ensureActionTargetAvailable(action);
+      return;
+    }
+
+    setState(() {
+      _selectedCommandTiming = action.timing;
+      _focusedBattleBoardAction = action;
+      _targetIndex = targetIndex;
+      _activity.insert(
+        0,
+        CombatLogEntry.system(
+          '${action.name} enfocada sobre ${_combatants[targetIndex].name}.',
+        ),
+      );
+    });
+    if (_showBattleBoardController) {
+      unawaited(_syncBattleBoardTokensFromCombatState());
+    }
   }
 
   void _clearPreparedActions() {
@@ -5024,7 +6891,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       }
       _preparedActions.clear();
       _resetQueuedPreparedActions();
-      _activity.insert(0, _CombatLogEntry.system('Turn plan cleared.'));
+      _activity.insert(0, CombatLogEntry.system('Turn plan cleared.'));
     });
   }
 
@@ -5034,11 +6901,18 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
   }
 
   void _launchPreparedTurn() {
+    if (_combatRollInFlight) return;
+    unawaited(_launchPreparedTurnAsync());
+  }
+
+  Future<void> _launchPreparedTurnAsync() async {
     if (_preparedActions.isEmpty) return;
     if (!_ensureCanControlCombatant(_activeCombatant)) return;
 
     const order = ['Action', 'Bonus Action', 'Reaction', 'Movement'];
 
+    CombatAction? action;
+    CombatActionRoll? rollType;
     setState(() {
       if (_queuedPreparedActions.isEmpty ||
           _queuedPreparedIndex >= _queuedPreparedActions.length) {
@@ -5055,45 +6929,50 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         _queuedPreparedIndex = 0;
         _activity.insert(
           0,
-          _CombatLogEntry.turn(
+          CombatLogEntry.turn(
             '${_activeCombatant.name} starts rolling the turn plan.',
           ),
         );
         _activity.insert(
           0,
-          _CombatLogEntry.system(
+          CombatLogEntry.system(
             '${prepared.length} prepared roll${prepared.length == 1 ? '' : 's'} queued. Tap Roll Next to continue.',
           ),
         );
       }
 
-      final action = _queuedPreparedActions[_queuedPreparedIndex];
-      final rollType = _primaryRollTypeForAction(action);
+      action = _queuedPreparedActions[_queuedPreparedIndex];
+      rollType = _primaryRollTypeForAction(action!);
       _activity.insert(
         0,
-        _CombatLogEntry.turn(
-          'Rolling ${_queuedPreparedIndex + 1}/${_queuedPreparedActions.length}: ${action.name}.',
+        CombatLogEntry.turn(
+          'Rolling ${_queuedPreparedIndex + 1}/${_queuedPreparedActions.length}: ${action!.name}.',
         ),
       );
 
-      _spendActionOrAttackSlot(action, rollType);
-      _pendingDamageActions.remove(_actionExecutionKey(action));
-      _pendingHalfDamageActions.remove(_actionExecutionKey(action));
-      final feedback = _resolvePreparedAction(action);
-      _spendEngineActionResource(action);
-      final economyMessage = _applyActionEconomyEffect(action);
+      _spendActionOrAttackSlot(action!, rollType!);
+      _pendingDamageActions.remove(_actionExecutionKey(action!));
+      _pendingHalfDamageActions.remove(_actionExecutionKey(action!));
+    });
+    final resolvedAction = action;
+    if (resolvedAction == null) return;
+    final feedback = await _resolvePreparedAction(resolvedAction);
+    if (!mounted) return;
+    setState(() {
+      _spendEngineActionResource(resolvedAction);
+      final economyMessage = _applyActionEconomyEffect(resolvedAction);
       if (economyMessage != null) {
-        _activity.insert(0, _CombatLogEntry.system(economyMessage));
+        _activity.insert(0, CombatLogEntry.system(economyMessage));
       }
       final encounter = _encounter;
       if (encounter != null) {
         _encounter = CombatEncounterEngine.clearPreparedAction(
           encounter,
           combatantId: _activeCombatant.id,
-          timing: _timingFromLabel(action.timing),
+          timing: _timingFromLabel(resolvedAction.timing),
         );
       }
-      _preparedActions.remove(action.timing);
+      _preparedActions.remove(resolvedAction.timing);
 
       _queuedPreparedIndex += 1;
 
@@ -5104,7 +6983,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         _preparedActions.clear();
         _activity.insert(
           0,
-          _CombatLogEntry.system('Turn plan fully rolled.'),
+          CombatLogEntry.system('Turn plan fully rolled.'),
         );
         _scheduleAutoAdvanceTurn(
           '${_activeCombatant.name} completed the planned turn.',
@@ -5113,67 +6992,78 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         final nextAction = _queuedPreparedActions[_queuedPreparedIndex];
         _activity.insert(
           0,
-          _CombatLogEntry.system('Next prepared roll: ${nextAction.name}.'),
+          CombatLogEntry.system('Next prepared roll: ${nextAction.name}.'),
         );
       }
     });
   }
 
   void _runDemoRound() {
+    if (_combatRollInFlight) return;
+    unawaited(_runDemoRoundAsync());
+  }
+
+  Future<void> _runDemoRoundAsync() async {
+    CombatRollFeedback? lastFeedback;
+    var lastActorIndex = _activeIndex;
     setState(() {
       _preparedActions.clear();
       _resetQueuedPreparedActions();
       _spentTimings.clear();
+      _clearClassTurnFlowState();
       _actionAttackUsesByCombatantId.clear();
       _movementBonusFeetByCombatantId.clear();
       _pendingDamageActions.clear();
       _pendingHalfDamageActions.clear();
+      _pendingAreaSavingThrow = null;
       _spentReactionCombatantIds.clear();
       _oncePerTurnActionUses.clear();
       _readiedActionsByCombatantId.clear();
       _clearMultiAttackProgress();
       _activity.insert(
         0,
-        _CombatLogEntry.system('Demo round starts. Every combatant acts once.'),
+        CombatLogEntry.system('Demo round starts. Every combatant acts once.'),
       );
+    });
+    for (var index = 0; index < _combatants.length; index++) {
+      if (_combatants[index].hp <= 0) continue;
 
-      _CombatRollFeedback? lastFeedback;
-      var lastActorIndex = _activeIndex;
-      for (var index = 0; index < _combatants.length; index++) {
-        if (_combatants[index].hp <= 0) continue;
+      final targetIndex = _findDefaultTargetIndex(index);
+      if (targetIndex == index) continue;
 
-        final targetIndex = _findDefaultTargetIndex(index);
-        if (targetIndex == index) continue;
+      final action = _demoActionFor(_actionsForCombatant(_combatants[index]));
+      if (action == null) continue;
 
-        final action = _demoActionFor(_actionsForCombatant(_combatants[index]));
-        if (action == null) continue;
-
-        lastActorIndex = index;
+      lastActorIndex = index;
+      setState(() {
         _activity.insert(
           0,
-          _CombatLogEntry.turn('${_combatants[index].name} demo turn.'),
+          CombatLogEntry.turn('${_combatants[index].name} demo turn.'),
         );
-        lastFeedback = _resolvePreparedAction(
-          action,
-          actorIndex: index,
-          forcedTargetIndex: targetIndex,
-        );
-      }
+      });
+      lastFeedback = await _resolvePreparedAction(
+        action,
+        actorIndex: index,
+        forcedTargetIndex: targetIndex,
+      );
+      if (!mounted) return;
+    }
 
+    setState(() {
       _round += 1;
       _activeIndex = lastActorIndex.clamp(0, _combatants.length - 1).toInt();
       _targetIndex = _findDefaultTargetIndex(_activeIndex);
       _selectedCommandTiming = 'Action';
-      _workspace = _CombatWorkspace.overview;
+      _workspace = CombatWorkspace.overview;
       _rollFeedback = lastFeedback;
       _activity.insert(
         0,
-        _CombatLogEntry.system('Demo round resolved. Review overview state.'),
+        CombatLogEntry.system('Demo round resolved. Review overview state.'),
       );
     });
   }
 
-  _CombatAction? _demoActionFor(List<_CombatAction> actions) {
+  CombatAction? _demoActionFor(List<CombatAction> actions) {
     for (final action in actions) {
       if (action.hasMultiAttack && !action.targetsSelf) return action;
     }
@@ -5193,18 +7083,18 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     return actions.isEmpty ? null : actions.first;
   }
 
-  _CombatRollFeedback _resolvePreparedAction(
-    _CombatAction action, {
+  Future<CombatRollFeedback> _resolvePreparedAction(
+    CombatAction action, {
     int? actorIndex,
     int? forcedTargetIndex,
-  }) {
+  }) async {
     if (_combatants.isEmpty) {
-      return _CombatRollFeedback.manual(
+      return CombatRollFeedback.manual(
         actor: 'Combat',
         action: action.name,
         headline: 'NO TARGET',
         subline: 'No combatants are available.',
-        accentKind: _CombatAccentKind.read,
+        accentKind: CombatAccentKind.read,
       );
     }
     final resolvedActorIndex =
@@ -5213,13 +7103,13 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     final prerequisiteBlock =
         _actionPrerequisiteBlockMessage(action, actor: actor);
     if (prerequisiteBlock != null) {
-      _activity.insert(0, _CombatLogEntry.system(prerequisiteBlock));
-      return _CombatRollFeedback.manual(
+      _activity.insert(0, CombatLogEntry.system(prerequisiteBlock));
+      return CombatRollFeedback.manual(
         actor: actor.name,
         action: action.name,
         headline: 'NOT READY',
         subline: 'Take the Attack action first this turn.',
-        accentKind: _CombatAccentKind.read,
+        accentKind: CombatAccentKind.read,
       );
     }
     final targetIndex = _targetIndexForAction(
@@ -5230,16 +7120,16 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     if (targetIndex == null) {
       _activity.insert(
         0,
-        _CombatLogEntry.system(
+        CombatLogEntry.system(
           _targetUnavailableMessage(action, actor),
         ),
       );
-      return _CombatRollFeedback.manual(
+      return CombatRollFeedback.manual(
         actor: actor.name,
         action: action.name,
         headline: 'NO TARGET',
         subline: _targetUnavailableSubline(action),
-        accentKind: _CombatAccentKind.read,
+        accentKind: CombatAccentKind.read,
       );
     }
     var target = _combatants[targetIndex];
@@ -5252,7 +7142,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     if (rangeSnapshot != null && !rangeSnapshot.isInRange) {
       _activity.insert(
         0,
-        _CombatLogEntry.system(
+        CombatLogEntry.system(
           '${rangeSnapshot.target.name} is out of range for ${action.name}: ${rangeSnapshot.distanceFeet}/${rangeSnapshot.rangeFeet} ft.',
         ),
       );
@@ -5262,184 +7152,300 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
           eventKind: 'blocked',
         ),
       );
-      return _CombatRollFeedback.manual(
+      return CombatRollFeedback.manual(
         actor: actor.name,
         action: action.name,
         headline: 'OUT OF RANGE',
         subline:
             '${rangeSnapshot.target.name} is ${rangeSnapshot.distanceFeet} ft away; ${rangeSnapshot.rangeFeet} ft needed.',
-        accentKind: _CombatAccentKind.action,
+        accentKind: CombatAccentKind.action,
       );
     }
 
-    if (action.hasMultiAttack) {
-      return _resolveMultiAttackAction(
-        action,
-        actor: actor,
-        actorIndex: resolvedActorIndex,
-        targetIndex: targetIndex,
+    final resolutionKey = _combatResolutionKey(
+      'prepared',
+      action,
+      targetIndex: targetIndex,
+      actorId: actor.id,
+    );
+    if (!_beginCombatResolution(resolutionKey)) {
+      return CombatRollFeedback.manual(
+        actor: actor.name,
+        action: action.name,
+        headline: 'ROLLING',
+        subline: 'This action is already resolving.',
+        accentKind: CombatAccentKind.info,
       );
     }
-
-    if (action.requiresSavingThrow) {
-      final saveResult = _rollCombatFormula(
-        formula: _savingThrowFormulaForTarget(target, action.saveAbility!),
-        label: '${target.name} ${action.saveAbility} Save',
-        useRollMode: true,
-      );
-      final saveDc = action.saveDc ?? 10;
-      final success = saveResult.total >= saveDc;
-      final saveDetail =
-          '${saveResult.formula} - ${saveResult.rollsText}. ${target.name} ${success ? 'succeeds' : 'fails'} ${action.saveAbility} save vs DC $saveDc.';
-      _activity.insert(
-        0,
-        _CombatLogEntry.roll(
-          actor: target.name,
-          action: '${action.name} save',
-          result: saveResult,
-          detail: saveDetail,
-        ),
-      );
-      if (!success) {
-        final failureCondition = _savingThrowFailureCondition(action);
-        if (failureCondition != null) {
-          final nextCombatants = [..._combatants];
-          nextCombatants[targetIndex] = _combatantWithCondition(
-            target,
-            failureCondition,
-          );
-          _combatants = nextCombatants;
-          _applyEngineCondition(
-            actor: actor,
-            target: target,
-            name: failureCondition,
-            sourceActionName: action.name,
-          );
-          _syncUiFromEncounter();
-          target = _combatants[targetIndex];
-        }
+    try {
+      if (action.hasMultiAttack) {
+        return await _resolveMultiAttackAction(
+          action,
+          actor: actor,
+          actorIndex: resolvedActorIndex,
+          targetIndex: targetIndex,
+        );
       }
 
-      if (action.damageFormula != null &&
-          (!success || action.halfDamageOnSave)) {
-        final damageResult = DiceRollerService.rollFormula(
-          formula: action.damageFormula!,
-          label: '${action.name} Damage',
+      if (action.requiresSavingThrow) {
+        final saveResult = await _rollCombatFormulaAwaitingBoard(
+          formula: _savingThrowFormulaForTarget(target, action.saveAbility!),
+          label: '${target.name} ${action.saveAbility} Save',
+          useRollMode: true,
+          forceAdvantage: _savingThrowHasAdvantage(
+            target,
+            action.saveAbility!,
+            sourceAction: action,
+          ),
+          forceDisadvantage: _savingThrowHasDisadvantage(
+            target,
+            action.saveAbility!,
+            sourceAction: action,
+          ),
         );
-        final amount = _savingThrowDamageAmount(
-          action: action,
-          target: target,
-          success: success,
-          rolledDamage: damageResult.total,
+        final saveDc = action.saveDc ?? 10;
+        final success = saveResult.total >= saveDc;
+        final saveDetail =
+            '${saveResult.formula} - ${saveResult.rollsText}. ${target.name} ${success ? 'succeeds' : 'fails'} ${action.saveAbility} save vs DC $saveDc.';
+        _activity.insert(
+          0,
+          CombatLogEntry.roll(
+            actor: target.name,
+            action: '${action.name} save',
+            result: saveResult,
+            detail: saveDetail,
+          ),
         );
-        if (amount <= 0) {
+        if (!success) {
+          final failureCondition = _savingThrowFailureCondition(action);
+          if (failureCondition != null) {
+            final nextCombatants = [..._combatants];
+            nextCombatants[targetIndex] = _combatantWithCondition(
+              target,
+              failureCondition,
+            );
+            _combatants = nextCombatants;
+            _applyEngineCondition(
+              actor: actor,
+              target: target,
+              name: failureCondition,
+              sourceActionName: action.name,
+            );
+            _syncUiFromEncounter();
+            target = _combatants[targetIndex];
+          }
+        }
+
+        if (action.damageFormula != null &&
+            (!success || action.halfDamageOnSave)) {
+          final damageResult = await _rollCombatFormulaAwaitingBoard(
+            formula: action.damageFormula!,
+            label: '${action.name} Damage',
+          );
+          final damageResolution = _resolveSavingThrowDamage(
+            action: action,
+            target: target,
+            success: success,
+            rolledDamage: damageResult.total,
+          );
+          final amount = damageResolution.amount;
+          if (damageResolution.absorbElementsAction != null) {
+            _applyAbsorbElementsReactionCost(
+              target,
+              damageResolution.absorbElementsAction!,
+            );
+          }
+          if (amount <= 0) {
+            _activity.insert(
+              0,
+              CombatLogEntry.system(
+                '${target.name} avoids all ${action.name} damage${damageResolution.labelSuffix}.',
+              ),
+            );
+            return CombatRollFeedback(
+              actor: actor.name,
+              action: action.name,
+              result: damageResult,
+              headline: 'EVASION',
+              subline: '${target.name} takes no damage',
+              accentKind: CombatAccentKind.support,
+            );
+          }
+          final hpResult = _resolveHpChange(target, amount, healing: false);
+          final nextCombatants = [..._combatants];
+          nextCombatants[targetIndex] = target.copyWith(
+            hp: hpResult.hp,
+            tempHp: hpResult.tempHp,
+          );
+          _combatants = nextCombatants;
+          _applyEngineHpChange(
+            actor: actor,
+            target: target,
+            amount: amount,
+            healing: false,
+            action: action,
+            formula: damageResult.formula,
+          );
+          _syncUiFromEncounter();
+          final damageDetail =
+              '${damageResult.formula} - ${damageResult.rollsText}. ${target.name} takes $amount ${damageResolution.label} (${_hpChangeLine(target, hpResult)}).';
           _activity.insert(
             0,
-            _CombatLogEntry.system(
-              '${target.name} avoids all ${action.name} damage with Evasion.',
+            CombatLogEntry.roll(
+              actor: actor.name,
+              action: '${action.name} damage',
+              result: damageResult,
+              detail: damageDetail,
             ),
           );
-          return _CombatRollFeedback(
+          return CombatRollFeedback(
             actor: actor.name,
             action: action.name,
             result: damageResult,
-            headline: 'EVASION',
-            subline: '${target.name} takes no damage',
-            accentKind: _CombatAccentKind.support,
+            headline: success && action.halfDamageOnSave
+                ? '$amount HALF DAMAGE'
+                : '$amount DAMAGE',
+            subline: _hpChangeLine(target, hpResult),
+            accentKind:
+                success ? CombatAccentKind.read : CombatAccentKind.magic,
           );
         }
-        final hpResult = _resolveHpChange(target, amount, healing: false);
-        final nextCombatants = [..._combatants];
-        nextCombatants[targetIndex] = target.copyWith(
-          hp: hpResult.hp,
-          tempHp: hpResult.tempHp,
-        );
-        _combatants = nextCombatants;
-        _applyEngineHpChange(
-          actor: actor,
-          target: target,
-          amount: amount,
-          healing: false,
-          action: action,
-          formula: damageResult.formula,
-        );
-        _syncUiFromEncounter();
-        final damageDetail =
-            '${damageResult.formula} - ${damageResult.rollsText}. ${target.name} takes $amount ${_savingThrowDamageLabel(action: action, target: target, success: success)} (${_hpChangeLine(target, hpResult)}).';
-        _activity.insert(
-          0,
-          _CombatLogEntry.roll(
-            actor: actor.name,
-            action: '${action.name} damage',
-            result: damageResult,
-            detail: damageDetail,
-          ),
-        );
-        return _CombatRollFeedback(
-          actor: actor.name,
+
+        return CombatRollFeedback(
+          actor: target.name,
           action: action.name,
-          result: damageResult,
-          headline: success ? '$amount HALF DAMAGE' : '$amount DAMAGE',
-          subline: _hpChangeLine(target, hpResult),
-          accentKind:
-              success ? _CombatAccentKind.read : _CombatAccentKind.magic,
+          result: saveResult,
+          headline: success ? 'SAVE SUCCESS' : 'SAVE FAILED',
+          subline:
+              '${target.name} ${action.saveAbility} ${saveResult.total} vs DC $saveDc',
+          accentKind: success ? CombatAccentKind.read : CombatAccentKind.magic,
         );
       }
 
-      return _CombatRollFeedback(
-        actor: target.name,
-        action: action.name,
-        result: saveResult,
-        headline: success ? 'SAVE SUCCESS' : 'SAVE FAILED',
-        subline:
-            '${target.name} ${action.saveAbility} ${saveResult.total} vs DC $saveDc',
-        accentKind: success ? _CombatAccentKind.read : _CombatAccentKind.magic,
-      );
-    }
+      if (action.attackFormula != null) {
+        final attackResult = await _rollCombatFormulaAwaitingBoard(
+          formula: action.attackFormula!,
+          label: '${action.name} Attack',
+          useRollMode: true,
+          forceDisadvantage: _attackHasLongRangeDisadvantage(
+            action,
+            actorIndex: actorIndex,
+            forcedTargetIndex: targetIndex,
+          ),
+        );
+        final outcome = _attackOutcome(attackResult, target, action);
+        final attackDetail =
+            '${attackResult.formula} - ${attackResult.rollsText}. ${target.name} AC ${target.ac}: $outcome.';
+        _activity.insert(
+          0,
+          CombatLogEntry.roll(
+            actor: actor.name,
+            action: '${action.name} attack',
+            result: attackResult,
+            detail: attackDetail,
+          ),
+        );
 
-    if (action.attackFormula != null) {
-      final attackResult = _rollCombatFormula(
-        formula: action.attackFormula!,
-        label: '${action.name} Attack',
-        useRollMode: true,
-      );
-      final outcome = _attackOutcome(attackResult, target, action);
-      final attackDetail =
-          '${attackResult.formula} - ${attackResult.rollsText}. ${target.name} AC ${target.ac}: $outcome.';
-      _activity.insert(
-        0,
-        _CombatLogEntry.roll(
+        final didHit = outcome == 'hit' || outcome == 'critical hit';
+        final damageFormula = outcome == 'critical hit'
+            ? action.critFormula ?? action.damageFormula
+            : action.damageFormula;
+        if (didHit && damageFormula != null) {
+          final damageResult = await _rollCombatFormulaAwaitingBoard(
+            formula: damageFormula,
+            label: '${action.name} Damage',
+          );
+          final passiveDamageFormula = _passiveExtraHitDamageFormula(
+            actor,
+            action,
+            critical: outcome == 'critical hit',
+          );
+          final passiveDamageResult = passiveDamageFormula == null
+              ? null
+              : await _rollCombatFormulaAwaitingBoard(
+                  formula: passiveDamageFormula,
+                  label: 'Improved Divine Smite',
+                );
+          final amount = damageResult.total +
+              _situationalDamageBonus(actor, action) +
+              (passiveDamageResult?.total ?? 0);
+          final hpResult = _resolveHpChange(target, amount, healing: false);
+          final nextCombatants = [..._combatants];
+          nextCombatants[targetIndex] = target.copyWith(
+            hp: hpResult.hp,
+            tempHp: hpResult.tempHp,
+          );
+          _combatants = nextCombatants;
+          _applyEngineHpChange(
+            actor: actor,
+            target: target,
+            amount: amount,
+            healing: false,
+            action: action,
+            formula: damageResult.formula,
+          );
+          _syncUiFromEncounter();
+          final passiveDetail = passiveDamageResult == null
+              ? ''
+              : ' Improved Divine Smite adds ${passiveDamageResult.total} radiant (${passiveDamageResult.rollsText}).';
+          final damageDetail =
+              '${damageResult.formula} - ${damageResult.rollsText}.$passiveDetail ${target.name} takes $amount damage (${_hpChangeLine(target, hpResult)}).';
+          _activity.insert(
+            0,
+            CombatLogEntry.roll(
+              actor: actor.name,
+              action: '${action.name} damage',
+              result: damageResult,
+              detail: damageDetail,
+            ),
+          );
+          if (target.hp > 0 && hpResult.hp == 0) {
+            _activity.insert(
+                0, CombatLogEntry.system('${target.name} is down.'));
+            _targetIndex = _findDefaultTargetIndex(_activeIndex);
+          }
+          final headline = outcome == 'critical hit'
+              ? 'CRIT $amount DAMAGE'
+              : '$amount DAMAGE';
+          return CombatRollFeedback(
+            actor: actor.name,
+            action: action.name,
+            result: damageResult,
+            headline: headline,
+            subline: _hpChangeLine(target, hpResult),
+            accentKind: outcome == 'critical hit'
+                ? CombatAccentKind.support
+                : CombatAccentKind.action,
+          );
+        }
+
+        return CombatRollFeedback(
           actor: actor.name,
-          action: '${action.name} attack',
+          action: action.name,
           result: attackResult,
-          detail: attackDetail,
-        ),
-      );
+          headline: outcome.toUpperCase(),
+          subline: '${actor.name} vs ${target.name} AC ${target.ac}',
+          accentKind: switch (outcome) {
+            'critical hit' => CombatAccentKind.support,
+            'hit' => CombatAccentKind.action,
+            'automatic miss' => CombatAccentKind.info,
+            _ => CombatAccentKind.read,
+          },
+        );
+      }
 
-      final didHit = outcome == 'hit' || outcome == 'critical hit';
-      final damageFormula = outcome == 'critical hit'
-          ? action.critFormula ?? action.damageFormula
-          : action.damageFormula;
-      if (didHit && damageFormula != null) {
-        final damageResult = DiceRollerService.rollFormula(
-          formula: damageFormula,
-          label: '${action.name} Damage',
+      if (action.damageFormula != null) {
+        final result = await _rollCombatFormulaAwaitingBoard(
+          formula: action.damageFormula!,
+          label:
+              action.isHealing ? '${action.name} Heal' : '${action.name} Use',
         );
-        final passiveDamageFormula = _passiveExtraHitDamageFormula(
-          actor,
-          action,
-          critical: outcome == 'critical hit',
+        final amount = result.total + _situationalDamageBonus(actor, action);
+        final hpResult = _resolveHpChange(
+          target,
+          amount,
+          healing: action.isHealing,
         );
-        final passiveDamageResult = passiveDamageFormula == null
-            ? null
-            : DiceRollerService.rollFormula(
-                formula: passiveDamageFormula,
-                label: 'Improved Divine Smite',
-              );
-        final amount = damageResult.total +
-            _situationalDamageBonus(actor, action) +
-            (passiveDamageResult?.total ?? 0);
-        final hpResult = _resolveHpChange(target, amount, healing: false);
         final nextCombatants = [..._combatants];
         nextCombatants[targetIndex] = target.copyWith(
           hp: hpResult.hp,
@@ -5450,158 +7456,86 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
           actor: actor,
           target: target,
           amount: amount,
-          healing: false,
+          healing: action.isHealing,
           action: action,
-          formula: damageResult.formula,
+          formula: result.formula,
         );
         _syncUiFromEncounter();
-        final passiveDetail = passiveDamageResult == null
-            ? ''
-            : ' Improved Divine Smite adds ${passiveDamageResult.total} radiant (${passiveDamageResult.rollsText}).';
-        final damageDetail =
-            '${damageResult.formula} - ${damageResult.rollsText}.$passiveDetail ${target.name} takes $amount damage (${_hpChangeLine(target, hpResult)}).';
+
+        final verb = action.isHealing ? 'recovers' : 'takes';
+        final suffix = action.isHealing ? 'HP' : 'damage';
+        final detail =
+            '${result.formula} - ${result.rollsText}. ${target.name} $verb $amount $suffix (${_hpChangeLine(target, hpResult)}).';
         _activity.insert(
           0,
-          _CombatLogEntry.roll(
+          CombatLogEntry.roll(
             actor: actor.name,
-            action: '${action.name} damage',
-            result: damageResult,
-            detail: damageDetail,
+            action: action.name,
+            result: result,
+            detail: detail,
           ),
         );
-        if (target.hp > 0 && hpResult.hp == 0) {
-          _activity.insert(
-              0, _CombatLogEntry.system('${target.name} is down.'));
+        if (!action.isHealing && target.hp > 0 && hpResult.hp == 0) {
+          _activity.insert(0, CombatLogEntry.system('${target.name} is down.'));
           _targetIndex = _findDefaultTargetIndex(_activeIndex);
         }
-        final headline = outcome == 'critical hit'
-            ? 'CRIT $amount DAMAGE'
-            : '$amount DAMAGE';
-        return _CombatRollFeedback(
-          actor: actor.name,
-          action: action.name,
-          result: damageResult,
-          headline: headline,
-          subline: _hpChangeLine(target, hpResult),
-          accentKind: outcome == 'critical hit'
-              ? _CombatAccentKind.support
-              : _CombatAccentKind.action,
-        );
-      }
-
-      return _CombatRollFeedback(
-        actor: actor.name,
-        action: action.name,
-        result: attackResult,
-        headline: outcome.toUpperCase(),
-        subline: '${actor.name} vs ${target.name} AC ${target.ac}',
-        accentKind: switch (outcome) {
-          'critical hit' => _CombatAccentKind.support,
-          'hit' => _CombatAccentKind.action,
-          'automatic miss' => _CombatAccentKind.info,
-          _ => _CombatAccentKind.read,
-        },
-      );
-    }
-
-    if (action.damageFormula != null) {
-      final result = DiceRollerService.rollFormula(
-        formula: action.damageFormula!,
-        label: action.isHealing ? '${action.name} Heal' : '${action.name} Use',
-      );
-      final amount = result.total + _situationalDamageBonus(actor, action);
-      final hpResult = _resolveHpChange(
-        target,
-        amount,
-        healing: action.isHealing,
-      );
-      final nextCombatants = [..._combatants];
-      nextCombatants[targetIndex] = target.copyWith(
-        hp: hpResult.hp,
-        tempHp: hpResult.tempHp,
-      );
-      _combatants = nextCombatants;
-      _applyEngineHpChange(
-        actor: actor,
-        target: target,
-        amount: amount,
-        healing: action.isHealing,
-        action: action,
-        formula: result.formula,
-      );
-      _syncUiFromEncounter();
-
-      final verb = action.isHealing ? 'recovers' : 'takes';
-      final suffix = action.isHealing ? 'HP' : 'damage';
-      final detail =
-          '${result.formula} - ${result.rollsText}. ${target.name} $verb $amount $suffix (${_hpChangeLine(target, hpResult)}).';
-      _activity.insert(
-        0,
-        _CombatLogEntry.roll(
+        return CombatRollFeedback(
           actor: actor.name,
           action: action.name,
           result: result,
-          detail: detail,
-        ),
-      );
-      if (!action.isHealing && target.hp > 0 && hpResult.hp == 0) {
-        _activity.insert(0, _CombatLogEntry.system('${target.name} is down.'));
-        _targetIndex = _findDefaultTargetIndex(_activeIndex);
+          headline: action.isHealing ? 'HEAL $amount' : '$amount DAMAGE',
+          subline: _hpChangeLine(target, hpResult),
+          accentKind: action.isHealing
+              ? CombatAccentKind.support
+              : CombatAccentKind.action,
+        );
       }
-      return _CombatRollFeedback(
+
+      _activity.insert(
+        0,
+        CombatLogEntry.system('${actor.name} used ${action.name}.'),
+      );
+      final stateTargetIndex =
+          action.targetPolicy == 'ally' || action.targetPolicy == 'any'
+              ? (targetIndex).clamp(0, _combatants.length - 1).toInt()
+              : resolvedActorIndex;
+      final stateTarget = _combatants[stateTargetIndex];
+      final condition = _applyActionState(action, actorIndex: stateTargetIndex);
+      if (condition != null) {
+        _applyEngineCondition(
+          actor: actor,
+          target: stateTarget,
+          name: condition,
+          sourceActionName: action.name,
+        );
+        _syncUiFromEncounter();
+      }
+      return CombatRollFeedback.manual(
         actor: actor.name,
         action: action.name,
-        result: result,
-        headline: action.isHealing ? 'HEAL $amount' : '$amount DAMAGE',
-        subline: _hpChangeLine(target, hpResult),
-        accentKind: action.isHealing
-            ? _CombatAccentKind.support
-            : _CombatAccentKind.action,
+        headline: action.grantsAction
+            ? 'ACTION SURGE'
+            : condition == null
+                ? 'USED'
+                : condition.toUpperCase(),
+        subline: action.grantsAction
+            ? '${actor.name} can take another Action this turn.'
+            : condition == null
+                ? action.tags.take(3).join(' - ')
+                : '${stateTarget.name} is now $condition',
+        accentKind: action.accentKind,
       );
+    } finally {
+      _endCombatResolution(resolutionKey);
     }
-
-    _activity.insert(
-      0,
-      _CombatLogEntry.system('${actor.name} used ${action.name}.'),
-    );
-    final stateTargetIndex =
-        action.targetPolicy == 'ally' || action.targetPolicy == 'any'
-            ? (targetIndex).clamp(0, _combatants.length - 1).toInt()
-            : resolvedActorIndex;
-    final stateTarget = _combatants[stateTargetIndex];
-    final condition = _applyActionState(action, actorIndex: stateTargetIndex);
-    if (condition != null) {
-      _applyEngineCondition(
-        actor: actor,
-        target: stateTarget,
-        name: condition,
-        sourceActionName: action.name,
-      );
-      _syncUiFromEncounter();
-    }
-    return _CombatRollFeedback.manual(
-      actor: actor.name,
-      action: action.name,
-      headline: action.grantsAction
-          ? 'ACTION SURGE'
-          : condition == null
-              ? 'USED'
-              : condition.toUpperCase(),
-      subline: action.grantsAction
-          ? '${actor.name} can take another Action this turn.'
-          : condition == null
-              ? action.tags.take(3).join(' - ')
-              : '${stateTarget.name} is now $condition',
-      accentKind: action.accentKind,
-    );
   }
 
-  _CombatRollFeedback _resolveMultiAttackAction(
-    _CombatAction action, {
-    required _Combatant actor,
+  Future<CombatRollFeedback> _resolveMultiAttackAction(
+    CombatAction action, {
+    required Combatant actor,
     required int actorIndex,
     required int targetIndex,
-  }) {
+  }) async {
     var currentTargetIndex = targetIndex;
     var totalDamage = 0;
     var hitCount = 0;
@@ -5632,7 +7566,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       if (attackFormula == null && damageFormula == null) continue;
 
       if (attackFormula == null) {
-        final damageResult = DiceRollerService.rollFormula(
+        final damageResult = await _rollCombatFormulaAwaitingBoard(
           formula: damageFormula!,
           label: '$stepLabel Damage',
         );
@@ -5659,7 +7593,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         );
         _activity.insert(
           0,
-          _CombatLogEntry.roll(
+          CombatLogEntry.roll(
             actor: actor.name,
             action: stepLabel,
             result: damageResult,
@@ -5669,10 +7603,14 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         );
       } else {
         attackCount += 1;
-        final attackResult = _rollCombatFormula(
+        final attackResult = await _rollCombatFormulaAwaitingBoard(
           formula: attackFormula,
           label: '$stepLabel Attack',
           useRollMode: true,
+          forceDisadvantage: _attackHasLongRangeDisadvantage(
+            action,
+            forcedTargetIndex: targetIndex,
+          ),
         );
         lastResult = attackResult;
         final outcome = _attackOutcome(attackResult, target, action);
@@ -5680,7 +7618,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         if (outcome == 'critical hit') critCount += 1;
         _activity.insert(
           0,
-          _CombatLogEntry.roll(
+          CombatLogEntry.roll(
             actor: actor.name,
             action: '$stepLabel attack',
             result: attackResult,
@@ -5693,7 +7631,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
             ? step.critFormula ?? damageFormula
             : damageFormula;
         if (didHit && resolvedDamageFormula != null) {
-          final damageResult = DiceRollerService.rollFormula(
+          final damageResult = await _rollCombatFormulaAwaitingBoard(
             formula: resolvedDamageFormula,
             label: '$stepLabel Damage',
           );
@@ -5720,7 +7658,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
           );
           _activity.insert(
             0,
-            _CombatLogEntry.roll(
+            CombatLogEntry.roll(
               actor: actor.name,
               action: '$stepLabel damage',
               result: damageResult,
@@ -5735,7 +7673,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       if (target.hp > 0 && updatedTarget.hp == 0) {
         _activity.insert(
           0,
-          _CombatLogEntry.system('${target.name} is down.'),
+          CombatLogEntry.system('${target.name} is down.'),
         );
         _targetIndex = _findDefaultTargetIndex(actorIndex);
         currentTargetIndex = _targetIndex;
@@ -5752,15 +7690,15 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         ? '${critCount > 0 ? 'CRIT ' : ''}MULTIATTACK $totalDamage'
         : 'MULTIATTACK MISS';
 
-    return _CombatRollFeedback(
+    return CombatRollFeedback(
       actor: actor.name,
       action: action.name,
       result: lastResult,
       headline: headline,
       subline: lastHpLine ?? '${_combatants[targetIndex].name}: $attacksLabel',
       accentKind: totalDamage > 0
-          ? (critCount > 0 ? _CombatAccentKind.support : action.accentKind)
-          : _CombatAccentKind.read,
+          ? (critCount > 0 ? CombatAccentKind.support : action.accentKind)
+          : CombatAccentKind.read,
     );
   }
 
@@ -5772,7 +7710,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       setState(() {
         _activity.insert(
           0,
-          _CombatLogEntry.system(
+          CombatLogEntry.system(
             '${_combatants[index].name} cannot be targeted while down.',
           ),
         );
@@ -5784,7 +7722,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       _targetIndex = index;
       _activity.insert(
         0,
-        _CombatLogEntry.system(
+        CombatLogEntry.system(
           '${_combatants[index].name} is the current target.',
         ),
       );
@@ -5797,7 +7735,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
   void _scheduleTargetSelectionFromBoard(List<BoardToken> tokens) {
     final sceneId = _activeBattleBoardSceneId;
     if (sceneId == null || _combatants.isEmpty) return;
-    final targetToken = _targetBoardToken(
+    final targetToken = CombatBoardTokenLookup.targeted(
       tokens.where((token) => token.sceneId == sceneId).toList(growable: false),
     );
     if (targetToken == null || targetToken.refId == _selectedTarget.id) {
@@ -5819,7 +7757,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         _targetIndex = targetIndex;
         _activity.insert(
           0,
-          _CombatLogEntry.system(
+          CombatLogEntry.system(
             '${_combatants[targetIndex].name} is targeted from the board.',
           ),
         );
@@ -5828,13 +7766,13 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     });
   }
 
-  _HpChangeResult _resolveHpChange(
-    _Combatant target,
+  CombatHpChangeResult _resolveHpChange(
+    Combatant target,
     int amount, {
     required bool healing,
   }) {
     if (healing) {
-      return _HpChangeResult(
+      return CombatHpChangeResult(
         hp: (target.hp + amount).clamp(0, target.maxHp).toInt(),
         tempHp: target.tempHp,
       );
@@ -5842,13 +7780,13 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
 
     final absorbedByTemp = math.min(target.tempHp, amount);
     final remainingDamage = amount - absorbedByTemp;
-    return _HpChangeResult(
+    return CombatHpChangeResult(
       hp: (target.hp - remainingDamage).clamp(0, target.maxHp).toInt(),
       tempHp: target.tempHp - absorbedByTemp,
     );
   }
 
-  int _situationalDamageBonus(_Combatant actor, _CombatAction action) {
+  int _situationalDamageBonus(Combatant actor, CombatAction action) {
     if (action.isHealing || action.timing == 'Free') return 0;
     if (!_combatantHasCondition(actor, 'Raging')) return 0;
     if (!_rageAppliesToAction(action)) return 0;
@@ -5856,8 +7794,8 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
   }
 
   String? _passiveExtraHitDamageFormula(
-    _Combatant actor,
-    _CombatAction action, {
+    Combatant actor,
+    CombatAction action, {
     required bool critical,
   }) {
     if (!_combatantHasPassiveEffect(actor, 'Improved Divine Smite')) {
@@ -5870,14 +7808,14 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     return critical ? '2d8' : '1d8';
   }
 
-  bool _combatantHasCondition(_Combatant combatant, String condition) {
+  bool _combatantHasCondition(Combatant combatant, String condition) {
     final normalized = condition.toLowerCase();
     return combatant.conditions.any(
       (item) => item.toLowerCase() == normalized,
     );
   }
 
-  bool _combatantHasPassiveEffect(_Combatant combatant, String effectName) {
+  bool _combatantHasPassiveEffect(Combatant combatant, String effectName) {
     final normalized = effectName.toLowerCase();
     final engineEffects =
         _encounter?.combatantById(combatant.id)?.effects ?? const [];
@@ -5890,47 +7828,184 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     );
   }
 
-  bool _savingThrowUsesEvasion(_CombatAction action, _Combatant target) {
+  bool _savingThrowUsesEvasion(CombatAction action, Combatant target) {
     final ability = action.saveAbility?.trim().toUpperCase();
     return ability == 'DEX' &&
         action.halfDamageOnSave &&
         _combatantHasPassiveEffect(target, 'Evasion');
   }
 
-  int _savingThrowDamageAmount({
-    required _CombatAction action,
-    required _Combatant target,
+  SavingThrowDamageResolution _resolveSavingThrowDamage({
+    required CombatAction action,
+    required Combatant target,
     required bool success,
     required int rolledDamage,
   }) {
+    final notes = <String>[];
+    var amount = rolledDamage;
     if (_savingThrowUsesEvasion(action, target)) {
-      return success ? 0 : (rolledDamage / 2).floor();
+      if (success) {
+        amount = 0;
+        notes.add('Evasion');
+      } else {
+        amount = (amount / 2).floor();
+        notes.add('Evasion');
+      }
+    } else if (success && action.halfDamageOnSave) {
+      amount = (amount / 2).floor();
+      notes.add('save half');
     }
-    if (success && action.halfDamageOnSave) {
-      return (rolledDamage / 2).floor();
+
+    final damageType = CombatDamageTypeRules.normalize(action.damageType);
+    final traits = _damageTraitsForCombatant(target, damageType);
+    if (amount > 0 && traits.immune) {
+      amount = 0;
+      notes.add('immunity');
     }
-    return rolledDamage;
+    final absorbElementsAction = amount > 0 && !traits.resistant
+        ? _availableAbsorbElementsReaction(target, damageType)
+        : null;
+    if (amount > 0 && (traits.resistant || absorbElementsAction != null)) {
+      amount = (amount / 2).floor();
+      notes
+          .add(absorbElementsAction == null ? 'resistance' : 'Absorb Elements');
+    }
+    if (amount > 0 && traits.vulnerable) {
+      amount *= 2;
+      notes.add('vulnerability');
+    }
+
+    return SavingThrowDamageResolution(
+      amount: amount,
+      damageType: damageType,
+      notes: notes,
+      absorbElementsAction: absorbElementsAction,
+    );
   }
 
-  String _savingThrowDamageLabel({
-    required _CombatAction action,
-    required _Combatant target,
-    required bool success,
+  DamageTraitSnapshot _damageTraitsForCombatant(
+    Combatant target,
+    String? damageType,
+  ) {
+    if (damageType == null) {
+      return const DamageTraitSnapshot();
+    }
+    var resistant = false;
+    var immune = false;
+    var vulnerable = false;
+
+    bool matches(Object? value) {
+      if (value == null) return false;
+      if (value is Iterable) {
+        return value.any(matches);
+      }
+      return CombatDamageTypeRules.normalize(value.toString()) == damageType;
+    }
+
+    final engineCombatant = _encounter?.combatantById(target.id);
+    for (final effect in engineCombatant?.effects ?? const []) {
+      final mechanics = effect.mechanics;
+      resistant = resistant ||
+          matches(mechanics['resistance']) ||
+          matches(mechanics['resistances']);
+      immune = immune ||
+          matches(mechanics['immunity']) ||
+          matches(mechanics['immunities']);
+      vulnerable = vulnerable ||
+          matches(mechanics['vulnerability']) ||
+          matches(mechanics['vulnerabilities']);
+    }
+
+    for (final condition in target.conditions) {
+      final normalized = condition.toLowerCase();
+      if (normalized == 'raging' &&
+          const {'bludgeoning', 'piercing', 'slashing'}.contains(damageType)) {
+        resistant = true;
+      }
+      if (normalized.contains('resist') && normalized.contains(damageType)) {
+        resistant = true;
+      }
+      if (normalized.contains('immune') && normalized.contains(damageType)) {
+        immune = true;
+      }
+      if (normalized.contains('vulnerable') &&
+          normalized.contains(damageType)) {
+        vulnerable = true;
+      }
+    }
+
+    return DamageTraitSnapshot(
+      resistant: resistant,
+      immune: immune,
+      vulnerable: vulnerable,
+    );
+  }
+
+  CombatAction? _availableAbsorbElementsReaction(
+    Combatant target,
+    String? damageType,
+  ) {
+    if (damageType == null) return null;
+    if (!const {'acid', 'cold', 'fire', 'lightning', 'thunder'}
+        .contains(damageType)) {
+      return null;
+    }
+    if (_spentReactionCombatantIds.contains(target.id)) return null;
+    for (final action in _reactionActionsForCombatant(target)) {
+      if (!_looksLikeAbsorbElements(action)) continue;
+      if (_reactionResourceBlockMessage(target, action) != null) continue;
+      return action;
+    }
+    return null;
+  }
+
+  bool _looksLikeAbsorbElements(CombatAction action) {
+    final text =
+        '${action.name} ${action.type} ${action.tags.join(' ')}'.toLowerCase();
+    return text.contains('absorb elements') ||
+        text.contains('absorber elementos');
+  }
+
+  void _applyAbsorbElementsReactionCost(
+    Combatant target,
+    CombatAction action, {
+    encounter_models.CombatEncounter? currentEncounter,
+    void Function(encounter_models.CombatEncounter? next)? encounterOverride,
   }) {
-    if (_savingThrowUsesEvasion(action, target)) {
-      return success ? 'no damage (Evasion)' : 'half damage (Evasion)';
+    _spentReactionCombatantIds.add(target.id);
+    final resourceKey = action.resourceKey;
+    final resourceCost = action.resourceCost;
+    var nextEncounter = currentEncounter ?? _encounter;
+    if (nextEncounter != null && resourceKey != null && resourceCost > 0) {
+      nextEncounter = CombatEncounterEngine.spendResource(
+        nextEncounter,
+        combatantId: target.id,
+        resourceKey: resourceKey,
+        amount: resourceCost,
+      );
+      _queueCharacterCombatSnapshot(target.id);
     }
-    return success && action.halfDamageOnSave ? 'half damage' : 'damage';
+    if (encounterOverride != null) {
+      encounterOverride(nextEncounter);
+    } else {
+      _encounter = nextEncounter;
+    }
+    _activity.insert(
+      0,
+      CombatLogEntry.system(
+        '${target.name} reacts with ${action.name} to reduce incoming elemental damage.',
+      ),
+    );
   }
 
-  bool _rageAppliesToAction(_CombatAction action) {
+  bool _rageAppliesToAction(CombatAction action) {
     final text =
         '${action.name} ${action.type} ${action.tags.join(' ')}'.toLowerCase();
     if (text.contains('spell') || text.contains('ranged')) return false;
     return text.contains('melee') && text.contains('str');
   }
 
-  int _rageDamageBonusForCombatant(_Combatant combatant) {
+  int _rageDamageBonusForCombatant(Combatant combatant) {
     final metadata = _encounter?.combatantById(combatant.id)?.metadata;
     final classLevels = metadata?['classLevels'];
     var barbarianLevel = 0;
@@ -5950,7 +8025,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
   }
 
   encounter_models.PreparedCombatAction? _engineActionForUi(
-    _CombatAction action,
+    CombatAction action,
   ) {
     final byId = _engineActions[action.id];
     if (byId != null) return byId;
@@ -5964,11 +8039,11 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
   }
 
   void _applyEngineHpChange({
-    required _Combatant actor,
-    required _Combatant target,
+    required Combatant actor,
+    required Combatant target,
     required int amount,
     required bool healing,
-    required _CombatAction action,
+    required CombatAction action,
     required String formula,
   }) {
     final encounter = _encounter;
@@ -5996,13 +8071,13 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     _queueCharacterCombatSnapshot(target.id);
   }
 
-  void _spendEngineActionResource(_CombatAction action) {
+  void _spendEngineActionResource(CombatAction action) {
     _spendEngineActionResourceForCombatant(action, _activeCombatant);
   }
 
   void _spendEngineActionResourceForCombatant(
-    _CombatAction action,
-    _Combatant actor,
+    CombatAction action,
+    Combatant actor,
   ) {
     final encounter = _encounter;
     final engineAction = _engineActionForUi(action);
@@ -6019,7 +8094,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     _queueCharacterCombatSnapshot(actor.id);
   }
 
-  String? _applyActionEconomyEffect(_CombatAction action) {
+  String? _applyActionEconomyEffect(CombatAction action) {
     final messages = <String>[];
 
     if (_actionGrantsDashMovement(action)) {
@@ -6050,13 +8125,13 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     return messages.join(' ');
   }
 
-  bool _actionGrantsDashMovement(_CombatAction action) {
+  bool _actionGrantsDashMovement(CombatAction action) {
     final text =
         '${action.name} ${action.type} ${action.tags.join(' ')}'.toLowerCase();
     return text.contains('dash') || text.contains('correr');
   }
 
-  String? _actionResourceBlockMessage(_CombatAction action) {
+  String? _actionResourceBlockMessage(CombatAction action) {
     final resourceKey = action.resourceKey;
     final resourceCost = action.resourceCost;
     if (resourceKey == null || resourceCost <= 0) return null;
@@ -6079,15 +8154,15 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     if (!_hasAvailableOnHitOptionForActiveCombatant()) return;
     _activity.insert(
       0,
-      _CombatLogEntry.system(
+      CombatLogEntry.system(
         'Hit confirmed on $targetName. On-hit options are available before damage.',
       ),
     );
   }
 
   void _applyEngineCondition({
-    required _Combatant actor,
-    required _Combatant target,
+    required Combatant actor,
+    required Combatant target,
     required String name,
     String? sourceActionName,
   }) {
@@ -6179,7 +8254,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     };
   }
 
-  String _hpChangeLine(_Combatant before, _HpChangeResult after) {
+  String _hpChangeLine(Combatant before, CombatHpChangeResult after) {
     String label(int hp, int maxHp, int tempHp) {
       final temp = tempHp > 0 ? ' +$tempHp temp' : '';
       return '$hp/$maxHp$temp';
@@ -6188,7 +8263,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     return '${before.name}: ${label(before.hp, before.maxHp, before.tempHp)} -> ${label(after.hp, before.maxHp, after.tempHp)} HP';
   }
 
-  int _stateTargetIndexForAction(_CombatAction action) {
+  int _stateTargetIndexForAction(CombatAction action) {
     if (action.targetsSelf || action.targetPolicy == 'self') {
       return _activeIndex;
     }
@@ -6200,7 +8275,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     return _activeIndex;
   }
 
-  String? _applyActionState(_CombatAction action, {int? actorIndex}) {
+  String? _applyActionState(CombatAction action, {int? actorIndex}) {
     final index =
         (actorIndex ?? _activeIndex).clamp(0, _combatants.length - 1).toInt();
     final actor = _combatants[index];
@@ -6226,12 +8301,12 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     _combatants = nextCombatants;
     _activity.insert(
       0,
-      _CombatLogEntry.system('${actor.name} gains $condition.'),
+      CombatLogEntry.system('${actor.name} gains $condition.'),
     );
     return condition;
   }
 
-  String? _conditionFromAction(_CombatAction action) {
+  String? _conditionFromAction(CombatAction action) {
     final text =
         '${action.name} ${action.type} ${action.tags.join(' ')}'.toLowerCase();
     if (text.contains('rage')) return 'Raging';
@@ -6257,33 +8332,28 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     });
   }
 
+  String _selectedTimingAvailableForActions(
+    String preferredTiming,
+    List<CombatAction> actions,
+  ) {
+    if (actions.isEmpty) return preferredTiming;
+    if (actions.any((action) => action.timing == preferredTiming)) {
+      return preferredTiming;
+    }
+    const priority = ['Action', 'Bonus Action', 'Reaction', 'Free', 'Movement'];
+    for (final timing in priority) {
+      if (actions.any((action) => action.timing == timing)) return timing;
+    }
+    return actions.first.timing;
+  }
+
   void _selectBestCommandTimingAfterAttackRoll({required bool didHit}) {
-    if (didHit && _hasAvailableOnHitOptionForActiveCombatant()) {
-      _selectedCommandTiming =
-          _hasActionDeckTechniqueRailForActiveCombatant() ? 'Action' : 'Free';
-      return;
-    }
-    if (_hasStartedAttackAction(_activeCombatant)) {
-      _selectedCommandTiming = 'Action';
-      return;
-    }
-    if (!didHit) {
-      _selectNextAvailableCommandTiming(preferBonus: true);
-    }
+    _selectedCommandTiming = 'Action';
   }
 
   void _selectBestCommandTimingAfterDamageResolution() {
     if (_multiAttackProgress?.hasPendingDamage == true) return;
-    if (_hasStartedAttackAction(_activeCombatant)) {
-      _selectedCommandTiming = 'Action';
-      return;
-    }
-    if (_hasActionDeckTechniqueRailForActiveCombatant() &&
-        _hasTakenAttackActionThisTurn(_activeCombatant)) {
-      _selectedCommandTiming = 'Action';
-      return;
-    }
-    _selectNextAvailableCommandTiming(preferBonus: true);
+    _selectedCommandTiming = 'Action';
   }
 
   bool _hasActionDeckTechniqueRailForActiveCombatant() {
@@ -6320,10 +8390,19 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
 
   void _selectFocusedCombatant(int index) {
     if (index < 0 || index >= _combatants.length) return;
-    if (!_dmView && !_canControlCombatant(_combatants[index])) {
-      _ensureCanControlCombatant(
-        _combatants[index],
-        actionLabel: 'cambiar el turno',
+    if (!_dmView) {
+      if (index == _activeIndex) return;
+      final message =
+          'Vista jugador: solo el DM puede cambiar el turno activo.';
+      setState(() {
+        _activity.insert(0, CombatLogEntry.system(message));
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(milliseconds: 1800),
+        ),
       );
       return;
     }
@@ -6331,6 +8410,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       _activeIndex = index;
       _targetIndex = _findDefaultTargetIndex(index);
       _spentTimings.clear();
+      _clearClassTurnFlowState();
       _actionAttackUsesByCombatantId.remove(_combatants[index].id);
       _movementBonusFeetByCombatantId.clear();
       _pendingDamageActions.clear();
@@ -6345,10 +8425,11 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       _resetQueuedPreparedActions();
       _selectedCommandTiming = 'Action';
       _rollFeedback = null;
-      _workspace = _CombatWorkspace.turn;
+      _activeCombatResolutionKeys.clear();
+      _workspace = CombatWorkspace.turn;
       _activity.insert(
         0,
-        _CombatLogEntry.system('${_combatants[index].name} is focused.'),
+        CombatLogEntry.system('${_combatants[index].name} is focused.'),
       );
     });
   }
@@ -6384,13 +8465,13 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       _syncUiFromEncounter();
       _activity.insert(
         0,
-        _CombatLogEntry.system('$effectName removed.'),
+        CombatLogEntry.system('$effectName removed.'),
       );
     });
   }
 
-  void _selectWorkspace(_CombatWorkspace workspace) {
-    if (workspace == _CombatWorkspace.overview) {
+  void _selectWorkspace(CombatWorkspace workspace) {
+    if (workspace == CombatWorkspace.overview) {
       _showEncounterOverviewWindow();
       return;
     }
@@ -6418,7 +8499,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
             activeIndex: _activeIndex,
             targetIndex: _safeTargetIndex,
             rollFeedback: _rollFeedback,
-            showEnemyHp: _dmView,
+            showEnemyHp: _dmView || _devCombatMode,
             onClose: () => Navigator.of(dialogContext).maybePop(),
           ),
         );
@@ -6427,9 +8508,56 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
   }
 
   void _toggleDmView() {
+    if (_hasRouteCharacterId && !_dmView) {
+      const message =
+          'Vista jugador fija: este controlador solo puede usar su personaje.';
+      setState(() {
+        _activity.insert(0, CombatLogEntry.system(message));
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(milliseconds: 1800),
+        ),
+      );
+      return;
+    }
     setState(() {
       _dmView = !_dmView;
+      _activity.insert(
+        0,
+        CombatLogEntry.system(
+          _dmView
+              ? 'Vista DM activa: puedes dirigir todos los turnos.'
+              : 'Vista jugador activa: solo se muestran acciones propias.',
+        ),
+      );
     });
+  }
+
+  void _toggleDevCombatMode() {
+    setState(() {
+      _devCombatMode = !_devCombatMode;
+      _workspace = CombatWorkspace.turn;
+      _activity.insert(
+        0,
+        CombatLogEntry.system(
+          _devCombatMode
+              ? 'Modo prueba activo: puedes controlar todos los turnos sin ser DM.'
+              : 'Modo prueba desactivado: vuelve el control normal de jugador.',
+        ),
+      );
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          _devCombatMode ? 'Modo prueba activo' : 'Modo prueba desactivado',
+        ),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(milliseconds: 1600),
+      ),
+    );
   }
 
   void _openDiceRoller() {
@@ -6467,7 +8595,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
   ) async {
     final campaignId = _resolvedCampaignId(listen: false);
     final sceneId = _activeBattleBoardSceneId;
-    final notation = _diceBoxNotationForRollResult(result);
+    final notation = CombatDiceResultFormatter.diceBoxNotation(result);
 
     if (campaignId == null || sceneId == null || notation == null) {
       debugPrint(
@@ -6493,7 +8621,9 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       lastEventDiceNotation: notation,
       lastEventDiceColorHex: _diceColorHex,
       lastEventResultLabel: 'Resultado ${result.total}',
-      lastEventResultDetail: _diceResultDetail(result),
+      lastEventResultDetail: CombatDiceResultFormatter.detail(result),
+      lastEventAuthoritativeDice:
+          CombatDiceResultFormatter.authoritativeDiceJson(result),
       controlledByUserId: '',
       now: now,
     );
@@ -6526,30 +8656,12 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     );
   }
 
-  String? _diceBoxNotationForRollResult(DiceRollResult result) {
-    if (result.firstD20 != null && result.secondD20 != null) {
-      return '2d20';
-    }
-
-    final terms = result.terms
-        .where((term) => term.diceCount > 0 && term.sides >= 2)
-        .map((term) => '${term.diceCount}d${term.sides}')
-        .toList(growable: false);
-
-    if (terms.isEmpty) return null;
-    return terms.join('+');
-  }
-
-  String _diceResultDetail(DiceRollResult result) {
-    return '${result.label} - ${result.formula}: ${result.rollsText}';
-  }
-
   void _scheduleBattleBoardEventClear({
     required String campaignId,
     required String sceneId,
     required String eventId,
   }) {
-    Future.delayed(const Duration(seconds: 4), () async {
+    Future.delayed(_battleBoardEventVisibleDuration, () async {
       if (!mounted) return;
 
       final boardProvider = context.read<BattleBoardProvider>();
@@ -6558,7 +8670,8 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
             (token) =>
                 token.sceneId == sceneId &&
                 token.lastEventId == eventId &&
-                token.lastEventLabel.isNotEmpty,
+                (token.lastEventLabel.isNotEmpty ||
+                    token.lastEventAreaShape.isNotEmpty),
           )
           .toList(growable: false);
 
@@ -6573,6 +8686,15 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
             lastEventDiceColorHex: '',
             lastEventResultLabel: '',
             lastEventResultDetail: '',
+            lastEventAuthoritativeDice: '',
+            lastEventDamageType: '',
+            lastEventSourceRefId: '',
+            lastEventPrimaryTargetRefId: '',
+            lastEventAffectedRefIds: const [],
+            lastEventAreaShape: '',
+            lastEventAreaFeet: 0,
+            lastEventAreaTargetX: -1,
+            lastEventAreaTargetY: -1,
           ),
         );
       }
@@ -6606,7 +8728,8 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
 
       await boardProvider.loadScenes(campaignId);
       if (!mounted) return null;
-      final resumableScene = _latestResumableBattleScene(
+      final resumableScene =
+          CombatBattleBoardSessionService.latestResumableScene(
         boardProvider.scenes,
         campaignId: campaignId,
       );
@@ -6652,24 +8775,6 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     }
   }
 
-  BattleScene? _latestResumableBattleScene(
-    List<BattleScene> scenes, {
-    String? campaignId,
-  }) {
-    final resolvedCampaignId =
-        campaignId?.trim() ?? _resolvedCampaignId(listen: false);
-    final candidates = scenes
-        .where(
-          (scene) =>
-              scene.combatActive &&
-              scene.combatState.isNotEmpty &&
-              scene.campaignId == resolvedCampaignId,
-        )
-        .toList(growable: false)
-      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-    return candidates.isEmpty ? null : candidates.first;
-  }
-
   Future<bool> _restoreActiveCombatSessionForCampaign(
     String campaignId, {
     bool force = false,
@@ -6685,7 +8790,8 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       final boardProvider = context.read<BattleBoardProvider>();
       await boardProvider.loadScenes(normalizedCampaignId);
       if (!mounted) return false;
-      final resumableScene = _latestResumableBattleScene(
+      final resumableScene =
+          CombatBattleBoardSessionService.latestResumableScene(
         boardProvider.scenes,
         campaignId: normalizedCampaignId,
       );
@@ -6714,41 +8820,20 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       final restoredEncounter = encounter_models.CombatEncounter.fromJson(
         Map<String, dynamic>.from(encounterRaw),
       );
-      final restoredMovement = <String, int>{};
-      final movementRaw = state['movementUsedByCombatantId'];
-      if (movementRaw is Map) {
-        for (final entry in movementRaw.entries) {
-          final value = entry.value;
-          restoredMovement[entry.key.toString()] =
-              value is num ? value.toInt() : int.tryParse('$value') ?? 0;
-        }
-      }
-      final restoredAttackUses = <String, int>{};
-      final attackUsesRaw = state['actionAttackUsesByCombatantId'];
-      if (attackUsesRaw is Map) {
-        for (final entry in attackUsesRaw.entries) {
-          final value = entry.value;
-          restoredAttackUses[entry.key.toString()] =
-              value is num ? value.toInt() : int.tryParse('$value') ?? 0;
-        }
-      }
-      final restoredMovementBonus = <String, int>{};
-      final movementBonusRaw = state['movementBonusFeetByCombatantId'];
-      if (movementBonusRaw is Map) {
-        for (final entry in movementBonusRaw.entries) {
-          final value = entry.value;
-          restoredMovementBonus[entry.key.toString()] =
-              value is num ? value.toInt() : int.tryParse('$value') ?? 0;
-        }
-      }
-
-      Set<String> stringSetFromState(String key) {
-        final raw = state[key];
-        if (raw is Iterable) {
-          return raw.map((item) => item.toString()).toSet();
-        }
-        return <String>{};
-      }
+      final restoredMovement = CombatBattleBoardSessionService.intMapFromState(
+        state,
+        'movementUsedByCombatantId',
+      );
+      final restoredAttackUses =
+          CombatBattleBoardSessionService.intMapFromState(
+        state,
+        'actionAttackUsesByCombatantId',
+      );
+      final restoredMovementBonus =
+          CombatBattleBoardSessionService.intMapFromState(
+        state,
+        'movementBonusFeetByCombatantId',
+      );
 
       setState(() {
         _encounter = restoredEncounter;
@@ -6775,19 +8860,44 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
           ..addAll(restoredMovementBonus);
         _spentTimings
           ..clear()
-          ..addAll(stringSetFromState('spentTimings'));
+          ..addAll(
+            CombatBattleBoardSessionService.stringSetFromState(
+              state,
+              'spentTimings',
+            ),
+          );
         _pendingDamageActions
           ..clear()
-          ..addAll(stringSetFromState('pendingDamageActions'));
+          ..addAll(
+            CombatBattleBoardSessionService.stringSetFromState(
+              state,
+              'pendingDamageActions',
+            ),
+          );
         _pendingHalfDamageActions
           ..clear()
-          ..addAll(stringSetFromState('pendingHalfDamageActions'));
+          ..addAll(
+            CombatBattleBoardSessionService.stringSetFromState(
+              state,
+              'pendingHalfDamageActions',
+            ),
+          );
         _spentReactionCombatantIds
           ..clear()
-          ..addAll(stringSetFromState('spentReactionCombatantIds'));
+          ..addAll(
+            CombatBattleBoardSessionService.stringSetFromState(
+              state,
+              'spentReactionCombatantIds',
+            ),
+          );
         _oncePerTurnActionUses
           ..clear()
-          ..addAll(stringSetFromState('oncePerTurnActionUses'));
+          ..addAll(
+            CombatBattleBoardSessionService.stringSetFromState(
+              state,
+              'oncePerTurnActionUses',
+            ),
+          );
         _activeBattleBoardSceneId = scene.id;
         _showBattleBoardController = true;
         _battleBoardControllerExpanded = false;
@@ -6805,7 +8915,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
               );
         _activity.insert(
           0,
-          _CombatLogEntry.system('Battle board state restored.'),
+          CombatLogEntry.system('Battle board state restored.'),
         );
       });
       return true;
@@ -6818,33 +8928,24 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
   }
 
   Map<String, dynamic> _battleBoardCombatStatePayload() {
-    return {
-      'version': 1,
-      'combatStarted': _combatStarted,
-      'round': _round,
-      'activeIndex': _activeIndex,
-      'targetIndex': _safeTargetIndex,
-      'selectedCommandTiming': _selectedCommandTiming,
-      'movementUsedByCombatantId': Map<String, int>.from(
-        _battleBoardMovementUsedByCombatantId,
-      ),
-      'actionAttackUsesByCombatantId': Map<String, int>.from(
-        _actionAttackUsesByCombatantId,
-      ),
-      'movementBonusFeetByCombatantId': Map<String, int>.from(
-        _movementBonusFeetByCombatantId,
-      ),
-      'spentTimings': _spentTimings.toList(growable: false),
-      'pendingDamageActions': _pendingDamageActions.toList(growable: false),
-      'pendingHalfDamageActions':
-          _pendingHalfDamageActions.toList(growable: false),
-      'spentReactionCombatantIds':
-          _spentReactionCombatantIds.toList(growable: false),
-      'oncePerTurnActionUses': _oncePerTurnActionUses.toList(growable: false),
-      'focusedActionName': _focusedBattleBoardAction?.name,
-      'encounter': _encounter?.toJson(),
-      'updatedAt': DateTime.now().toIso8601String(),
-    };
+    return CombatBattleBoardSessionService.combatStatePayload(
+      combatStarted: _combatStarted,
+      round: _round,
+      activeIndex: _activeIndex,
+      targetIndex: _safeTargetIndex,
+      selectedCommandTiming: _selectedCommandTiming,
+      movementUsedByCombatantId: _battleBoardMovementUsedByCombatantId,
+      actionAttackUsesByCombatantId: _actionAttackUsesByCombatantId,
+      movementBonusFeetByCombatantId: _movementBonusFeetByCombatantId,
+      spentTimings: _spentTimings,
+      pendingDamageActions: _pendingDamageActions,
+      pendingHalfDamageActions: _pendingHalfDamageActions,
+      spentReactionCombatantIds: _spentReactionCombatantIds,
+      oncePerTurnActionUses: _oncePerTurnActionUses,
+      focusedActionName: _focusedBattleBoardAction?.name,
+      encounterJson: _encounter?.toJson(),
+      updatedAt: DateTime.now(),
+    );
   }
 
   Future<void> _persistBattleBoardCombatState(
@@ -6922,7 +9023,10 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       _selectedBattleBoardCombatantId = null;
       _focusedBattleBoardAction = null;
       _battleBoardMovementUsedByCombatantId.clear();
+      _queuedBattleBoardMovesByCombatantId.clear();
+      _battleBoardMoveInFlightCombatantIds.clear();
       _spentTimings.clear();
+      _clearClassTurnFlowState();
       _actionAttackUsesByCombatantId.clear();
       _movementBonusFeetByCombatantId.clear();
       _pendingDamageActions.clear();
@@ -6933,11 +9037,11 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       _preparedActions.clear();
       _resetQueuedPreparedActions();
       _selectedCommandTiming = 'Action';
-      _workspace = _CombatWorkspace.turn;
+      _workspace = CombatWorkspace.turn;
       _sessionRestoreAttemptCampaignId = campaignId;
       _activity.insert(
         0,
-        _CombatLogEntry.system('Combat ended. Active session cleared.'),
+        CombatLogEntry.system('Combat ended. Active session cleared.'),
       );
     });
   }
@@ -7020,30 +9124,17 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
   }
 
   String _displayBoardUrl(String campaignId, String sceneId) {
-    final baseUri = Uri.base;
-    if (baseUri.hasScheme &&
-        (baseUri.scheme == 'http' || baseUri.scheme == 'https')) {
-      return Uri.parse(baseUri.origin).replace(
-        path: '/',
-        queryParameters: {
-          'boardCampaignId': campaignId,
-          'boardSceneId': sceneId,
-          'mode': 'display',
-        },
-      ).toString();
-    }
-
-    return Uri(
-      path: '/',
-      queryParameters: {
-        'boardCampaignId': campaignId,
-        'boardSceneId': sceneId,
-        'mode': 'display',
-      },
-    ).toString();
+    return CombatBattleBoardSessionService.displayUrl(
+      baseUri: Uri.base,
+      campaignId: campaignId,
+      sceneId: sceneId,
+    );
   }
 
-  int? _rangeFeetForCombatAction(_CombatAction action) {
+  int? _rangeFeetForCombatAction(CombatAction action) {
+    if (action.longRangeFeet != null && action.longRangeFeet! > 0) {
+      return action.longRangeFeet;
+    }
     if (action.rangeFeet != null) return action.rangeFeet;
     return _rangeFeetFromActionText(
       name: action.name,
@@ -7058,8 +9149,8 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     );
   }
 
-  _BoardActionRangeSnapshot? _boardActionRangeFor(
-    _CombatAction action, {
+  BoardActionRangeSnapshot? _boardActionRangeFor(
+    CombatAction action, {
     int? actorIndex,
     int? forcedTargetIndex,
   }) {
@@ -7085,14 +9176,22 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         .toList(growable: false);
     final actor = _combatants[resolvedActorIndex];
     final target = _combatants[targetIndex];
-    final actorToken = _boardTokenByRef(sceneTokens, actor.id);
-    final targetToken = _boardTokenByRef(sceneTokens, target.id);
+    final actorToken = CombatBoardTokenLookup.byRef(sceneTokens, actor.id);
+    final targetToken = CombatBoardTokenLookup.byRef(sceneTokens, target.id);
     if (actorToken == null || targetToken == null) return null;
 
+    final aimToken = action.hasAreaEffect
+        ? _areaAimTokenForAction(
+            action: action,
+            sceneId: sceneId,
+            sceneTokens: sceneTokens,
+            fallbackToken: targetToken,
+          )
+        : targetToken;
     final rangeFeet = _rangeFeetForCombatAction(action);
-    final distanceFeet = _boardDistanceFeet(actorToken, targetToken);
+    final distanceFeet = CombatBoardGeometry.distanceFeet(actorToken, aimToken);
     final isInRange = rangeFeet == null || distanceFeet <= rangeFeet;
-    return _BoardActionRangeSnapshot(
+    return BoardActionRangeSnapshot(
       actor: actor,
       target: target,
       distanceFeet: distanceFeet,
@@ -7101,7 +9200,43 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     );
   }
 
-  bool _ensureBattleBoardActionRange(_CombatAction action) {
+  int? _normalRangeFeetForCombatAction(CombatAction action) {
+    if (action.rangeFeet != null && action.rangeFeet! > 0) {
+      return action.rangeFeet;
+    }
+    return _rangeFeetFromActionText(
+      name: action.name,
+      type: action.type,
+      tags: action.tags,
+      source: null,
+      isSelf: action.targetsSelf,
+      isHealing: action.isHealing,
+      hasSavingThrow: action.requiresSavingThrow,
+      hasAttack: action.attackFormula != null || action.hasMultiAttack,
+      hasDamage: action.damageFormula != null,
+    );
+  }
+
+  bool _attackHasLongRangeDisadvantage(
+    CombatAction action, {
+    int? actorIndex,
+    int? forcedTargetIndex,
+  }) {
+    final longRangeFeet = action.longRangeFeet;
+    if (longRangeFeet == null || longRangeFeet <= 0) return false;
+    final normalRangeFeet = _normalRangeFeetForCombatAction(action);
+    if (normalRangeFeet == null || normalRangeFeet <= 0) return false;
+    final snapshot = _boardActionRangeFor(
+      action,
+      actorIndex: actorIndex,
+      forcedTargetIndex: forcedTargetIndex,
+    );
+    if (snapshot == null) return false;
+    return snapshot.distanceFeet > normalRangeFeet &&
+        snapshot.distanceFeet <= longRangeFeet;
+  }
+
+  bool _ensureBattleBoardActionRange(CombatAction action) {
     final snapshot = _boardActionRangeFor(action);
     if (snapshot == null || snapshot.isInRange) {
       _focusedBattleBoardAction = action;
@@ -7115,17 +9250,17 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     setState(() {
       _activity.insert(
         0,
-        _CombatLogEntry.system(
+        CombatLogEntry.system(
           '${snapshot.target.name} is out of range for ${action.name}: ${snapshot.distanceFeet}/${snapshot.rangeFeet} ft.',
         ),
       );
-      _rollFeedback = _CombatRollFeedback.manual(
+      _rollFeedback = CombatRollFeedback.manual(
         actor: snapshot.actor.name,
         action: action.name,
         headline: 'OUT OF RANGE',
         subline:
             '${snapshot.target.name} is ${snapshot.distanceFeet} ft away; ${snapshot.rangeFeet} ft needed.',
-        accentKind: _CombatAccentKind.action,
+        accentKind: CombatAccentKind.action,
       );
     });
     unawaited(
@@ -7138,6 +9273,37 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
   }
 
   Future<void> _moveBattleBoardToken(String combatantId, int dx, int dy) async {
+    if (_battleBoardMoveInFlightCombatantIds.contains(combatantId)) {
+      final queued = _queuedBattleBoardMovesByCombatantId[combatantId] ??
+          const math.Point<int>(0, 0);
+      _queuedBattleBoardMovesByCombatantId[combatantId] =
+          math.Point<int>(queued.x + dx, queued.y + dy);
+      return;
+    }
+    _battleBoardMoveInFlightCombatantIds.add(combatantId);
+    try {
+      await _moveBattleBoardTokenImmediate(combatantId, dx, dy);
+    } finally {
+      _battleBoardMoveInFlightCombatantIds.remove(combatantId);
+    }
+
+    final queued = _queuedBattleBoardMovesByCombatantId.remove(combatantId);
+    if (queued != null && (queued.x != 0 || queued.y != 0)) {
+      unawaited(_moveBattleBoardToken(combatantId, queued.x, queued.y));
+    }
+  }
+
+  Future<void> _moveBattleBoardTokenImmediate(
+    String combatantId,
+    int dx,
+    int dy,
+  ) async {
+    if (combatantId == _activeCombatant.id &&
+        _focusedBattleBoardAction?.hasAreaEffect == true) {
+      await _moveBattleBoardAreaAim(dx, dy);
+      return;
+    }
+
     final campaignId = _resolvedCampaignId(listen: false);
     final sceneId = _activeBattleBoardSceneId;
     if (campaignId == null || sceneId == null) return;
@@ -7161,6 +9327,15 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
 
     final combatant = _combatants[combatantIndex];
     final token = matchingTokens.first;
+    if (combatant.hp <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${combatant.name} is down and cannot move.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     final maxX = math.max(0, scene.gridColumns - token.size);
     final maxY = math.max(0, scene.gridRows - token.size);
     final nextX = (token.x + dx).clamp(0, maxX).toInt();
@@ -7175,7 +9350,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     final originX = movementUsed <= 0 ? token.x : token.movementOriginX;
     final originY = movementUsed <= 0 ? token.y : token.movementOriginY;
     final updatedMovementUsed =
-        ((nextX - originX).abs() + (nextY - originY).abs()) * 5;
+        math.max((nextX - originX).abs(), (nextY - originY).abs()) * 5;
     if (updatedMovementUsed > speedFeet) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -7210,15 +9385,15 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     );
     BoardToken? tokenForCombatant(String refId) {
       if (refId == combatantId) return movedToken;
-      return _boardTokenByRef(sceneTokens, refId);
+      return CombatBoardTokenLookup.byRef(sceneTokens, refId);
     }
 
     final activeBoardToken = tokenForCombatant(_activeCombatant.id);
     final targetBoardToken = tokenForCombatant(_selectedTarget.id);
-    final nextDistanceFeet =
-        activeBoardToken == null || targetBoardToken == null
-            ? 0
-            : _boardDistanceFeet(activeBoardToken, targetBoardToken);
+    final nextDistanceFeet = activeBoardToken == null ||
+            targetBoardToken == null
+        ? 0
+        : CombatBoardGeometry.distanceFeet(activeBoardToken, targetBoardToken);
     final nextTargetInRange = focusedAction == null ||
         focusedAction.targetsSelf ||
         focusedRangeFeet == 0 ||
@@ -7234,6 +9409,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       return item.copyWith(
         currentHp: matchingCombatant.hp,
         maxHp: matchingCombatant.maxHp,
+        size: CombatBoardTokenSizing.sizeForRole(matchingCombatant.role),
         initiative: matchingCombatant.initiative,
         role: matchingCombatant.role,
         speedFeet: item.refId == combatantId
@@ -7250,6 +9426,10 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         selectedActionRangeFeet: isActive ? focusedRangeFeet : 0,
         selectedActionAreaShape: isActive ? focusedAreaShape : '',
         selectedActionAreaFeet: isActive ? focusedAreaFeet : 0,
+        selectedActionAimX:
+            isActive && focusedAreaFeet > 0 ? item.selectedActionAimX : -1,
+        selectedActionAimY:
+            isActive && focusedAreaFeet > 0 ? item.selectedActionAimY : -1,
         targetDistanceFeet: isActive || isTargeted ? nextDistanceFeet : 0,
         conditions: matchingCombatant.conditions,
         isActive: isActive,
@@ -7280,6 +9460,134 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     await _persistBattleBoardCombatState(boardProvider);
   }
 
+  Future<void> _moveBattleBoardAreaAim(int dx, int dy) async {
+    final campaignId = _resolvedCampaignId(listen: false);
+    final sceneId = _activeBattleBoardSceneId;
+    final action = _focusedBattleBoardAction;
+    if (campaignId == null ||
+        sceneId == null ||
+        action == null ||
+        !action.hasAreaEffect) {
+      return;
+    }
+
+    final boardProvider = context.read<BattleBoardProvider>();
+    final scene = boardProvider.activeScene;
+    if (scene == null) return;
+
+    final sceneTokens = boardProvider.tokens
+        .where((token) => token.sceneId == sceneId)
+        .toList(growable: false);
+    final activeToken =
+        CombatBoardTokenLookup.byRef(sceneTokens, _activeCombatant.id);
+    if (activeToken == null) return;
+    final targetToken =
+        CombatBoardTokenLookup.byRef(sceneTokens, _selectedTarget.id);
+    final currentX = activeToken.selectedActionAimX >= 0
+        ? activeToken.selectedActionAimX
+        : targetToken?.x ?? activeToken.x;
+    final currentY = activeToken.selectedActionAimY >= 0
+        ? activeToken.selectedActionAimY
+        : targetToken?.y ?? activeToken.y;
+    final nextX = (currentX + dx).clamp(0, scene.gridColumns - 1).toInt();
+    final nextY = (currentY + dy).clamp(0, scene.gridRows - 1).toInt();
+    if (nextX == currentX && nextY == currentY) return;
+
+    final updatedToken = activeToken.copyWith(
+      selectedActionAimX: nextX,
+      selectedActionAimY: nextY,
+    );
+    boardProvider.addTemporaryToken(updatedToken);
+    await boardProvider.saveToken(
+      campaignId: campaignId,
+      token: updatedToken,
+    );
+    await _syncBattleBoardTokensFromCombatState();
+  }
+
+  Future<void> _removeBattleBoardTokenForCombatant(int combatantIndex) async {
+    if (combatantIndex < 0 || combatantIndex >= _combatants.length) return;
+    if (!_dmView && !_devCombatMode) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Solo el DM o el modo prueba pueden retirar fichas.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    final campaignId = _resolvedCampaignId(listen: false);
+    final sceneId = _activeBattleBoardSceneId;
+    if (campaignId == null || sceneId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No hay tablero activo para retirar la ficha.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    final combatant = _combatants[combatantIndex];
+    final boardProvider = context.read<BattleBoardProvider>();
+    final token = _firstOrNull(
+      boardProvider.tokens.where(
+        (token) => token.sceneId == sceneId && token.refId == combatant.id,
+      ),
+    );
+    if (token == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${combatant.name} ya no tiene ficha en el tablero.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Retirar ${combatant.name}?'),
+          content: const Text(
+            'La ficha se borrara del tablero, pero el combatiente seguira en el combate para death saves u otros estados.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.of(context).pop(true),
+              icon: const Icon(Icons.delete_outline_rounded),
+              label: const Text('Retirar ficha'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true) return;
+
+    await boardProvider.deleteToken(
+      campaignId: campaignId,
+      sceneId: sceneId,
+      tokenId: token.id,
+    );
+    await _persistBattleBoardCombatState(boardProvider);
+    if (!mounted) return;
+    setState(() {
+      if (_selectedBattleBoardCombatantId == combatant.id) {
+        _selectedBattleBoardCombatantId = null;
+      }
+      _activity.insert(
+        0,
+        CombatLogEntry.system('${combatant.name} fue retirado del tablero.'),
+      );
+    });
+  }
+
   Future<void> _syncBattleBoardTokensFromCombatState({
     String? eventLabel,
     String eventKind = 'focus',
@@ -7287,266 +9595,115 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     String? eventDiceColorHex,
     String eventResultLabel = '',
     String eventResultDetail = '',
+    String eventAuthoritativeDice = '',
+    String? eventIdOverride,
+    String eventDamageType = '',
+    Set<String> eventTargetIds = const <String>{},
+    String? eventDiceTargetId,
+    String? eventSourceRefId,
+    String? eventPrimaryTargetRefId,
+    String eventAreaShape = '',
+    int eventAreaFeet = 0,
+    int? eventAreaTargetX,
+    int? eventAreaTargetY,
   }) async {
     final campaignId = _resolvedCampaignId(listen: false);
     final sceneId = _activeBattleBoardSceneId;
     if (campaignId == null || sceneId == null) return;
 
     final boardProvider = context.read<BattleBoardProvider>();
-    final focusedAction = _focusedBattleBoardAction;
-    final rangeSnapshot =
-        focusedAction == null ? null : _boardActionRangeFor(focusedAction);
-    final focusedRangeFeet = focusedAction == null
-        ? 0
-        : _rangeFeetForCombatAction(focusedAction) ?? 0;
-    final focusedAreaShape = focusedAction?.areaShape ?? '';
-    final focusedAreaFeet = focusedAction?.areaFeet ?? 0;
-    final focusedActionName = focusedAction?.name ?? '';
-    final targetDistanceFeet = rangeSnapshot?.distanceFeet ?? 0;
-    final targetInRange = rangeSnapshot?.isInRange ?? true;
     final now = DateTime.now();
-    final eventId = eventLabel == null
-        ? null
-        : 'combat-event-${now.microsecondsSinceEpoch}';
-    final resolvedEventDiceColorHex =
-        eventLabel == null ? '' : eventDiceColorHex ?? _diceColorHex;
-    final tokenByRefId = {
-      for (final token in boardProvider.tokens.where(
-        (token) => token.sceneId == sceneId,
-      ))
-        token.refId: token,
-    };
 
-    for (final combatant in _combatants) {
-      final token = tokenByRefId[combatant.id];
-      if (token == null) continue;
-      final movementUsed =
-          _battleBoardMovementUsedByCombatantId[combatant.id] ??
-              token.movementUsedFeet;
-      final isActive = combatant.id == _activeCombatant.id;
-      final isTargeted = combatant.id == _selectedTarget.id;
-      final nextMovementOriginX =
-          isActive && movementUsed == 0 ? token.x : token.movementOriginX;
-      final nextMovementOriginY =
-          isActive && movementUsed == 0 ? token.y : token.movementOriginY;
-      final isEventTarget = eventLabel != null && isTargeted;
-      final eventExpired = eventLabel == null &&
-          token.lastEventLabel.isNotEmpty &&
-          now.difference(token.updatedAt) > const Duration(seconds: 4);
-      final nextLastEventLabel = isEventTarget
-          ? eventLabel
-          : eventExpired
-              ? ''
-              : token.lastEventLabel;
-      final nextLastEventKind = isEventTarget
-          ? eventKind
-          : eventExpired
-              ? ''
-              : token.lastEventKind;
-      final nextLastEventId = isEventTarget
-          ? eventId!
-          : eventExpired
-              ? ''
-              : token.lastEventId;
-      final nextLastEventDiceNotation = isEventTarget
-          ? eventDiceNotation
-          : eventExpired
-              ? ''
-              : token.lastEventDiceNotation;
-      final nextLastEventDiceColorHex = isEventTarget
-          ? resolvedEventDiceColorHex
-          : eventExpired
-              ? ''
-              : token.lastEventDiceColorHex;
-      final nextLastEventResultLabel = isEventTarget
-          ? eventResultLabel
-          : eventExpired
-              ? ''
-              : token.lastEventResultLabel;
-      final nextLastEventResultDetail = isEventTarget
-          ? eventResultDetail
-          : eventExpired
-              ? ''
-              : token.lastEventResultDetail;
-      final nextSelectedActionRangeFeet = isActive ? focusedRangeFeet : 0;
-      final nextSelectedActionAreaShape = isActive ? focusedAreaShape : '';
-      final nextSelectedActionAreaFeet = isActive ? focusedAreaFeet : 0;
-      final nextTargetDistanceFeet =
-          isActive || isTargeted ? targetDistanceFeet : 0;
-      final nextTargetInRange = isActive || isTargeted ? targetInRange : true;
-      final nextFocusedActionName = isActive ? focusedActionName : '';
-      final nextSpeedFeet = _effectiveMovementBudget(combatant);
-      if (token.currentHp == combatant.hp &&
-          token.maxHp == combatant.maxHp &&
-          token.initiative == combatant.initiative &&
-          token.role == combatant.role &&
-          token.speedFeet == nextSpeedFeet &&
-          token.movementUsedFeet == movementUsed &&
-          token.movementOriginX == nextMovementOriginX &&
-          token.movementOriginY == nextMovementOriginY &&
-          token.selectedActionRangeFeet == nextSelectedActionRangeFeet &&
-          token.selectedActionAreaShape == nextSelectedActionAreaShape &&
-          token.selectedActionAreaFeet == nextSelectedActionAreaFeet &&
-          token.targetDistanceFeet == nextTargetDistanceFeet &&
-          token.isActive == isActive &&
-          token.isTargeted == isTargeted &&
-          token.isTargetInRange == nextTargetInRange &&
-          token.focusedActionName == nextFocusedActionName &&
-          token.lastEventLabel == nextLastEventLabel &&
-          token.lastEventKind == nextLastEventKind &&
-          token.lastEventId == nextLastEventId &&
-          token.lastEventDiceNotation == nextLastEventDiceNotation &&
-          token.lastEventDiceColorHex == nextLastEventDiceColorHex &&
-          token.lastEventResultLabel == nextLastEventResultLabel &&
-          token.lastEventResultDetail == nextLastEventResultDetail &&
-          _stringListsMatch(token.conditions, combatant.conditions)) {
-        continue;
-      }
-
-      await boardProvider.saveToken(
-        campaignId: campaignId,
-        token: token.copyWith(
-          currentHp: combatant.hp,
-          maxHp: combatant.maxHp,
-          initiative: combatant.initiative,
-          role: combatant.role,
-          speedFeet: nextSpeedFeet,
-          movementUsedFeet: movementUsed,
-          movementOriginX: nextMovementOriginX,
-          movementOriginY: nextMovementOriginY,
-          selectedActionRangeFeet: nextSelectedActionRangeFeet,
-          selectedActionAreaShape: nextSelectedActionAreaShape,
-          selectedActionAreaFeet: nextSelectedActionAreaFeet,
-          targetDistanceFeet: nextTargetDistanceFeet,
-          conditions: combatant.conditions,
-          isActive: isActive,
-          isTargeted: isTargeted,
-          isTargetInRange: nextTargetInRange,
-          focusedActionName: nextFocusedActionName,
-          lastEventLabel: nextLastEventLabel,
-          lastEventKind: nextLastEventKind,
-          lastEventId: nextLastEventId,
-          lastEventDiceNotation: nextLastEventDiceNotation,
-          lastEventDiceColorHex: nextLastEventDiceColorHex,
-          lastEventResultLabel: nextLastEventResultLabel,
-          lastEventResultDetail: nextLastEventResultDetail,
-        ),
-      );
-    }
+    final result = await _battleBoardSyncService.syncTokens(
+      boardProvider: boardProvider,
+      campaignId: campaignId,
+      sceneId: sceneId,
+      combatants: _boardSyncCombatants(),
+      movementUsedByCombatantId: _battleBoardMovementUsedByCombatantId,
+      activeCombatantId: _activeCombatant.id,
+      selectedTargetId: _selectedTarget.id,
+      focus: _boardSyncFocus(),
+      defaultDiceColorHex: _diceColorHex,
+      eventVisibleDuration: _battleBoardEventVisibleDuration,
+      now: now,
+      event: CombatBoardEventSyncPayload(
+        label: eventLabel,
+        kind: eventKind,
+        diceNotation: eventDiceNotation,
+        diceColorHex: eventDiceColorHex,
+        resultLabel: eventResultLabel,
+        resultDetail: eventResultDetail,
+        authoritativeDice: eventAuthoritativeDice,
+        eventIdOverride: eventIdOverride,
+        damageType: eventLabel == null
+            ? ''
+            : CombatDamageTypeRules.normalize(eventDamageType) ?? '',
+        targetIds: eventTargetIds,
+        diceTargetId: eventDiceTargetId,
+        sourceRefId: eventSourceRefId,
+        primaryTargetRefId: eventPrimaryTargetRefId,
+        areaShape: eventAreaShape,
+        areaFeet: eventAreaFeet,
+        areaTargetX: eventAreaTargetX,
+        areaTargetY: eventAreaTargetY,
+      ),
+    );
 
     await _persistBattleBoardCombatState(boardProvider);
 
-    if (eventId != null) {
+    if (result.eventId != null) {
       _scheduleBattleBoardEventClear(
         campaignId: campaignId,
         sceneId: sceneId,
-        eventId: eventId,
+        eventId: result.eventId!,
       );
     }
-  }
-
-  bool _stringListsMatch(List<String> a, List<String> b) {
-    if (a.length != b.length) return false;
-    for (var index = 0; index < a.length; index++) {
-      if (a[index] != b[index]) return false;
-    }
-    return true;
   }
 
   List<BoardToken> _boardTokensForScene(String sceneId) {
-    final party = _combatants
-        .where((combatant) => combatant.team == _CombatTeam.party)
+    return _battleBoardSyncService.buildInitialTokens(
+      sceneId: sceneId,
+      combatants: _boardSyncCombatants(),
+      movementUsedByCombatantId: _battleBoardMovementUsedByCombatantId,
+      activeCombatantId: _activeCombatant.id,
+      selectedTargetId: _selectedTarget.id,
+      focus: _boardSyncFocus(),
+    );
+  }
+
+  List<CombatBoardSyncCombatant> _boardSyncCombatants() {
+    return _combatants
+        .map(
+          (combatant) => CombatBoardSyncCombatant(
+            id: combatant.id,
+            name: combatant.name,
+            imageUrl: combatant.portraitAsset ?? '',
+            team: combatant.team == CombatTeam.party ? 'party' : 'enemy',
+            hp: combatant.hp,
+            maxHp: combatant.maxHp,
+            initiative: combatant.initiative,
+            role: combatant.role,
+            speedFeet: _effectiveMovementBudget(combatant),
+            tokenSize: CombatBoardTokenSizing.sizeForRole(combatant.role),
+            conditions: combatant.conditions,
+          ),
+        )
         .toList(growable: false);
-    final enemies = _combatants
-        .where((combatant) => combatant.team == _CombatTeam.enemy)
-        .toList(growable: false);
-    final tokens = <BoardToken>[];
+  }
+
+  CombatBoardSyncFocus _boardSyncFocus() {
     final focusedAction = _focusedBattleBoardAction;
-    final rangeSnapshot =
-        focusedAction == null ? null : _boardActionRangeFor(focusedAction);
-    final focusedRangeFeet = focusedAction == null
-        ? 0
-        : _rangeFeetForCombatAction(focusedAction) ?? 0;
-    final focusedAreaShape = focusedAction?.areaShape ?? '';
-    final focusedAreaFeet = focusedAction?.areaFeet ?? 0;
-    final targetDistanceFeet = rangeSnapshot?.distanceFeet ?? 0;
-    final targetInRange = rangeSnapshot?.isInRange ?? true;
+    if (focusedAction == null) return CombatBoardSyncFocus.empty;
 
-    for (var index = 0; index < party.length; index++) {
-      final combatant = party[index];
-      final isActive = combatant.id == _activeCombatant.id;
-      final isTargeted = combatant.id == _selectedTarget.id;
-      tokens.add(
-        BoardToken.create(
-          id: '${sceneId}_${combatant.id}',
-          sceneId: sceneId,
-          refId: combatant.id,
-          type: 'character',
-          name: combatant.name,
-          imageUrl: combatant.portraitAsset ?? '',
-          x: 3 + (index % 3),
-          y: 4 + (index ~/ 3) * 2,
-          size: 1,
-          currentHp: combatant.hp,
-          maxHp: combatant.maxHp,
-          initiative: combatant.initiative,
-          role: combatant.role,
-          speedFeet: _effectiveMovementBudget(combatant),
-          movementUsedFeet:
-              _battleBoardMovementUsedByCombatantId[combatant.id] ?? 0,
-          movementOriginX: 3 + (index % 3),
-          movementOriginY: 4 + (index ~/ 3) * 2,
-          selectedActionRangeFeet: isActive ? focusedRangeFeet : 0,
-          selectedActionAreaShape: isActive ? focusedAreaShape : '',
-          selectedActionAreaFeet: isActive ? focusedAreaFeet : 0,
-          targetDistanceFeet: isActive || isTargeted ? targetDistanceFeet : 0,
-          conditions: combatant.conditions,
-          isActive: isActive,
-          isTargeted: isTargeted,
-          isTargetInRange: isActive || isTargeted ? targetInRange : true,
-          focusedActionName: isActive ? focusedAction?.name ?? '' : '',
-        ),
-      );
-    }
-
-    for (var index = 0; index < enemies.length; index++) {
-      final combatant = enemies[index];
-      final isActive = combatant.id == _activeCombatant.id;
-      final isTargeted = combatant.id == _selectedTarget.id;
-      tokens.add(
-        BoardToken.create(
-          id: '${sceneId}_${combatant.id}',
-          sceneId: sceneId,
-          refId: combatant.id,
-          type: 'monster',
-          name: combatant.name,
-          imageUrl: combatant.portraitAsset ?? '',
-          x: 16 + (index % 4),
-          y: 4 + (index ~/ 4) * 2,
-          size: 1,
-          currentHp: combatant.hp,
-          maxHp: combatant.maxHp,
-          initiative: combatant.initiative,
-          role: combatant.role,
-          speedFeet: _effectiveMovementBudget(combatant),
-          movementUsedFeet:
-              _battleBoardMovementUsedByCombatantId[combatant.id] ?? 0,
-          movementOriginX: 16 + (index % 4),
-          movementOriginY: 4 + (index ~/ 4) * 2,
-          selectedActionRangeFeet: isActive ? focusedRangeFeet : 0,
-          selectedActionAreaShape: isActive ? focusedAreaShape : '',
-          selectedActionAreaFeet: isActive ? focusedAreaFeet : 0,
-          targetDistanceFeet: isActive || isTargeted ? targetDistanceFeet : 0,
-          conditions: combatant.conditions,
-          isActive: isActive,
-          isTargeted: isTargeted,
-          isTargetInRange: isActive || isTargeted ? targetInRange : true,
-          focusedActionName: isActive ? focusedAction?.name ?? '' : '',
-        ),
-      );
-    }
-
-    return tokens;
+    final rangeSnapshot = _boardActionRangeFor(focusedAction);
+    return CombatBoardSyncFocus(
+      actionName: focusedAction.name,
+      rangeFeet: _rangeFeetForCombatAction(focusedAction) ?? 0,
+      areaShape: focusedAction.areaShape,
+      areaFeet: focusedAction.areaFeet,
+      targetDistanceFeet: rangeSnapshot?.distanceFeet ?? 0,
+      targetInRange: rangeSnapshot?.isInRange ?? true,
+    );
   }
 
   @override
@@ -7564,8 +9721,8 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       _scheduleTargetSelectionFromBoard(boardProvider.tokens);
     }
     final viewportSize = MediaQuery.sizeOf(context);
-    final useIntegratedBoardController =
-        viewportSize.width >= 1080 && viewportSize.height >= 680;
+    final useIntegratedBoardController = viewportSize.width.isFinite;
+    final pendingSavePrompt = _combatStarted ? _pendingSavePromptData() : null;
 
     return PopScope(
       canPop: false,
@@ -7578,13 +9735,13 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         body: Stack(
           children: [
             Positioned.fill(
-              child: _CombatArenaBackdrop(round: _round),
+              child: CombatArenaBackdrop(round: _round),
             ),
             SafeArea(
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   if (!_combatStarted) {
-                    return _CombatSetupView(
+                    return CombatSetupView(
                       combatants: _combatants,
                       monsterCatalog: _visibleMonsterCatalog,
                       totalMonsterCount: _monsterCatalog.length,
@@ -7597,6 +9754,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
                       customMonsterLoading: _customMonsterCatalogLoading,
                       customMonsterError: _customMonsterCatalogError,
                       loading: _monsterCatalogLoading,
+                      showDebugBadges: _showCombatModeDebugBanner,
                       onBack: () => unawaited(_exitCombatMode()),
                       onReloadCatalog: _reloadMonsterCatalog,
                       onMonsterSearchChanged: _setMonsterSearchQuery,
@@ -7621,41 +9779,65 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
                       _canControlCombatant(_activeCombatant);
                   final controlBlockedMessage =
                       _controlBlockedMessage(_activeCombatant);
+                  final controllerActions = canControlActive
+                      ? _activeActions
+                      : const <CombatAction>[];
+                  final selectedCommandTiming =
+                      _selectedTimingAvailableForActions(
+                    _selectedCommandTiming,
+                    controllerActions,
+                  );
+                  final showEnemyHp = _dmView || _devCombatMode;
 
                   if (useGameLayout) {
                     return Center(
                       child: ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 1420),
-                        child: _CombatLayeredGameView(
+                        child: _CombatUnifiedControllerView(
                           round: _round,
                           combatants: _combatants,
                           activeIndex: _activeIndex,
                           targetIndex: _safeTargetIndex,
                           activeCombatant: _activeCombatant,
                           selectedTarget: _selectedTarget,
-                          actions: _activeActions,
+                          actions: controllerActions,
                           rollFeedback: _rollFeedback,
+                          rollInFlight: _combatRollInFlight,
                           spentTimings: _spentTimings,
                           pendingDamageActions: _pendingDamageActions,
                           preparedActions: _preparedActions,
                           activeMultiAttackActionKey:
                               _multiAttackProgress?.actionKey,
+                          activeMultiAttackStepIndex:
+                              _multiAttackProgress?.stepIndex ?? 0,
+                          activeMultiAttackPendingAttacks:
+                              _multiAttackProgress?.pendingAttacks ?? const [],
                           reactionOptions: _reactionOptions,
                           hasTakenAttackActionThisTurn:
                               _hasTakenAttackActionThisTurn(_activeCombatant),
+                          martialArtsEligibleAttackThisTurn:
+                              _hasMartialArtsEligibleAttackThisTurn(
+                            _activeCombatant,
+                          ),
+                          flurryAlreadyUsedThisTurn:
+                              _flurryUsedThisTurnCombatantIds.contains(
+                            _activeCombatant.id,
+                          ),
                           activeEconomy: _activeEconomy,
                           queuedPreparedIndex: _queuedPreparedIndex,
                           queuedPreparedTotal: _queuedPreparedActions.length,
                           queuedPreparedActionName: _queuedPreparedActionName,
-                          selectedCommandTiming: _selectedCommandTiming,
+                          selectedCommandTiming: selectedCommandTiming,
                           workspace: _workspace,
-                          showEnemyHp: _dmView,
+                          showEnemyHp: showEnemyHp,
+                          devMode: _devCombatMode,
                           entries: _activity,
                           resourcePool: _activeResourcePool,
                           rollMode: _rollMode,
                           canControlActive: canControlActive,
                           controlBlockedMessage: controlBlockedMessage,
                           boardControllerActive: boardControllerActive,
+                          openingBattleBoard: _openingBattleBoard,
                           boardSceneId: boardSceneId,
                           focusedBattleBoardAction: _focusedBattleBoardAction,
                           onBack: () => unawaited(_exitCombatMode()),
@@ -7663,14 +9845,23 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
                           onRollInitiative: _rollInitiativeForAll,
                           onNextTurn: _nextTurn,
                           onToggleDmView: _toggleDmView,
+                          onToggleDevMode: _toggleDevCombatMode,
+                          onOpenDiceRoller: _openDiceRoller,
+                          onShowBattleBoardControls: () =>
+                              unawaited(_showBattleBoardControls()),
+                          onEndCombat: () =>
+                              unawaited(_requestEndCombatSession()),
                           onRunDemo: _runDemoRound,
                           onSelectTarget: _selectTarget,
                           onSelectFocusedCombatant: _selectFocusedCombatant,
                           onEditHp: _openHpAdjustmentSheet,
+                          onRemoveBoardToken: (index) => unawaited(
+                              _removeBattleBoardTokenForCombatant(index)),
                           onRemoveActiveEffect: _removeActiveEffect,
                           onSelectWorkspace: _selectWorkspace,
                           onSelectCommandTiming: _selectCommandTiming,
                           onSelectRollMode: _selectRollMode,
+                          onFocusAction: _focusActionForController,
                           onUseReaction: _useReaction,
                           onReadyAction: _readyAction,
                           onRollSavingThrow: _rollManualSavingThrow,
@@ -7687,85 +9878,185 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
                   }
 
                   if (useCompactLandscapeLayout) {
-                    return _CombatCompactLandscapeView(
+                    return _CombatUnifiedControllerView(
                       round: _round,
                       combatants: _combatants,
                       activeIndex: _activeIndex,
                       targetIndex: _safeTargetIndex,
                       activeCombatant: _activeCombatant,
                       selectedTarget: _selectedTarget,
-                      actions: _activeActions,
+                      actions: controllerActions,
                       rollFeedback: _rollFeedback,
+                      rollInFlight: _combatRollInFlight,
                       spentTimings: _spentTimings,
                       pendingDamageActions: _pendingDamageActions,
                       preparedActions: _preparedActions,
+                      activeMultiAttackActionKey:
+                          _multiAttackProgress?.actionKey,
+                      activeMultiAttackStepIndex:
+                          _multiAttackProgress?.stepIndex ?? 0,
+                      activeMultiAttackPendingAttacks:
+                          _multiAttackProgress?.pendingAttacks ?? const [],
+                      reactionOptions: _reactionOptions,
+                      hasTakenAttackActionThisTurn:
+                          _hasTakenAttackActionThisTurn(_activeCombatant),
+                      martialArtsEligibleAttackThisTurn:
+                          _hasMartialArtsEligibleAttackThisTurn(
+                        _activeCombatant,
+                      ),
+                      flurryAlreadyUsedThisTurn:
+                          _flurryUsedThisTurnCombatantIds.contains(
+                        _activeCombatant.id,
+                      ),
+                      activeEconomy: _activeEconomy,
                       queuedPreparedIndex: _queuedPreparedIndex,
                       queuedPreparedTotal: _queuedPreparedActions.length,
                       queuedPreparedActionName: _queuedPreparedActionName,
-                      selectedCommandTiming: _selectedCommandTiming,
-                      showEnemyHp: _dmView,
+                      selectedCommandTiming: selectedCommandTiming,
+                      workspace: _workspace,
+                      showEnemyHp: showEnemyHp,
+                      devMode: _devCombatMode,
+                      entries: _activity,
                       resourcePool: _activeResourcePool,
+                      rollMode: _rollMode,
                       canControlActive: canControlActive,
                       controlBlockedMessage: controlBlockedMessage,
+                      boardControllerActive: boardControllerActive,
+                      openingBattleBoard: _openingBattleBoard,
+                      boardSceneId: boardSceneId,
+                      focusedBattleBoardAction: _focusedBattleBoardAction,
                       onBack: () => unawaited(_exitCombatMode()),
                       onRequestInitiative: _requestInitiative,
                       onRollInitiative: _rollInitiativeForAll,
                       onNextTurn: _nextTurn,
                       onToggleDmView: _toggleDmView,
+                      onToggleDevMode: _toggleDevCombatMode,
+                      onOpenDiceRoller: _openDiceRoller,
+                      onShowBattleBoardControls: () =>
+                          unawaited(_showBattleBoardControls()),
+                      onEndCombat: () => unawaited(_requestEndCombatSession()),
                       onRunDemo: _runDemoRound,
                       onSelectTarget: _selectTarget,
                       onSelectFocusedCombatant: _selectFocusedCombatant,
+                      onEditHp: _openHpAdjustmentSheet,
+                      onRemoveBoardToken: (index) =>
+                          unawaited(_removeBattleBoardTokenForCombatant(index)),
                       onRemoveActiveEffect: _removeActiveEffect,
+                      onSelectWorkspace: _selectWorkspace,
                       onSelectCommandTiming: _selectCommandTiming,
+                      onSelectRollMode: _selectRollMode,
+                      onFocusAction: _focusActionForController,
+                      onUseReaction: _useReaction,
+                      onReadyAction: _readyAction,
+                      onRollSavingThrow: _rollManualSavingThrow,
                       onRollAction: _rollAction,
                       onUseAction: _useAction,
                       onPrepareAction: _prepareAction,
                       onLaunchPreparedTurn: _launchPreparedTurn,
                       onClearPreparedActions: _clearPreparedActions,
                       onControlBlocked: _notifyActiveControlBlocked,
+                      onMoveBoardToken: _moveBattleBoardToken,
                     );
                   }
 
-                  return _CombatNarrowModeView(
+                  return _CombatUnifiedControllerView(
                     round: _round,
                     combatants: _combatants,
                     activeIndex: _activeIndex,
                     targetIndex: _safeTargetIndex,
                     activeCombatant: _activeCombatant,
                     selectedTarget: _selectedTarget,
-                    actions: _activeActions,
+                    actions: controllerActions,
                     rollFeedback: _rollFeedback,
+                    rollInFlight: _combatRollInFlight,
                     spentTimings: _spentTimings,
                     pendingDamageActions: _pendingDamageActions,
                     preparedActions: _preparedActions,
+                    activeMultiAttackActionKey: _multiAttackProgress?.actionKey,
+                    activeMultiAttackStepIndex:
+                        _multiAttackProgress?.stepIndex ?? 0,
+                    activeMultiAttackPendingAttacks:
+                        _multiAttackProgress?.pendingAttacks ?? const [],
+                    reactionOptions: _reactionOptions,
+                    hasTakenAttackActionThisTurn:
+                        _hasTakenAttackActionThisTurn(_activeCombatant),
+                    martialArtsEligibleAttackThisTurn:
+                        _hasMartialArtsEligibleAttackThisTurn(
+                      _activeCombatant,
+                    ),
+                    flurryAlreadyUsedThisTurn:
+                        _flurryUsedThisTurnCombatantIds.contains(
+                      _activeCombatant.id,
+                    ),
+                    activeEconomy: _activeEconomy,
                     queuedPreparedIndex: _queuedPreparedIndex,
                     queuedPreparedTotal: _queuedPreparedActions.length,
                     queuedPreparedActionName: _queuedPreparedActionName,
-                    selectedCommandTiming: _selectedCommandTiming,
-                    showEnemyHp: _dmView,
+                    selectedCommandTiming: selectedCommandTiming,
+                    workspace: _workspace,
+                    showEnemyHp: showEnemyHp,
+                    devMode: _devCombatMode,
+                    entries: _activity,
                     resourcePool: _activeResourcePool,
+                    rollMode: _rollMode,
                     canControlActive: canControlActive,
                     controlBlockedMessage: controlBlockedMessage,
+                    boardControllerActive: boardControllerActive,
+                    openingBattleBoard: _openingBattleBoard,
+                    boardSceneId: boardSceneId,
+                    focusedBattleBoardAction: _focusedBattleBoardAction,
                     onBack: () => unawaited(_exitCombatMode()),
                     onRequestInitiative: _requestInitiative,
                     onRollInitiative: _rollInitiativeForAll,
                     onNextTurn: _nextTurn,
                     onToggleDmView: _toggleDmView,
+                    onToggleDevMode: _toggleDevCombatMode,
+                    onOpenDiceRoller: _openDiceRoller,
+                    onShowBattleBoardControls: () =>
+                        unawaited(_showBattleBoardControls()),
+                    onEndCombat: () => unawaited(_requestEndCombatSession()),
                     onRunDemo: _runDemoRound,
                     onSelectTarget: _selectTarget,
                     onSelectFocusedCombatant: _selectFocusedCombatant,
+                    onEditHp: _openHpAdjustmentSheet,
+                    onRemoveBoardToken: (index) =>
+                        unawaited(_removeBattleBoardTokenForCombatant(index)),
                     onRemoveActiveEffect: _removeActiveEffect,
+                    onSelectWorkspace: _selectWorkspace,
                     onSelectCommandTiming: _selectCommandTiming,
+                    onSelectRollMode: _selectRollMode,
+                    onFocusAction: _focusActionForController,
+                    onUseReaction: _useReaction,
+                    onReadyAction: _readyAction,
+                    onRollSavingThrow: _rollManualSavingThrow,
                     onRollAction: _rollAction,
                     onUseAction: _useAction,
                     onPrepareAction: _prepareAction,
                     onLaunchPreparedTurn: _launchPreparedTurn,
                     onClearPreparedActions: _clearPreparedActions,
                     onControlBlocked: _notifyActiveControlBlocked,
+                    onMoveBoardToken: _moveBattleBoardToken,
                   );
                 },
               ),
             ),
+            if (_combatStarted && pendingSavePrompt != null)
+              Positioned(
+                top: 14,
+                left: 14,
+                right: 14,
+                child: SafeArea(
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: _PendingSavePrompt(
+                      data: pendingSavePrompt,
+                      onRoll: () => _rollPendingAreaSavingThrow(
+                        pendingSavePrompt.action,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             if (_combatStarted &&
                 _showBattleBoardController &&
                 boardDisplayUrl != null &&
@@ -7776,7 +10067,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
                 child: SafeArea(
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 360),
-                    child: _BattleBoardFloatingController(
+                    child: CombatBattleBoardFloatingController(
                       displayUrl: boardDisplayUrl,
                       sceneId: boardSceneId!,
                       combatants: _combatants,
@@ -7806,76 +10097,15 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
                   ),
                 ),
               ),
-            if (_combatStarted)
-              Positioned(
-                top: 14,
-                right: 16,
-                child: SafeArea(
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      FloatingActionButton.small(
-                        heroTag: 'end-combat-session',
-                        tooltip: 'End combat',
-                        backgroundColor: tokens.accentAction,
-                        foregroundColor: Colors.white,
-                        onPressed: () => unawaited(_requestEndCombatSession()),
-                        child: const Icon(Icons.flag_circle_outlined),
-                      ),
-                      const SizedBox(width: 8),
-                      FloatingActionButton.small(
-                        heroTag: 'combat-dice-roll',
-                        tooltip: 'Roll dice',
-                        backgroundColor: tokens.accentMagic,
-                        foregroundColor: Colors.white,
-                        onPressed: _openDiceRoller,
-                        child: const Icon(Icons.casino_outlined),
-                      ),
-                      const SizedBox(width: 8),
-                      boardControllerActive
-                          ? FloatingActionButton.small(
-                              heroTag: 'battle-board-controller',
-                              tooltip: 'Board',
-                              onPressed: _openingBattleBoard
-                                  ? null
-                                  : () => unawaited(_showBattleBoardControls()),
-                              child: _openingBattleBoard
-                                  ? const SizedBox.square(
-                                      dimension: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                  : const Icon(Icons.connected_tv_rounded),
-                            )
-                          : FloatingActionButton.extended(
-                              heroTag: 'battle-board-controller',
-                              onPressed: _openingBattleBoard
-                                  ? null
-                                  : () => unawaited(_showBattleBoardControls()),
-                              icon: _openingBattleBoard
-                                  ? const SizedBox.square(
-                                      dimension: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                  : const Icon(Icons.grid_view_rounded),
-                              label: const Text('Board'),
-                            ),
-                    ],
-                  ),
-                ),
-              ),
           ],
         ),
       ),
     );
   }
 
-  List<_Combatant> _buildDefaultCombatants() {
+  List<Combatant> _buildDefaultCombatants() {
     return [
-      const _Combatant(
+      const Combatant(
         id: 'demo_arnnazal',
         name: 'Arnnazal',
         role: 'Half-Orc Paladin 5 / Blood Hunter 2',
@@ -7885,11 +10115,11 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         maxHp: 174,
         ac: 12,
         speed: 30,
-        team: _CombatTeam.party,
+        team: CombatTeam.party,
         portraitAsset: 'assets/images/races/half-orc.png',
         conditions: ['Blessed'],
       ),
-      const _Combatant(
+      const Combatant(
         id: 'demo_lyra',
         name: 'Lyra',
         role: 'Wizard',
@@ -7899,11 +10129,11 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         maxHp: 38,
         ac: 14,
         speed: 30,
-        team: _CombatTeam.party,
+        team: CombatTeam.party,
         portraitAsset: 'assets/images/classes/wizard.png',
         conditions: ['Concentrating'],
       ),
-      const _Combatant(
+      const Combatant(
         id: 'demo_hobgoblin_captain',
         name: 'Hobgoblin Captain',
         role: 'Enemy Leader',
@@ -7913,11 +10143,11 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         maxHp: 65,
         ac: 17,
         speed: 30,
-        team: _CombatTeam.enemy,
+        team: CombatTeam.enemy,
         portraitAsset: 'assets/images/races/hobgoblin.png',
         conditions: ['Marked'],
       ),
-      const _Combatant(
+      const Combatant(
         id: 'demo_goblin_archer',
         name: 'Goblin Archer',
         role: 'Enemy Skirmisher',
@@ -7927,20 +10157,20 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         maxHp: 18,
         ac: 15,
         speed: 30,
-        team: _CombatTeam.enemy,
+        team: CombatTeam.enemy,
         portraitAsset: 'assets/images/races/goblin.png',
         conditions: [],
       ),
     ];
   }
 
-  _Combatant _combatantFromEngineCombatant(
+  Combatant _combatantFromEngineCombatant(
     encounter_models.Combatant combatant,
   ) {
     final team = switch (combatant.team) {
-      encounter_models.CombatantTeam.party => _CombatTeam.party,
-      encounter_models.CombatantTeam.enemy => _CombatTeam.enemy,
-      encounter_models.CombatantTeam.neutral => _CombatTeam.enemy,
+      encounter_models.CombatantTeam.party => CombatTeam.party,
+      encounter_models.CombatantTeam.enemy => CombatTeam.enemy,
+      encounter_models.CombatantTeam.neutral => CombatTeam.enemy,
     };
     final conditions = [
       if (combatant.kind == encounter_models.CombatantKind.playerCharacter)
@@ -7966,7 +10196,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
                   )
             : metadataPortraitPath.trim();
 
-    return _Combatant(
+    return Combatant(
       id: combatant.id,
       sourceId: combatant.sourceId ??
           (metadataCharacterId == null || metadataCharacterId.trim().isEmpty
@@ -7987,11 +10217,15 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       speed: combatant.speed,
       team: team,
       portraitAsset: portraitPath,
+      resourceMaximums: _stringIntMapFromDynamic(
+        combatant.metadata['resourceMaximums'],
+      ),
+      metadata: Map<String, dynamic>.from(combatant.metadata),
       conditions: conditions.take(9).toList(growable: false),
     );
   }
 
-  _CombatAction _combatActionFromPreparedAction(
+  CombatAction _combatActionFromPreparedAction(
     encounter_models.PreparedCombatAction action,
   ) {
     final source = action.metadata['source']?.toString() ?? '';
@@ -7999,8 +10233,9 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     final criticalDamageFormula =
         action.metadata['criticalDamageFormula']?.toString();
     final damageFormula = action.damageFormula ?? action.healingFormula;
+    final damageType = _preparedActionDamageType(action);
 
-    return _CombatAction(
+    return CombatAction(
       id: action.id,
       name: action.name,
       type: _actionTypeLabel(action),
@@ -8009,12 +10244,14 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       saveAbility: action.saveAbility,
       saveDc: action.saveDc,
       damageFormula: damageFormula,
+      damageType: damageType,
       critFormula: criticalDamageFormula == null ||
               criticalDamageFormula.trim().isEmpty ||
               criticalDamageFormula == 'null'
           ? null
           : criticalDamageFormula,
       rangeFeet: _preparedActionRangeFeet(action),
+      longRangeFeet: _preparedActionLongRangeFeet(action),
       areaShape: action.metadata['areaShape']?.toString() ?? '',
       areaFeet: _intFromDynamic(action.metadata['areaFeet']) ?? 0,
       criticalThreshold:
@@ -8040,6 +10277,26 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       ),
       multiAttackSteps: _multiAttackStepsFromMetadata(action.metadata),
     );
+  }
+
+  String? _preparedActionDamageType(
+    encounter_models.PreparedCombatAction action,
+  ) {
+    final metadataType = CombatDamageTypeRules.normalize(
+      action.metadata['damageType']?.toString(),
+    );
+    if (metadataType != null) return metadataType;
+
+    for (final tag in action.tags) {
+      final tagType = CombatDamageTypeRules.normalize(tag);
+      if (tagType != null) return tagType;
+    }
+
+    final descriptionType = CombatDamageTypeRules.normalize(
+      action.metadata['description']?.toString(),
+    );
+    if (descriptionType != null) return descriptionType;
+    return null;
   }
 
   bool _preparedActionUsesAttackAction(
@@ -8086,6 +10343,10 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     final source = action.metadata['source']?.toString();
     if (action.metadata['multiattack'] == true) {
       if (action.metadata['flurryOfBlows'] == true) return 'Monk Technique';
+      if (source == 'classMechanic' &&
+          action.metadata['class']?.toString().toLowerCase() == 'monk') {
+        return 'Monk Technique';
+      }
       if (source == 'weaponMultiattack') return 'Extra Attack';
       if (source == 'unarmedMultiattack') return 'Unarmed Extra Attack';
       if (source == 'naturalWeaponMultiattack') return 'Natural Multiattack';
@@ -8151,12 +10412,12 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     };
   }
 
-  List<_MultiAttackStep> _multiAttackStepsFromMetadata(
+  List<MultiAttackStep> _multiAttackStepsFromMetadata(
     Map<String, dynamic> metadata,
   ) {
     final rawSteps = metadata['multiAttackSteps'];
     if (rawSteps is! List) return const [];
-    final steps = <_MultiAttackStep>[];
+    final steps = <MultiAttackStep>[];
     for (final rawStep in rawSteps) {
       if (rawStep is! Map) continue;
       final name = rawStep['name']?.toString().trim() ?? '';
@@ -8166,7 +10427,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
           rawStep['criticalDamageFormula']?.toString();
       final rawTags = rawStep['tags'];
       steps.add(
-        _MultiAttackStep(
+        MultiAttackStep(
           name: name.isEmpty ? 'Attack' : name,
           attackFormula: _cleanNullableFormula(attackFormula),
           damageFormula: _cleanNullableFormula(damageFormula),
@@ -8257,62 +10518,62 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     return Icons.casino_outlined;
   }
 
-  _CombatAccentKind _actionAccentKind(
+  CombatAccentKind _actionAccentKind(
     encounter_models.PreparedCombatAction action,
     String source,
   ) {
     if (action.metadata['combatEffect'] == 'actionSurge') {
-      return _CombatAccentKind.info;
+      return CombatAccentKind.info;
     }
     if (action.metadata['multiattack'] == true) {
       return source == 'monster'
-          ? _CombatAccentKind.action
-          : _CombatAccentKind.info;
+          ? CombatAccentKind.action
+          : CombatAccentKind.info;
     }
     if (action.rollKind == encounter_models.CombatActionRollKind.healing ||
         action.healingFormula != null) {
-      return _CombatAccentKind.support;
+      return CombatAccentKind.support;
     }
     if (source == 'spell' || source == 'spellcasting') {
-      return _CombatAccentKind.magic;
+      return CombatAccentKind.magic;
     }
     if (source == 'unarmed' || source == 'naturalWeapon') {
-      return _CombatAccentKind.action;
+      return CombatAccentKind.action;
     }
     if (source == 'weapon') {
       return action.tags.any((tag) => tag.toLowerCase() == 'ranged')
-          ? _CombatAccentKind.read
-          : _CombatAccentKind.action;
+          ? CombatAccentKind.read
+          : CombatAccentKind.action;
     }
-    if (source == 'combatRule') return _CombatAccentKind.info;
+    if (source == 'combatRule') return CombatAccentKind.info;
     if (source == 'classMechanic' || source == 'subclassMechanic') {
       final text = '${action.name} ${action.tags.join(' ')}'.toLowerCase();
       if (text.contains('smite') || text.contains('channel')) {
-        return _CombatAccentKind.magic;
+        return CombatAccentKind.magic;
       }
       if (text.contains('second wind') ||
           text.contains('lay on hands') ||
           text.contains('inspiration')) {
-        return _CombatAccentKind.support;
+        return CombatAccentKind.support;
       }
-      return _CombatAccentKind.info;
+      return CombatAccentKind.info;
     }
-    if (source == 'resource') return _CombatAccentKind.support;
+    if (source == 'resource') return CombatAccentKind.support;
     if (source == 'monster') {
       return action.tags.any((tag) => tag.toLowerCase() == 'ranged')
-          ? _CombatAccentKind.read
-          : _CombatAccentKind.action;
+          ? CombatAccentKind.read
+          : CombatAccentKind.action;
     }
-    if (source == 'monsterFeature') return _CombatAccentKind.support;
+    if (source == 'monsterFeature') return CombatAccentKind.support;
     if (source == 'customMonster') {
       if (action.timing == encounter_models.CombatActionTiming.passive) {
-        return _CombatAccentKind.support;
+        return CombatAccentKind.support;
       }
       return action.tags.any((tag) => tag.toLowerCase() == 'ranged')
-          ? _CombatAccentKind.read
-          : _CombatAccentKind.action;
+          ? CombatAccentKind.read
+          : CombatAccentKind.action;
     }
-    return _CombatAccentKind.info;
+    return CombatAccentKind.info;
   }
 
   int? _preparedActionRangeFeet(encounter_models.PreparedCombatAction action) {
@@ -8332,6 +10593,22 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
       hasSavingThrow: action.saveAbility != null,
       hasAttack: action.attackFormula != null,
       hasDamage: action.damageFormula != null || action.healingFormula != null,
+    );
+  }
+
+  int? _preparedActionLongRangeFeet(
+    encounter_models.PreparedCombatAction action,
+  ) {
+    final metadataRange = _intFromDynamic(action.metadata['longRangeFeet']) ??
+        _intFromDynamic(action.metadata['longRange']);
+    if (metadataRange != null && metadataRange > 0) return metadataRange;
+    return _longRangeFeetFromActionText(
+      name: action.name,
+      type: _actionTypeLabel(action),
+      tags: action.tags,
+      source: action.metadata['source']?.toString(),
+      isSelf: action.metadata['targetsSelf'] == true ||
+          action.rollKind == encounter_models.CombatActionRollKind.resource,
     );
   }
 
@@ -8388,6 +10665,29 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     return null;
   }
 
+  int? _longRangeFeetFromActionText({
+    required String name,
+    required String type,
+    required List<String> tags,
+    required String? source,
+    required bool isSelf,
+  }) {
+    if (isSelf) return null;
+    final text = '$name $type ${tags.join(' ')} ${source ?? ''}'.toLowerCase();
+    final slashRange = RegExp(r'(\d+)\s*/\s*(\d+)').firstMatch(text);
+    if (slashRange != null) {
+      return int.tryParse(slashRange.group(2) ?? '');
+    }
+    if (text.contains('shortbow')) return 320;
+    if (text.contains('longbow')) return 600;
+    if (text.contains('light crossbow')) return 320;
+    if (text.contains('heavy crossbow')) return 400;
+    if (text.contains('hand crossbow')) return 120;
+    if (text.contains('dart')) return 60;
+    if (text.contains('sling')) return 120;
+    return null;
+  }
+
   String _readableResourceName(String key) {
     if (key.startsWith('spellSlot:')) {
       return 'Spell Slot ${key.split(':').last}';
@@ -8402,7 +10702,7 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
         .replaceAll(RegExp(r'\s+'), ' ');
   }
 
-  int _findDefaultTargetIndex(int activeIndex, [List<_Combatant>? source]) {
+  int _findDefaultTargetIndex(int activeIndex, [List<Combatant>? source]) {
     final list = source ?? _combatants;
     if (list.isEmpty) return 0;
     final safeActiveIndex = activeIndex.clamp(0, list.length - 1).toInt();
@@ -8414,8 +10714,8 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
 
   String _attackOutcome(
     DiceRollResult result,
-    _Combatant target,
-    _CombatAction action,
+    Combatant target,
+    CombatAction action,
   ) {
     if (result.isCriticalMiss) return 'automatic miss';
     final naturalD20 = _naturalD20(result);
@@ -8436,14 +10736,14 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     return null;
   }
 
-  String _savingThrowFormulaForTarget(_Combatant target, String ability) {
+  String _savingThrowFormulaForTarget(Combatant target, String ability) {
     return _formatRollFormula(
       'd20',
       _savingThrowBonusForTarget(target, ability),
     );
   }
 
-  int _savingThrowBonusForTarget(_Combatant target, String ability) {
+  int _savingThrowBonusForTarget(Combatant target, String ability) {
     final normalizedAbility = ability.trim().toUpperCase();
     final metadata = _encounter?.combatantById(target.id)?.metadata;
     final explicitSave = _intFromDynamicMap(
@@ -8460,7 +10760,117 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     return 0;
   }
 
-  String _actionExecutionKey(_CombatAction action) {
+  bool _savingThrowHasAdvantage(
+    Combatant target,
+    String ability, {
+    CombatAction? sourceAction,
+  }) {
+    final normalizedAbility = ability.trim().toUpperCase();
+    if (normalizedAbility == 'STR' &&
+        _combatantHasCondition(target, 'Raging')) {
+      return true;
+    }
+
+    final engineCombatant = _encounter?.combatantById(target.id);
+    for (final effect in engineCombatant?.effects ?? const []) {
+      final mechanics = effect.mechanics;
+      if (_mechanicMatchesAbility(
+        mechanics['savingThrowAdvantage'] ??
+            mechanics['advantageOnSavingThrow'] ??
+            mechanics['advantageOnSavingThrows'],
+        normalizedAbility,
+      )) {
+        return true;
+      }
+    }
+
+    final metadata = engineCombatant?.metadata;
+    if (_mechanicMatchesAbility(
+      metadata?['savingThrowAdvantages'],
+      normalizedAbility,
+    )) {
+      return true;
+    }
+
+    final sourceText =
+        '${sourceAction?.name ?? ''} ${sourceAction?.type ?? ''} ${sourceAction?.tags.join(' ') ?? ''}'
+            .toLowerCase();
+    final isSpellOrMagic =
+        sourceText.contains('spell') || sourceText.contains('magic');
+    final rawTraits = metadata?['specialAbilities'];
+    if (isSpellOrMagic && rawTraits is Iterable) {
+      for (final trait in rawTraits) {
+        final text = trait.toString().toLowerCase();
+        if (text.contains('magic resistance') &&
+            text.contains('advantage on saving throws')) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  bool _savingThrowHasDisadvantage(
+    Combatant target,
+    String ability, {
+    CombatAction? sourceAction,
+  }) {
+    final normalizedAbility = ability.trim().toUpperCase();
+    if (normalizedAbility == 'DEX' &&
+        _combatantHasCondition(target, 'Restrained')) {
+      return true;
+    }
+    if ((normalizedAbility == 'STR' || normalizedAbility == 'DEX') &&
+        (_combatantHasCondition(target, 'Paralyzed') ||
+            _combatantHasCondition(target, 'Petrified') ||
+            _combatantHasCondition(target, 'Stunned') ||
+            _combatantHasCondition(target, 'Unconscious'))) {
+      return true;
+    }
+
+    final engineCombatant = _encounter?.combatantById(target.id);
+    for (final effect in engineCombatant?.effects ?? const []) {
+      final mechanics = effect.mechanics;
+      if (_mechanicMatchesAbility(
+        mechanics['savingThrowDisadvantage'] ??
+            mechanics['disadvantageOnSavingThrow'] ??
+            mechanics['disadvantageOnSavingThrows'],
+        normalizedAbility,
+      )) {
+        return true;
+      }
+    }
+
+    final metadata = engineCombatant?.metadata;
+    return _mechanicMatchesAbility(
+      metadata?['savingThrowDisadvantages'],
+      normalizedAbility,
+    );
+  }
+
+  bool _mechanicMatchesAbility(Object? raw, String normalizedAbility) {
+    if (raw == null) return false;
+    if (raw is Map) {
+      final value = raw[normalizedAbility] ??
+          raw[normalizedAbility.toLowerCase()] ??
+          raw['ALL'] ??
+          raw['all'];
+      if (value is bool) return value;
+      if (value != null) {
+        return _mechanicMatchesAbility(value, normalizedAbility);
+      }
+      return false;
+    }
+    if (raw is Iterable) {
+      return raw
+          .any((item) => _mechanicMatchesAbility(item, normalizedAbility));
+    }
+    final text = raw.toString().trim().toUpperCase();
+    return text == 'ALL' || text == normalizedAbility;
+  }
+
+  String _actionExecutionKey(CombatAction action) {
     return _actionCardKey(action);
   }
 }
@@ -8472,13 +10882,27 @@ int? _intFromDynamicMap(Object? raw, String key) {
   return int.tryParse(value?.toString() ?? '');
 }
 
-String _actionCardKey(_CombatAction action) {
+Map<String, int> _stringIntMapFromDynamic(Object? raw) {
+  if (raw is! Map) return const {};
+  final result = <String, int>{};
+  for (final entry in raw.entries) {
+    final key = entry.key?.toString().trim() ?? '';
+    if (key.isEmpty) continue;
+    final value = entry.value;
+    final parsed = value is num ? value.toInt() : int.tryParse('$value');
+    if (parsed == null) continue;
+    result[key] = parsed;
+  }
+  return result;
+}
+
+String _actionCardKey(CombatAction action) {
   if (action.id.isNotEmpty) return action.id;
   return '${action.timing}|${action.type}|${action.name}';
 }
 
 bool _actionLacksResource(
-  _CombatAction action,
+  CombatAction action,
   Map<String, int> resourcePool,
 ) {
   final key = action.resourceKey;
@@ -8487,7 +10911,7 @@ bool _actionLacksResource(
 }
 
 int? _actionResourceRemaining(
-  _CombatAction action,
+  CombatAction action,
   Map<String, int> resourcePool,
 ) {
   final key = action.resourceKey;
@@ -8510,7 +10934,7 @@ String _readableActionResourceName(String key) {
 }
 
 String? _classKitResourceKey(
-  List<_CombatAction> actions,
+  List<CombatAction> actions,
   Map<String, int> resourcePool,
 ) {
   final actionKeys = actions
@@ -8600,7 +11024,122 @@ Color _classKitAccent(String resourceKey, StitchThemeTokens tokens) {
   return tokens.accentRead;
 }
 
-String _compactClassKitActionLabel(_CombatAction action) {
+ClassCombatVisualIdentity? _classCombatVisualIdentityForActions({
+  required List<CombatAction> actions,
+  required Map<String, int> resourcePool,
+}) {
+  final resourceKey = _classKitResourceKey(actions, resourcePool) ??
+      _resourceKeyWhere(resourcePool.keys, _isKiResourceKey);
+  final actionText = _rulesLabelText(
+    actions
+        .map((action) =>
+            '${action.name} ${action.type} ${action.tags.join(' ')} ${action.resourceKey ?? ''}')
+        .join(' '),
+  );
+
+  if ((resourceKey != null && _isKiResourceKey(_rulesLabelText(resourceKey))) ||
+      actionText.contains('monk') ||
+      actionText.contains('monje') ||
+      actionText.contains('martial arts')) {
+    return _monkCombatVisualIdentity(
+      actions: actions,
+      resourceKey: resourceKey ?? 'ki',
+      maxKi: resourceKey == null ? 0 : resourcePool[resourceKey] ?? 0,
+    );
+  }
+
+  return null;
+}
+
+ClassCombatVisualIdentity _monkCombatVisualIdentity({
+  required List<CombatAction> actions,
+  required String resourceKey,
+  required int maxKi,
+  MonkSubclassCombatProfile? subclassProfile,
+}) {
+  final profile = subclassProfile ??
+      const MonkSubclassCombatProfile(
+        kind: MonkSubclassCombatKind.none,
+        name: '',
+        shortName: '',
+        themeLabel: 'Monk base',
+      );
+  final actionText = _rulesLabelText(
+    actions
+        .map((action) => '${action.name} ${action.tags.join(' ')}')
+        .join(' '),
+  );
+  final hasMartialArts = actionText.contains('martial arts') ||
+      actionText.contains('artes marciales') ||
+      actionText.contains('unarmed strike');
+  final hasKiDiscipline = maxKi > 0 ||
+      actionText.contains('flurry of blows') ||
+      actionText.contains('rafaga') ||
+      actionText.contains('step of the wind');
+
+  return ClassCombatVisualIdentity(
+    classKey: 'monk',
+    title: 'Monje',
+    subtitle: profile.hasSubclass
+        ? '${profile.shortName} - ${profile.themeLabel}'
+        : 'Disciplina fisica y ritmo Ki',
+    resourceKey: resourceKey,
+    resourceLabel: 'Ki',
+    icon: Icons.self_improvement_rounded,
+    passiveTraits: [
+      if (profile.hasSubclass)
+        ClassPassiveTrait(
+          label: profile.shortName,
+          detail: profile.name,
+          icon: Icons.spa_outlined,
+        ),
+      if (hasMartialArts)
+        const ClassPassiveTrait(
+          label: 'Martial Arts',
+          detail: 'Golpes sin armas y bonus strike tras atacar.',
+          icon: Icons.back_hand_outlined,
+        ),
+      const ClassPassiveTrait(
+        label: 'Unarmored Defense',
+        detail: 'AC sin armadura: DES + SAB.',
+        icon: Icons.shield_outlined,
+      ),
+      if (hasKiDiscipline)
+        const ClassPassiveTrait(
+          label: 'Unarmored Movement',
+          detail: 'Movimiento extra mientras no usa armadura.',
+          icon: Icons.directions_run_rounded,
+        ),
+      ..._monkSubclassPassiveTraits(profile),
+    ],
+  );
+}
+
+List<ClassPassiveTrait> _monkSubclassPassiveTraits(
+  MonkSubclassCombatProfile profile,
+) {
+  return profile.passiveReferences.take(2).map((feature) {
+    return ClassPassiveTrait(
+      label: feature.name,
+      detail: feature.detail.isEmpty ? profile.name : feature.detail,
+      icon: Icons.auto_stories_outlined,
+    );
+  }).toList(growable: false);
+}
+
+Color _classCombatVisualAccent(
+  ClassCombatVisualIdentity identity,
+  StitchThemeTokens tokens,
+) {
+  switch (identity.classKey) {
+    case 'monk':
+      return tokens.accentInfo;
+    default:
+      return tokens.accentRead;
+  }
+}
+
+String _compactClassKitActionLabel(CombatAction action) {
   final text = _rulesLabelText(action.name);
   if (text.contains('flurry of blows') || text.contains('rafaga')) {
     return 'Flurry';
@@ -8617,7 +11156,7 @@ String _compactClassKitActionLabel(_CombatAction action) {
 }
 
 int _classKitActionPriority(
-  _CombatAction action, {
+  CombatAction action, {
   required bool hasPendingOnHitTrigger,
 }) {
   final text = _rulesLabelText('${action.name} ${action.tags.join(' ')}');
@@ -8633,7 +11172,7 @@ int _classKitActionPriority(
 }
 
 void _sortActionsForTurnFlow(
-  List<_CombatAction> actions, {
+  List<CombatAction> actions, {
   required String selectedTiming,
   required Set<String> pendingDamageActions,
   required Map<String, int> resourcePool,
@@ -8657,7 +11196,7 @@ void _sortActionsForTurnFlow(
 }
 
 int _turnFlowActionPriority(
-  _CombatAction action, {
+  CombatAction action, {
   required String selectedTiming,
   required Set<String> pendingDamageActions,
   required Map<String, int> resourcePool,
@@ -8684,8 +11223,8 @@ int _turnFlowActionPriority(
   return 30;
 }
 
-List<_CombatAction> _techniqueRailActions({
-  required List<_CombatAction> actions,
+List<CombatAction> _techniqueRailActions({
+  required List<CombatAction> actions,
   required Map<String, int> resourcePool,
   required Set<String> pendingDamageActions,
   required bool hasTakenAttackActionThisTurn,
@@ -8696,6 +11235,8 @@ List<_CombatAction> _techniqueRailActions({
   );
   final candidates = actions.where((action) {
     if (!_actionBelongsInTechniqueRail(action)) return false;
+    if (_actionIsFlurryOfBlows(action)) return false;
+    if (_actionIsMartialArtsBonusStrike(action)) return false;
     if (_actionIsOnHitOption(action) && !hasPendingOnHitTrigger) return false;
     return true;
   }).toList(growable: false);
@@ -8722,19 +11263,24 @@ List<_CombatAction> _techniqueRailActions({
   return candidates.take(6).toList(growable: false);
 }
 
-bool _actionBelongsInTechniqueRail(_CombatAction action) {
+bool _actionBelongsInTechniqueRail(CombatAction action) {
   final text = _rulesLabelText(
     '${action.name} ${action.type} ${action.tags.join(' ')} ${action.resourceKey ?? ''}',
   );
   if (text.contains('martial arts') && text.contains('bonus')) return true;
   if (_actionIsOnHitOption(action)) return true;
+  if (text.contains('monk tradition') ||
+      text.contains('monk discipline') ||
+      (text.contains('monk') && text.contains('subclass'))) {
+    return true;
+  }
   if (text.contains('monk') && text.contains('ki')) return true;
   final resourceKey = action.resourceKey;
   return resourceKey != null && _isKiResourceKey(_rulesLabelText(resourceKey));
 }
 
 int _techniqueRailPriority(
-  _CombatAction action, {
+  CombatAction action, {
   required bool hasTakenAttackActionThisTurn,
   required bool hasPendingOnHitTrigger,
 }) {
@@ -8751,12 +11297,17 @@ int _techniqueRailPriority(
   if (text.contains('step of the wind') || text.contains('paso del viento')) {
     return 4;
   }
+  if (text.contains('monk tradition') ||
+      text.contains('monk discipline') ||
+      (text.contains('monk') && text.contains('subclass'))) {
+    return 5;
+  }
   return 8;
 }
 
-bool _techniqueActionBlocked({
-  required List<_CombatAction> actions,
-  required _CombatAction action,
+String? _techniqueActionBlockedReason({
+  required List<CombatAction> actions,
+  required CombatAction action,
   required Map<String, int> resourcePool,
   required Set<String> spentTimings,
   required Set<String> pendingDamageActions,
@@ -8765,23 +11316,31 @@ bool _techniqueActionBlocked({
 }) {
   final isActiveMultiAttack =
       activeMultiAttackActionKey == _actionCardKey(action);
-  if (isActiveMultiAttack) return false;
+  if (isActiveMultiAttack) return null;
 
   final hasPendingOnHitTrigger = _hasPendingOnHitTrigger(
     actions,
     pendingDamageActions,
   );
-  if (_actionLacksResource(action, resourcePool)) return true;
-  if (spentTimings.contains(action.timing)) return true;
-  if (_actionIsOnHitOption(action) && !hasPendingOnHitTrigger) return true;
   if (_actionRequiresAttackActionLabel(action) &&
       !hasTakenAttackActionThisTurn) {
-    return true;
+    return 'Primero resuelve una Attack Action.';
   }
-  return false;
+  if (_actionIsOnHitOption(action) && !hasPendingOnHitTrigger) {
+    return 'Disponible despues de impactar.';
+  }
+  if (_actionLacksResource(action, resourcePool)) {
+    return 'No quedan recursos suficientes.';
+  }
+  if (spentTimings.contains(action.timing)) {
+    return action.timing == 'Bonus Action'
+        ? 'La Bonus Action ya fue usada.'
+        : '${action.timing} ya fue usada.';
+  }
+  return null;
 }
 
-bool _actionRequiresAttackActionLabel(_CombatAction action) {
+bool _actionRequiresAttackActionLabel(CombatAction action) {
   final text =
       _rulesLabelText('${action.name} ${action.type} ${action.tags.join(' ')}');
   return text.contains('requires attack action') ||
@@ -8790,7 +11349,229 @@ bool _actionRequiresAttackActionLabel(_CombatAction action) {
       text.contains('martial arts');
 }
 
-String _techniqueActionLabel(_CombatAction action) {
+String? _combatantMonkSubclassName(Combatant combatant) {
+  final direct = combatant.metadata['monkSubclass']?.toString().trim();
+  if (direct != null && direct.isNotEmpty) return direct;
+
+  final subclasses = combatant.metadata['subclasses'];
+  if (subclasses is Map) {
+    for (final entry in subclasses.entries) {
+      final className = _rulesLabelText(entry.key.toString());
+      if (!className.contains('monk') && !className.contains('monje')) {
+        continue;
+      }
+      final subclass = entry.value?.toString().trim();
+      if (subclass != null && subclass.isNotEmpty) return subclass;
+    }
+  }
+
+  return null;
+}
+
+MonkCombatFlowState? _monkCombatFlowState({
+  required Combatant activeCombatant,
+  required List<CombatAction> actions,
+  required Map<String, int> resourcePool,
+  required Set<String> spentTimings,
+  required Set<String> pendingDamageActions,
+  required String? activeMultiAttackActionKey,
+  required int activeMultiAttackStepIndex,
+  required List<PendingCombatAttack> activeMultiAttackPendingAttacks,
+  required bool hasTakenAttackActionThisTurn,
+  required bool martialArtsEligibleAttackThisTurn,
+  required bool flurryAlreadyUsedThisTurn,
+}) {
+  final flurryAction = _firstOrNull(actions.where(_actionIsFlurryOfBlows));
+  if (flurryAction == null) return null;
+  final martialArtsAction =
+      _firstOrNull(actions.where(_actionIsMartialArtsBonusStrike));
+  final resourceKey = flurryAction.resourceKey ??
+      _classKitResourceKey(actions, resourcePool) ??
+      _resourceKeyWhere(resourcePool.keys, _isKiResourceKey);
+  if (resourceKey == null) return null;
+  final subclassProfile = MonkCombatKitService.profileFromMetadata(
+    subclassName: _combatantMonkSubclassName(activeCombatant),
+    featureEntries: activeCombatant.metadata['monkSubclassFeatures'] ??
+        activeCombatant.metadata['features'],
+  );
+
+  final remaining = resourcePool[resourceKey] ?? 0;
+  final maximum = activeCombatant.resourceMaximums[resourceKey] ??
+      math.max(remaining, flurryAction.resourceCost);
+  final actionKey = _actionCardKey(flurryAction);
+  final multiAttackActive = activeMultiAttackActionKey == actionKey;
+  final pendingDamage = pendingDamageActions.contains(actionKey);
+  final otherPendingDamage =
+      pendingDamageActions.any((pendingKey) => pendingKey != actionKey);
+  final bonusActionAvailable = !spentTimings.contains(flurryAction.timing);
+  final flurryAttackTotal = math.max(1, flurryAction.multiAttackSteps.length);
+  final flurryAttackIndex = multiAttackActive
+      ? activeMultiAttackStepIndex.clamp(0, flurryAttackTotal - 1).toInt()
+      : 0;
+  final remainingFlurryAttacks =
+      multiAttackActive ? flurryAttackTotal - flurryAttackIndex : 0;
+  final martialArtsKey =
+      martialArtsAction == null ? null : _actionCardKey(martialArtsAction);
+  final martialArtsActive =
+      martialArtsKey != null && activeMultiAttackActionKey == martialArtsKey;
+  final martialArtsPending =
+      martialArtsKey != null && pendingDamageActions.contains(martialArtsKey);
+  final martialArtsEnabled = martialArtsAction != null &&
+      (martialArtsActive ||
+          martialArtsPending ||
+          (martialArtsEligibleAttackThisTurn &&
+              bonusActionAvailable &&
+              !otherPendingDamage));
+  final comboPendingAttacks = multiAttackActive || martialArtsActive
+      ? activeMultiAttackPendingAttacks
+      : const <PendingCombatAttack>[];
+  final openHandTechniqueAvailable = subclassProfile.hasOpenHandTechnique &&
+      activeMultiAttackPendingAttacks.any(
+        (attack) =>
+            attack.source == PendingCombatAttackSource.flurryOfBlows &&
+            attack.damagePending,
+      );
+  var attackActionSlots = 1;
+  for (final action in actions) {
+    if (action.timing != 'Action' || !action.usesAttackAction) continue;
+    attackActionSlots = math.max(attackActionSlots, action.actionAttackSlots);
+  }
+  final resolvedAttackActionAttacks = !hasTakenAttackActionThisTurn
+      ? 0
+      : spentTimings.contains('Action')
+          ? attackActionSlots
+          : 1;
+
+  var enabled = true;
+  String status;
+  String ctaLabel;
+  if (martialArtsPending) {
+    enabled = false;
+    status = 'Hay dano pendiente de Artes Marciales.';
+    ctaLabel = 'Dano MA';
+  } else if (martialArtsActive) {
+    enabled = false;
+    status = 'Golpe de Artes Marciales activo.';
+    ctaLabel = 'Bonus usada';
+  } else if (pendingDamage) {
+    status = 'Hay dano pendiente de Ráfaga.';
+    ctaLabel = 'Resolver daño';
+  } else if (multiAttackActive) {
+    status = 'Rafaga activa: $remainingFlurryAttacks golpes restantes.';
+    ctaLabel = 'Golpe ${flurryAttackIndex + 1}/$flurryAttackTotal';
+  } else if (!hasTakenAttackActionThisTurn) {
+    enabled = false;
+    status = 'Primero toma la acción de Ataque.';
+    ctaLabel = 'Ataca primero';
+  } else if (otherPendingDamage) {
+    enabled = false;
+    status = 'Resuelve el dano pendiente antes del combo.';
+    ctaLabel = 'Dano pendiente';
+  } else if (flurryAlreadyUsedThisTurn) {
+    enabled = false;
+    status = 'Rafaga ya usada este turno.';
+    ctaLabel = 'Rafaga usada';
+  } else if (!bonusActionAvailable) {
+    enabled = false;
+    status = 'Ya gastaste tu Bonus Action este turno.';
+    ctaLabel = 'Bonus gastada';
+  } else if (remaining < flurryAction.resourceCost) {
+    enabled = false;
+    status = 'No quedan puntos de Ki suficientes.';
+    ctaLabel = 'Sin Ki';
+  } else {
+    status = 'Después de atacar, puedes gastar 1 Ki para dos golpes.';
+    ctaLabel = 'Gastar 1 Ki';
+  }
+
+  return MonkCombatFlowState(
+    identity: _monkCombatVisualIdentity(
+      actions: actions,
+      resourceKey: resourceKey,
+      maxKi: maximum,
+      subclassProfile: subclassProfile,
+    ),
+    subclassProfile: subclassProfile,
+    flurryAction: flurryAction,
+    resourceKey: resourceKey,
+    remainingKi: remaining,
+    maxKi: maximum,
+    attackActionSlots: attackActionSlots,
+    resolvedAttackActionAttacks: resolvedAttackActionAttacks,
+    martialArtsAction: martialArtsAction,
+    martialArtsActive: martialArtsActive,
+    martialArtsEnabled: martialArtsEnabled,
+    martialArtsPendingDamage: martialArtsPending,
+    flurryActive: multiAttackActive,
+    flurryAttackIndex: flurryAttackIndex,
+    flurryAttackTotal: flurryAttackTotal,
+    remainingFlurryAttacks: remainingFlurryAttacks,
+    pendingAttacks: comboPendingAttacks,
+    openHandTechniqueAvailable: openHandTechniqueAvailable,
+    flurryAlreadyUsedThisTurn: flurryAlreadyUsedThisTurn,
+    enabled: enabled,
+    pendingDamage: pendingDamage,
+    status: status,
+    ctaLabel: ctaLabel,
+  );
+}
+
+bool _actionIsFlurryOfBlows(CombatAction action) {
+  final text = _rulesLabelText('${action.name} ${action.tags.join(' ')}');
+  return text.contains('flurry of blows') ||
+      text.contains('rafaga de golpes') ||
+      text.contains('rafaga');
+}
+
+bool _actionIsMartialArtsBonusStrike(CombatAction action) {
+  final text = _rulesLabelText(
+    '${action.name} ${action.type} ${action.timing} ${action.tags.join(' ')}',
+  );
+  return text.contains('martial arts') &&
+      (text.contains('bonus') ||
+          text.contains('golpe extra') ||
+          text.contains('bonus unarmed'));
+}
+
+bool _actionHandledByMonkCombo(CombatAction action) {
+  return _actionIsFlurryOfBlows(action) ||
+      _actionIsMartialArtsBonusStrike(action);
+}
+
+String _combatModeDebugDetails({
+  required List<CombatAction> actions,
+  required Map<String, int> resourcePool,
+  required MonkCombatFlowState? monkFlow,
+}) {
+  String compactList(Iterable<String> values) {
+    final items = values.where((value) => value.trim().isNotEmpty).take(3);
+    final text = items.join('|');
+    return text.isEmpty ? 'NO' : text;
+  }
+
+  final flurryNames = compactList(
+    actions.where(_actionIsFlurryOfBlows).map((action) => action.name),
+  );
+  final martialNames = compactList(
+    actions.where(_actionIsMartialArtsBonusStrike).map((action) => action.name),
+  );
+  final kiKeys = compactList(
+    resourcePool.keys.where((key) => _isKiResourceKey(_rulesLabelText(key))),
+  );
+  final monkSignals = actions.where((action) {
+    final text = _rulesLabelText(
+      '${action.name} ${action.type} ${action.tags.join(' ')}',
+    );
+    return text.contains('monk') ||
+        text.contains('monje') ||
+        text.contains('martial arts') ||
+        text.contains('unarmed');
+  }).length;
+
+  return 'monkFlow=${monkFlow != null}; flurry=$flurryNames; martial=$martialNames; ki=$kiKeys; monkSignals=$monkSignals; actions=${actions.length}';
+}
+
+String _techniqueActionLabel(CombatAction action) {
   final text = _rulesLabelText(action.name);
   if (text.contains('martial arts')) return 'Golpe extra';
   if (text.contains('flurry of blows') || text.contains('rafaga de golpes')) {
@@ -8799,13 +11580,23 @@ String _techniqueActionLabel(_CombatAction action) {
   if (text.contains('stunning strike') || text.contains('golpe aturdidor')) {
     return 'Golpe aturdidor';
   }
+  if (text.contains('shadow arts')) return 'Shadow Arts';
+  if (text.contains('hand of healing')) return 'Hand of Healing';
+  if (text.contains('hand of harm')) return 'Hand of Harm';
+  if (text.contains('radiant sun bolt')) return 'Sun Bolt';
+  if (text.contains('arms of the astral self')) return 'Astral Arms';
+  if (text.contains('kensei')) return "Kensei's Shot";
+  if (text.contains('element')) return 'Elemental';
   return _compactClassKitActionLabel(action);
 }
 
-String _techniqueActionHint(_CombatAction action, bool blocked) {
+String _techniqueActionHint(CombatAction action, String? blockedReason) {
   final text = _rulesLabelText('${action.name} ${action.tags.join(' ')}');
-  if (blocked) {
-    if (_actionRequiresAttackActionLabel(action)) return 'requiere Ataque';
+  if (blockedReason != null) {
+    if (blockedReason.contains('Attack Action')) return 'requiere Ataque';
+    if (blockedReason.contains('impactar')) return 'tras impactar';
+    if (blockedReason.contains('recursos')) return 'sin recursos';
+    if (blockedReason.contains('Bonus')) return 'bonus usada';
     return 'bloqueado';
   }
   if (_actionIsOnHitOption(action)) return 'TS del objetivo';
@@ -8813,12 +11604,23 @@ String _techniqueActionHint(_CombatAction action, bool blocked) {
   if (text.contains('flurry of blows') || text.contains('rafaga de golpes')) {
     return 'gasta 1 Ki - 2 ataques';
   }
+  if (text.contains('shadow arts')) return '2 Ki - sombras';
+  if (text.contains('hand of healing')) return '1 Ki - cura';
+  if (text.contains('hand of harm')) return '1 Ki - on hit';
+  if (text.contains('radiant sun bolt')) return 'Ataque 30 ft';
+  if (text.contains('arms of the astral self')) return '1 Ki - forma';
+  if (text.contains('kensei')) return 'Bonus - disparo';
+  if (text.contains('element')) {
+    return action.resourceCost > 0
+        ? '${action.resourceCost} Ki - disciplina'
+        : 'disciplina';
+  }
   if (action.resourceCost > 0) return 'gasta ${action.resourceCost} Ki';
   return 'listo';
 }
 
 String _classKitActionHint(
-  _CombatAction action,
+  CombatAction action,
   bool pendingDamage,
   bool blocked,
 ) {
@@ -8836,7 +11638,7 @@ String _classKitActionHint(
 }
 
 bool _actionVisibleInActionTiming(
-  _CombatAction action,
+  CombatAction action,
   String timing, {
   required bool hasPendingOnHitTrigger,
 }) {
@@ -8846,7 +11648,7 @@ bool _actionVisibleInActionTiming(
   return action.timing == timing;
 }
 
-bool _actionIsOnHitOption(_CombatAction action) {
+bool _actionIsOnHitOption(CombatAction action) {
   final text = _rulesLabelText(
     '${action.name} ${action.type} ${action.timing} ${action.tags.join(' ')}',
   );
@@ -8860,7 +11662,7 @@ bool _actionIsOnHitOption(_CombatAction action) {
 }
 
 bool _hasPendingOnHitTrigger(
-  List<_CombatAction> actions,
+  List<CombatAction> actions,
   Set<String> pendingDamageActions,
 ) {
   if (pendingDamageActions.isEmpty) return false;
@@ -8871,7 +11673,7 @@ bool _hasPendingOnHitTrigger(
   return false;
 }
 
-bool _actionCanTriggerOnHitOptions(_CombatAction action) {
+bool _actionCanTriggerOnHitOptions(CombatAction action) {
   if (action.isHealing || action.requiresSavingThrow) return false;
   if (action.attackFormula == null && !action.hasMultiAttack) return false;
 
@@ -8891,6 +11693,13 @@ String _rulesLabelText(String value) {
   return value
       .trim()
       .toLowerCase()
+      .replaceAll('\u00e1', 'a')
+      .replaceAll('\u00e9', 'e')
+      .replaceAll('\u00ed', 'i')
+      .replaceAll('\u00f3', 'o')
+      .replaceAll('\u00fa', 'u')
+      .replaceAll('\u00fc', 'u')
+      .replaceAll('\u00f1', 'n')
       .replaceAll('á', 'a')
       .replaceAll('é', 'e')
       .replaceAll('í', 'i')
@@ -8905,7 +11714,7 @@ String _rulesLabelText(String value) {
       .replaceAll('Ã±', 'n');
 }
 
-int? _rangeFeetForActionCard(_CombatAction action) {
+int? _rangeFeetForActionCard(CombatAction action) {
   if (action.rangeFeet != null) return action.rangeFeet;
   if (action.targetsSelf) return 0;
 
@@ -8937,7 +11746,7 @@ int? _rangeFeetForActionCard(_CombatAction action) {
   if (text.contains('shortbow')) return 80;
   if (text.contains('longbow')) return 150;
   if (text.contains('ranged') || text.contains('bow')) return 60;
-  if (action.accentKind == _CombatAccentKind.magic &&
+  if (action.accentKind == CombatAccentKind.magic &&
       (action.isHealing ||
           action.requiresSavingThrow ||
           action.damageFormula != null ||
@@ -8956,34 +11765,39 @@ int? _rangeFeetForActionCard(_CombatAction action) {
 
 class _CombatLayeredGameView extends StatelessWidget {
   final int round;
-  final List<_Combatant> combatants;
+  final List<Combatant> combatants;
   final int activeIndex;
   final int targetIndex;
-  final _Combatant activeCombatant;
-  final _Combatant selectedTarget;
-  final List<_CombatAction> actions;
-  final _CombatRollFeedback? rollFeedback;
+  final Combatant activeCombatant;
+  final Combatant selectedTarget;
+  final List<CombatAction> actions;
+  final CombatRollFeedback? rollFeedback;
+  final bool rollInFlight;
   final Set<String> spentTimings;
   final Set<String> pendingDamageActions;
-  final Map<String, _CombatAction> preparedActions;
+  final Map<String, CombatAction> preparedActions;
   final String? activeMultiAttackActionKey;
-  final List<_ReactionOption> reactionOptions;
+  final int activeMultiAttackStepIndex;
+  final List<PendingCombatAttack> activeMultiAttackPendingAttacks;
+  final List<ReactionOption> reactionOptions;
   final bool hasTakenAttackActionThisTurn;
-  final _ActionEconomySnapshot activeEconomy;
+  final bool martialArtsEligibleAttackThisTurn;
+  final bool flurryAlreadyUsedThisTurn;
+  final CombatActionEconomySnapshot activeEconomy;
   final int queuedPreparedIndex;
   final int queuedPreparedTotal;
   final String? queuedPreparedActionName;
   final String selectedCommandTiming;
-  final _CombatWorkspace workspace;
+  final CombatWorkspace workspace;
   final bool showEnemyHp;
-  final List<_CombatLogEntry> entries;
+  final List<CombatLogEntry> entries;
   final Map<String, int> resourcePool;
-  final _CombatRollMode rollMode;
+  final CombatRollMode rollMode;
   final bool canControlActive;
   final String controlBlockedMessage;
   final bool boardControllerActive;
   final String? boardSceneId;
-  final _CombatAction? focusedBattleBoardAction;
+  final CombatAction? focusedBattleBoardAction;
   final VoidCallback onBack;
   final VoidCallback onRequestInitiative;
   final VoidCallback onRollInitiative;
@@ -8993,18 +11807,19 @@ class _CombatLayeredGameView extends StatelessWidget {
   final ValueChanged<int> onSelectTarget;
   final ValueChanged<int> onSelectFocusedCombatant;
   final ValueChanged<int> onEditHp;
+  final ValueChanged<int> onRemoveBoardToken;
   final void Function(String combatantId, String effectName)
       onRemoveActiveEffect;
-  final ValueChanged<_CombatWorkspace> onSelectWorkspace;
+  final ValueChanged<CombatWorkspace> onSelectWorkspace;
   final ValueChanged<String> onSelectCommandTiming;
-  final ValueChanged<_CombatRollMode> onSelectRollMode;
-  final void Function(int actorIndex, _CombatAction action) onUseReaction;
-  final ValueChanged<_CombatAction> onReadyAction;
+  final ValueChanged<CombatRollMode> onSelectRollMode;
+  final void Function(int actorIndex, CombatAction action) onUseReaction;
+  final ValueChanged<CombatAction> onReadyAction;
   final ValueChanged<String> onRollSavingThrow;
-  final void Function(_CombatAction action, _CombatActionRoll rollType)
+  final void Function(CombatAction action, CombatActionRoll rollType)
       onRollAction;
-  final ValueChanged<_CombatAction> onUseAction;
-  final ValueChanged<_CombatAction> onPrepareAction;
+  final ValueChanged<CombatAction> onUseAction;
+  final ValueChanged<CombatAction> onPrepareAction;
   final VoidCallback onLaunchPreparedTurn;
   final VoidCallback onClearPreparedActions;
   final VoidCallback onControlBlocked;
@@ -9020,12 +11835,17 @@ class _CombatLayeredGameView extends StatelessWidget {
     required this.selectedTarget,
     required this.actions,
     required this.rollFeedback,
+    required this.rollInFlight,
     required this.spentTimings,
     required this.pendingDamageActions,
     required this.preparedActions,
     required this.activeMultiAttackActionKey,
+    required this.activeMultiAttackStepIndex,
+    required this.activeMultiAttackPendingAttacks,
     required this.reactionOptions,
     required this.hasTakenAttackActionThisTurn,
+    required this.martialArtsEligibleAttackThisTurn,
+    required this.flurryAlreadyUsedThisTurn,
     required this.activeEconomy,
     required this.queuedPreparedIndex,
     required this.queuedPreparedTotal,
@@ -9050,6 +11870,7 @@ class _CombatLayeredGameView extends StatelessWidget {
     required this.onSelectTarget,
     required this.onSelectFocusedCombatant,
     required this.onEditHp,
+    required this.onRemoveBoardToken,
     required this.onRemoveActiveEffect,
     required this.onSelectWorkspace,
     required this.onSelectCommandTiming,
@@ -9077,12 +11898,17 @@ class _CombatLayeredGameView extends StatelessWidget {
       selectedTarget: selectedTarget,
       actions: actions,
       rollFeedback: rollFeedback,
+      rollInFlight: rollInFlight,
       spentTimings: spentTimings,
       pendingDamageActions: pendingDamageActions,
       preparedActions: preparedActions,
       activeMultiAttackActionKey: activeMultiAttackActionKey,
+      activeMultiAttackStepIndex: activeMultiAttackStepIndex,
+      activeMultiAttackPendingAttacks: activeMultiAttackPendingAttacks,
       reactionOptions: reactionOptions,
       hasTakenAttackActionThisTurn: hasTakenAttackActionThisTurn,
+      martialArtsEligibleAttackThisTurn: martialArtsEligibleAttackThisTurn,
+      flurryAlreadyUsedThisTurn: flurryAlreadyUsedThisTurn,
       activeEconomy: activeEconomy,
       queuedPreparedIndex: queuedPreparedIndex,
       queuedPreparedTotal: queuedPreparedTotal,
@@ -9107,6 +11933,7 @@ class _CombatLayeredGameView extends StatelessWidget {
       onSelectTarget: onSelectTarget,
       onSelectFocusedCombatant: onSelectFocusedCombatant,
       onEditHp: onEditHp,
+      onRemoveBoardToken: onRemoveBoardToken,
       onRemoveActiveEffect: onRemoveActiveEffect,
       onSelectWorkspace: onSelectWorkspace,
       onSelectCommandTiming: onSelectCommandTiming,
@@ -9125,1177 +11952,41 @@ class _CombatLayeredGameView extends StatelessWidget {
   }
 }
 
-class _CompactNumberField extends StatelessWidget {
-  final TextEditingController controller;
-  final String label;
-
-  const _CompactNumberField({
-    required this.controller,
-    required this.label,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: TextField(
-        controller: controller,
-        keyboardType: TextInputType.number,
-        decoration: InputDecoration(labelText: label),
-      ),
-    );
-  }
-}
-
-class _CombatSetupView extends StatelessWidget {
-  final List<_Combatant> combatants;
-  final List<SrdMonster> monsterCatalog;
-  final int totalMonsterCount;
-  final String monsterSearchQuery;
-  final String? monsterCatalogError;
-  final Map<String, int> stagedMonsterCounts;
-  final List<CustomMonster> customMonsters;
-  final Map<String, int> stagedCustomMonsterCounts;
-  final Set<String> inactivePartyCombatantIds;
-  final bool customMonsterLoading;
-  final String? customMonsterError;
-  final bool loading;
-  final VoidCallback onBack;
-  final VoidCallback onReloadCatalog;
-  final ValueChanged<String> onMonsterSearchChanged;
-  final Future<void> Function(SrdMonster monster, int count)
-      onChangeMonsterCount;
-  final Future<void> Function(CustomMonster monster, int count)
-      onChangeCustomMonsterCount;
-  final Future<void> Function() onCreateCustomEnemy;
-  final Future<void> Function(CustomMonster monster) onEditCustomEnemy;
-  final Future<void> Function(CustomMonster monster) onDeleteCustomEnemy;
-  final Future<void> Function(String combatantId) onRemoveCustomEnemy;
-  final void Function(String combatantId, bool active) onTogglePartyCombatant;
-  final Future<void> Function() onBeginCombat;
-
-  const _CombatSetupView({
-    required this.combatants,
-    required this.monsterCatalog,
-    required this.totalMonsterCount,
-    required this.monsterSearchQuery,
-    required this.monsterCatalogError,
-    required this.stagedMonsterCounts,
-    required this.customMonsters,
-    required this.stagedCustomMonsterCounts,
-    required this.inactivePartyCombatantIds,
-    required this.customMonsterLoading,
-    required this.customMonsterError,
-    required this.loading,
-    required this.onBack,
-    required this.onReloadCatalog,
-    required this.onMonsterSearchChanged,
-    required this.onChangeMonsterCount,
-    required this.onChangeCustomMonsterCount,
-    required this.onCreateCustomEnemy,
-    required this.onEditCustomEnemy,
-    required this.onDeleteCustomEnemy,
-    required this.onRemoveCustomEnemy,
-    required this.onTogglePartyCombatant,
-    required this.onBeginCombat,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    final party =
-        combatants.where((item) => item.team == _CombatTeam.party).toList();
-    final activePartyCount = party
-        .where((item) => !inactivePartyCombatantIds.contains(item.id))
-        .length;
-    final enemies =
-        combatants.where((item) => item.team == _CombatTeam.enemy).toList();
-    final visibleMonsters = monsterCatalog;
-
-    return Padding(
-      padding: const EdgeInsets.all(12),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(tokens.radiusSm),
-        child: Stack(
-          children: [
-            const Positioned.fill(child: _CinematicDungeonBackdrop()),
-            Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.36),
-                ),
-              ),
-            ),
-            Positioned.fill(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final wide = constraints.maxWidth >= 980;
-                    final compactHeader = constraints.maxWidth < 700;
-                    final titleBlock = Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Configurar combate',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: _CinematicColors.paper,
-                              fontSize: 24,
-                              fontWeight: FontWeight.w900,
-                              height: 1,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '$activePartyCount/${party.length} personajes activos contra ${enemies.length} enemigos',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: tokens.textSecondary,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                    final beginButton = _CinematicConfirmButton(
-                      enabled: enemies.isNotEmpty && activePartyCount > 0,
-                      label: 'Comenzar combate',
-                      onTap: () => onBeginCombat(),
-                    );
-                    final customEnemyButton = _CinematicFooterButton(
-                      icon: Icons.add_circle_outline,
-                      label: 'Crear enemigo',
-                      color: _CinematicColors.goldBright,
-                      compact: true,
-                      onTap: () => onCreateCustomEnemy(),
-                    );
-                    final header = compactHeader
-                        ? Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Row(
-                                children: [
-                                  _CinematicRoundIconButton(
-                                    icon: Icons.arrow_back_rounded,
-                                    tooltip: 'Volver',
-                                    onTap: onBack,
-                                  ),
-                                  const SizedBox(width: 12),
-                                  titleBlock,
-                                ],
-                              ),
-                              const SizedBox(height: 10),
-                              customEnemyButton,
-                              const SizedBox(height: 8),
-                              beginButton,
-                            ],
-                          )
-                        : Row(
-                            children: [
-                              _CinematicRoundIconButton(
-                                icon: Icons.arrow_back_rounded,
-                                tooltip: 'Volver',
-                                onTap: onBack,
-                              ),
-                              const SizedBox(width: 12),
-                              titleBlock,
-                              const SizedBox(width: 12),
-                              SizedBox(width: 190, child: customEnemyButton),
-                              const SizedBox(width: 10),
-                              SizedBox(width: 220, child: beginButton),
-                            ],
-                          );
-                    final catalogPanel = _SetupMonsterCatalogPanel(
-                      monsters: visibleMonsters,
-                      totalMonsterCount: totalMonsterCount,
-                      searchQuery: monsterSearchQuery,
-                      errorMessage: monsterCatalogError,
-                      stagedMonsterCounts: stagedMonsterCounts,
-                      customMonsters: customMonsters,
-                      stagedCustomMonsterCounts: stagedCustomMonsterCounts,
-                      customMonsterLoading: customMonsterLoading,
-                      customMonsterError: customMonsterError,
-                      loading: loading,
-                      onReload: onReloadCatalog,
-                      onSearchChanged: onMonsterSearchChanged,
-                      onChangeCount: onChangeMonsterCount,
-                      onChangeCustomCount: onChangeCustomMonsterCount,
-                      onEditCustomMonster: onEditCustomEnemy,
-                      onDeleteCustomMonster: onDeleteCustomEnemy,
-                    );
-
-                    return Column(
-                      children: [
-                        header,
-                        const SizedBox(height: 12),
-                        Expanded(
-                          child: wide
-                              ? Row(
-                                  children: [
-                                    SizedBox(
-                                      width: 290,
-                                      child: _SetupPartyPanel(
-                                        party: party,
-                                        inactivePartyCombatantIds:
-                                            inactivePartyCombatantIds,
-                                        onTogglePartyCombatant:
-                                            onTogglePartyCombatant,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(child: catalogPanel),
-                                    const SizedBox(width: 12),
-                                    SizedBox(
-                                      width: 300,
-                                      child: _SetupEnemyPreview(
-                                        enemies: enemies,
-                                        onRemoveCustomEnemy:
-                                            onRemoveCustomEnemy,
-                                      ),
-                                    ),
-                                  ],
-                                )
-                              : ListView(
-                                  padding: EdgeInsets.zero,
-                                  children: [
-                                    SizedBox(
-                                      height: 220,
-                                      child: _SetupPartyPanel(
-                                        party: party,
-                                        inactivePartyCombatantIds:
-                                            inactivePartyCombatantIds,
-                                        onTogglePartyCombatant:
-                                            onTogglePartyCombatant,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 12),
-                                    SizedBox(
-                                      height: math
-                                          .max(
-                                            320.0,
-                                            constraints.maxHeight - 260,
-                                          )
-                                          .clamp(320.0, 520.0)
-                                          .toDouble(),
-                                      child: catalogPanel,
-                                    ),
-                                    const SizedBox(height: 12),
-                                    SizedBox(
-                                      height: 240,
-                                      child: _SetupEnemyPreview(
-                                        enemies: enemies,
-                                        onRemoveCustomEnemy:
-                                            onRemoveCustomEnemy,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SetupPartyPanel extends StatelessWidget {
-  final List<_Combatant> party;
-  final Set<String> inactivePartyCombatantIds;
-  final void Function(String combatantId, bool active) onTogglePartyCombatant;
-
-  const _SetupPartyPanel({
-    required this.party,
-    required this.inactivePartyCombatantIds,
-    required this.onTogglePartyCombatant,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return _CinematicPanelFrame(
-      borderColor: _CinematicColors.gold,
-      backgroundAlpha: 0.76,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _SetupPanelTitle(icon: Icons.groups_outlined, label: 'Party'),
-          const SizedBox(height: 10),
-          Expanded(
-            child: ListView.separated(
-              itemCount: party.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
-              itemBuilder: (context, index) {
-                final combatant = party[index];
-                final active =
-                    !inactivePartyCombatantIds.contains(combatant.id);
-                return _SetupCombatantRow(
-                  combatant: combatant,
-                  active: active,
-                  onToggleActive: (value) =>
-                      onTogglePartyCombatant(combatant.id, value),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SetupEnemyPreview extends StatelessWidget {
-  final List<_Combatant> enemies;
-  final Future<void> Function(String combatantId) onRemoveCustomEnemy;
-
-  const _SetupEnemyPreview({
-    required this.enemies,
-    required this.onRemoveCustomEnemy,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return _CinematicPanelFrame(
-      borderColor: _CinematicColors.blood,
-      backgroundAlpha: 0.76,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _SetupPanelTitle(
-            icon: Icons.crisis_alert_outlined,
-            label: 'Enemigos',
-          ),
-          const SizedBox(height: 10),
-          Expanded(
-            child: enemies.isEmpty
-                ? const Center(
-                    child: Text(
-                      'Agrega enemigos para comenzar.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: _CinematicColors.paper,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  )
-                : ListView.separated(
-                    itemCount: enemies.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
-                    itemBuilder: (context, index) {
-                      final enemy = enemies[index];
-                      final canRemove = enemy.id.startsWith('custom_monster_');
-                      return _SetupCombatantRow(
-                        combatant: enemy,
-                        trailing: canRemove
-                            ? IconButton(
-                                onPressed: () => onRemoveCustomEnemy(enemy.id),
-                                icon: const Icon(Icons.delete_outline),
-                                color: _CinematicColors.paper,
-                                tooltip: 'Quitar enemigo personalizado',
-                              )
-                            : null,
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SetupMonsterCatalogPanel extends StatelessWidget {
-  final List<SrdMonster> monsters;
-  final int totalMonsterCount;
-  final String searchQuery;
-  final String? errorMessage;
-  final Map<String, int> stagedMonsterCounts;
-  final List<CustomMonster> customMonsters;
-  final Map<String, int> stagedCustomMonsterCounts;
-  final bool customMonsterLoading;
-  final String? customMonsterError;
-  final bool loading;
-  final VoidCallback onReload;
-  final ValueChanged<String> onSearchChanged;
-  final Future<void> Function(SrdMonster monster, int count) onChangeCount;
-  final Future<void> Function(CustomMonster monster, int count)
-      onChangeCustomCount;
-  final Future<void> Function(CustomMonster monster) onEditCustomMonster;
-  final Future<void> Function(CustomMonster monster) onDeleteCustomMonster;
-
-  const _SetupMonsterCatalogPanel({
-    required this.monsters,
-    required this.totalMonsterCount,
-    required this.searchQuery,
-    required this.errorMessage,
-    required this.stagedMonsterCounts,
-    required this.customMonsters,
-    required this.stagedCustomMonsterCounts,
-    required this.customMonsterLoading,
-    required this.customMonsterError,
-    required this.loading,
-    required this.onReload,
-    required this.onSearchChanged,
-    required this.onChangeCount,
-    required this.onChangeCustomCount,
-    required this.onEditCustomMonster,
-    required this.onDeleteCustomMonster,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return _CinematicPanelFrame(
-      borderColor: _CinematicColors.gold,
-      backgroundAlpha: 0.78,
-      child: DefaultTabController(
-        length: 2,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: _SetupPanelTitle(
-                    icon: Icons.menu_book_outlined,
-                    label: 'Bestiario',
-                  ),
-                ),
-                if (loading || customMonsterLoading)
-                  const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                else
-                  _CinematicRoundIconButton(
-                    icon: Icons.refresh,
-                    tooltip: 'Recargar',
-                    onTap: onReload,
-                  ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            TabBar(
-              indicatorColor: _CinematicColors.goldBright,
-              labelColor: _CinematicColors.paper,
-              unselectedLabelColor: _CinematicColors.actionTextMuted,
-              tabs: [
-                Tab(text: 'SRD ($totalMonsterCount)'),
-                Tab(text: 'Custom (${customMonsters.length})'),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Expanded(
-              child: TabBarView(
-                children: [
-                  Column(
-                    children: [
-                      _SetupMonsterSearchField(
-                        query: searchQuery,
-                        onChanged: onSearchChanged,
-                      ),
-                      const SizedBox(height: 10),
-                      Expanded(
-                        child: errorMessage != null
-                            ? _SetupMonsterError(
-                                message: errorMessage!,
-                                onReload: onReload,
-                              )
-                            : monsters.isEmpty
-                                ? _SetupMonsterEmptyState(loading: loading)
-                                : GridView.builder(
-                                    gridDelegate:
-                                        const SliverGridDelegateWithMaxCrossAxisExtent(
-                                      maxCrossAxisExtent: 230,
-                                      mainAxisExtent: 104,
-                                      crossAxisSpacing: 8,
-                                      mainAxisSpacing: 8,
-                                    ),
-                                    itemCount: monsters.length,
-                                    itemBuilder: (context, index) {
-                                      final monster = monsters[index];
-                                      final count =
-                                          stagedMonsterCounts[monster.index] ??
-                                              0;
-                                      return _SetupMonsterTile(
-                                        monster: monster,
-                                        count: count,
-                                        onChangeCount: (next) =>
-                                            onChangeCount(monster, next),
-                                      );
-                                    },
-                                  ),
-                      ),
-                    ],
-                  ),
-                  customMonsterError != null
-                      ? _SetupMonsterError(
-                          message: customMonsterError!,
-                          onReload: () {},
-                        )
-                      : customMonsters.isEmpty
-                          ? const _SetupCustomMonsterEmptyState()
-                          : ListView.separated(
-                              itemCount: customMonsters.length,
-                              separatorBuilder: (_, __) =>
-                                  const SizedBox(height: 8),
-                              itemBuilder: (context, index) {
-                                final monster = customMonsters[index];
-                                final count =
-                                    stagedCustomMonsterCounts[monster.id] ?? 0;
-                                return _SetupCustomMonsterTile(
-                                  monster: monster,
-                                  count: count,
-                                  onChangeCount: (next) =>
-                                      onChangeCustomCount(monster, next),
-                                  onEdit: () => onEditCustomMonster(monster),
-                                  onDelete: () =>
-                                      onDeleteCustomMonster(monster),
-                                );
-                              },
-                            ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SetupMonsterSearchField extends StatefulWidget {
-  final String query;
-  final ValueChanged<String> onChanged;
-
-  const _SetupMonsterSearchField({
-    required this.query,
-    required this.onChanged,
-  });
-
-  @override
-  State<_SetupMonsterSearchField> createState() =>
-      _SetupMonsterSearchFieldState();
-}
-
-class _SetupMonsterSearchFieldState extends State<_SetupMonsterSearchField> {
-  late final TextEditingController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController(text: widget.query);
-  }
-
-  @override
-  void didUpdateWidget(covariant _SetupMonsterSearchField oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.query != _controller.text) {
-      _controller.text = widget.query;
-      _controller.selection = TextSelection.collapsed(
-        offset: _controller.text.length,
-      );
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    return TextField(
-      controller: _controller,
-      onChanged: widget.onChanged,
-      style: const TextStyle(
-        color: _CinematicColors.paper,
-        fontSize: 13,
-        fontWeight: FontWeight.w800,
-      ),
-      decoration: InputDecoration(
-        isDense: true,
-        hintText: 'Buscar por nombre, tipo o CR',
-        hintStyle: TextStyle(color: tokens.textMuted),
-        prefixIcon: const Icon(
-          Icons.search_rounded,
-          color: _CinematicColors.goldBright,
-          size: 18,
-        ),
-        suffixIcon: widget.query.trim().isEmpty
-            ? null
-            : IconButton(
-                icon: const Icon(Icons.close_rounded, size: 18),
-                color: _CinematicColors.paper,
-                onPressed: () => widget.onChanged(''),
-              ),
-        filled: true,
-        fillColor: Colors.black.withValues(alpha: 0.22),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(7),
-          borderSide: BorderSide(
-            color: _CinematicColors.gold.withValues(alpha: 0.18),
-          ),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(7),
-          borderSide: BorderSide(
-            color: _CinematicColors.gold.withValues(alpha: 0.18),
-          ),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(7),
-          borderSide: const BorderSide(color: _CinematicColors.goldBright),
-        ),
-      ),
-    );
-  }
-}
-
-class _SetupMonsterEmptyState extends StatelessWidget {
-  final bool loading;
-
-  const _SetupMonsterEmptyState({
-    required this.loading,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Text(
-        loading ? 'Cargando monstruos...' : 'No hay monstruos para mostrar.',
-        textAlign: TextAlign.center,
-        style: const TextStyle(
-          color: _CinematicColors.paper,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-    );
-  }
-}
-
-class _SetupMonsterError extends StatelessWidget {
-  final String message;
-  final VoidCallback onReload;
-
-  const _SetupMonsterError({
-    required this.message,
-    required this.onReload,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.warning_amber_rounded,
-              color: _CinematicColors.goldBright,
-              size: 34,
-            ),
-            const SizedBox(height: 10),
-            const Text(
-              'No se pudo cargar el bestiario.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: _CinematicColors.paper,
-                fontSize: 15,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              message,
-              maxLines: 4,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: _CinematicColors.actionTextMuted,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 12),
-            _CinematicFooterButton(
-              icon: Icons.refresh_rounded,
-              label: 'Reintentar',
-              color: _CinematicColors.goldBright,
-              onTap: onReload,
-              compact: true,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SetupPanelTitle extends StatelessWidget {
-  final IconData icon;
-  final String label;
-
-  const _SetupPanelTitle({
-    required this.icon,
-    required this.label,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, color: _CinematicColors.goldBright, size: 17),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            label.toUpperCase(),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: _CinematicColors.paper,
-              fontSize: 12,
-              fontWeight: FontWeight.w900,
-              height: 1,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _SetupCombatantRow extends StatelessWidget {
-  final _Combatant combatant;
-  final bool active;
-  final ValueChanged<bool>? onToggleActive;
-  final Widget? trailing;
-
-  const _SetupCombatantRow({
-    required this.combatant,
-    this.active = true,
-    this.onToggleActive,
-    this.trailing,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    final accent =
-        active ? _teamColor(combatant.team, tokens) : tokens.textMuted;
-    return Container(
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: active ? 0.24 : 0.36),
-        borderRadius: BorderRadius.circular(7),
-        border: Border.all(color: accent.withValues(alpha: 0.22)),
-      ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 42,
-            height: 42,
-            child: _CinematicPortraitBox(
-              combatant: combatant,
-              color: accent,
-              iconSize: 18,
-            ),
-          ),
-          const SizedBox(width: 9),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  combatant.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: _CinematicColors.paper,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'HP ${combatant.hp}/${combatant.maxHp}  CA ${combatant.ac}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: active ? tokens.textSecondary : tokens.textMuted,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (trailing != null) ...[
-            const SizedBox(width: 6),
-            trailing!,
-          ] else if (onToggleActive != null) ...[
-            const SizedBox(width: 6),
-            Switch(
-              value: active,
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              onChanged: onToggleActive,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _SetupMonsterTile extends StatelessWidget {
-  final SrdMonster monster;
-  final int count;
-  final ValueChanged<int> onChangeCount;
-
-  const _SetupMonsterTile({
-    required this.monster,
-    required this.count,
-    required this.onChangeCount,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final selected = count > 0;
-    return Container(
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: selected
-            ? _CinematicColors.blood.withValues(alpha: 0.20)
-            : Colors.black.withValues(alpha: 0.22),
-        borderRadius: BorderRadius.circular(7),
-        border: Border.all(
-          color: selected
-              ? _CinematicColors.goldBright.withValues(alpha: 0.44)
-              : _CinematicColors.gold.withValues(alpha: 0.18),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            monster.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: _CinematicColors.paper,
-              fontSize: 12,
-              fontWeight: FontWeight.w900,
-              height: 1,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '${monster.size} ${monster.type}${monster.challengeRating == null ? '' : ' - CR ${monster.challengeRating}'}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: _CinematicColors.actionTextMuted,
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const Spacer(),
-          Row(
-            children: [
-              _SetupCountButton(
-                icon: Icons.remove,
-                onTap: () => onChangeCount(count - 1),
-              ),
-              Expanded(
-                child: Text(
-                  '$count',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: _CinematicColors.paper,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w900,
-                    height: 1,
-                  ),
-                ),
-              ),
-              _SetupCountButton(
-                icon: Icons.add,
-                onTap: () => onChangeCount(count + 1),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SetupCustomMonsterEmptyState extends StatelessWidget {
-  const _SetupCustomMonsterEmptyState();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Padding(
-        padding: EdgeInsets.all(18),
-        child: Text(
-          'Tu bestiario personalizado esta vacio. Usa Crear enemigo para guardar una plantilla con acciones, reacciones, multiattack y rasgos pasivos.',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: _CinematicColors.paper,
-            fontWeight: FontWeight.w800,
-            height: 1.35,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SetupCustomMonsterTile extends StatelessWidget {
-  final CustomMonster monster;
-  final int count;
-  final ValueChanged<int> onChangeCount;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
-
-  const _SetupCustomMonsterTile({
-    required this.monster,
-    required this.count,
-    required this.onChangeCount,
-    required this.onEdit,
-    required this.onDelete,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    final selected = count > 0;
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: selected
-            ? _CinematicColors.blood.withValues(alpha: 0.20)
-            : Colors.black.withValues(alpha: 0.22),
-        borderRadius: BorderRadius.circular(7),
-        border: Border.all(
-          color: selected
-              ? _CinematicColors.goldBright.withValues(alpha: 0.44)
-              : _CinematicColors.gold.withValues(alpha: 0.18),
-        ),
-      ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 52,
-            height: 52,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(7),
-              child: monster.portraitPath == null
-                  ? Container(
-                      color: _CinematicColors.blood.withValues(alpha: 0.18),
-                      child: const Icon(
-                        Icons.crisis_alert_outlined,
-                        color: _CinematicColors.paper,
-                      ),
-                    )
-                  : buildImageFromPath(
-                      monster.portraitPath!,
-                      width: 52,
-                      height: 52,
-                      fit: BoxFit.cover,
-                    ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  monster.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: _CinematicColors.paper,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  monster.role,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: tokens.textSecondary,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 4,
-                  children: [
-                    _MiniSetupBadge(label: 'HP ${monster.hitPoints}'),
-                    _MiniSetupBadge(label: 'CA ${monster.armorClass}'),
-                    _MiniSetupBadge(label: '${monster.activeActionCount} act'),
-                    if (monster.passiveCount > 0)
-                      _MiniSetupBadge(label: '${monster.passiveCount} pas'),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          SizedBox(
-            width: 96,
-            child: Row(
-              children: [
-                _SetupCountButton(
-                  icon: Icons.remove,
-                  onTap: () => onChangeCount(count - 1),
-                ),
-                Expanded(
-                  child: Text(
-                    '$count',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: _CinematicColors.paper,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
-                _SetupCountButton(
-                  icon: Icons.add,
-                  onTap: () => onChangeCount(count + 1),
-                ),
-              ],
-            ),
-          ),
-          IconButton(
-            tooltip: 'Editar plantilla',
-            onPressed: onEdit,
-            icon: const Icon(Icons.edit_outlined),
-            color: _CinematicColors.paper,
-          ),
-          IconButton(
-            tooltip: 'Eliminar plantilla',
-            onPressed: onDelete,
-            icon: const Icon(Icons.delete_outline),
-            color: _CinematicColors.paper,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MiniSetupBadge extends StatelessWidget {
-  final String label;
-
-  const _MiniSetupBadge({
-    required this.label,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      constraints: const BoxConstraints(maxWidth: 104),
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-      decoration: BoxDecoration(
-        color: _CinematicColors.gold.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(5),
-        border: Border.all(
-          color: _CinematicColors.gold.withValues(alpha: 0.22),
-        ),
-      ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          color: _CinematicColors.paper,
-          fontSize: 10,
-          fontWeight: FontWeight.w900,
-        ),
-      ),
-    );
-  }
-}
-
-class _SetupCountButton extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onTap;
-
-  const _SetupCountButton({
-    required this.icon,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(5),
-      child: Container(
-        width: 30,
-        height: 28,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: _CinematicColors.gold.withValues(alpha: 0.14),
-          borderRadius: BorderRadius.circular(5),
-          border: Border.all(
-            color: _CinematicColors.gold.withValues(alpha: 0.28),
-          ),
-        ),
-        child: Icon(icon, color: _CinematicColors.paper, size: 16),
-      ),
-    );
-  }
-}
-
 class _CinematicCombatDesktop extends StatelessWidget {
   final int round;
-  final List<_Combatant> combatants;
+  final List<Combatant> combatants;
   final int activeIndex;
   final int targetIndex;
-  final _Combatant activeCombatant;
-  final _Combatant selectedTarget;
-  final List<_CombatAction> actions;
-  final _CombatRollFeedback? rollFeedback;
+  final Combatant activeCombatant;
+  final Combatant selectedTarget;
+  final List<CombatAction> actions;
+  final CombatRollFeedback? rollFeedback;
+  final bool rollInFlight;
   final Set<String> spentTimings;
   final Set<String> pendingDamageActions;
-  final Map<String, _CombatAction> preparedActions;
+  final Map<String, CombatAction> preparedActions;
   final String? activeMultiAttackActionKey;
-  final List<_ReactionOption> reactionOptions;
+  final int activeMultiAttackStepIndex;
+  final List<PendingCombatAttack> activeMultiAttackPendingAttacks;
+  final List<ReactionOption> reactionOptions;
   final bool hasTakenAttackActionThisTurn;
-  final _ActionEconomySnapshot activeEconomy;
+  final bool martialArtsEligibleAttackThisTurn;
+  final bool flurryAlreadyUsedThisTurn;
+  final CombatActionEconomySnapshot activeEconomy;
   final int queuedPreparedIndex;
   final int queuedPreparedTotal;
   final String? queuedPreparedActionName;
   final String selectedCommandTiming;
-  final _CombatWorkspace workspace;
+  final CombatWorkspace workspace;
   final bool showEnemyHp;
-  final List<_CombatLogEntry> entries;
+  final List<CombatLogEntry> entries;
   final Map<String, int> resourcePool;
-  final _CombatRollMode rollMode;
+  final CombatRollMode rollMode;
   final bool canControlActive;
   final String controlBlockedMessage;
   final bool boardControllerActive;
   final String? boardSceneId;
-  final _CombatAction? focusedBattleBoardAction;
+  final CombatAction? focusedBattleBoardAction;
   final VoidCallback onBack;
   final VoidCallback onRequestInitiative;
   final VoidCallback onRollInitiative;
@@ -10305,18 +11996,19 @@ class _CinematicCombatDesktop extends StatelessWidget {
   final ValueChanged<int> onSelectTarget;
   final ValueChanged<int> onSelectFocusedCombatant;
   final ValueChanged<int> onEditHp;
+  final ValueChanged<int> onRemoveBoardToken;
   final void Function(String combatantId, String effectName)
       onRemoveActiveEffect;
-  final ValueChanged<_CombatWorkspace> onSelectWorkspace;
+  final ValueChanged<CombatWorkspace> onSelectWorkspace;
   final ValueChanged<String> onSelectCommandTiming;
-  final ValueChanged<_CombatRollMode> onSelectRollMode;
-  final void Function(int actorIndex, _CombatAction action) onUseReaction;
-  final ValueChanged<_CombatAction> onReadyAction;
+  final ValueChanged<CombatRollMode> onSelectRollMode;
+  final void Function(int actorIndex, CombatAction action) onUseReaction;
+  final ValueChanged<CombatAction> onReadyAction;
   final ValueChanged<String> onRollSavingThrow;
-  final void Function(_CombatAction action, _CombatActionRoll rollType)
+  final void Function(CombatAction action, CombatActionRoll rollType)
       onRollAction;
-  final ValueChanged<_CombatAction> onUseAction;
-  final ValueChanged<_CombatAction> onPrepareAction;
+  final ValueChanged<CombatAction> onUseAction;
+  final ValueChanged<CombatAction> onPrepareAction;
   final VoidCallback onLaunchPreparedTurn;
   final VoidCallback onClearPreparedActions;
   final VoidCallback onControlBlocked;
@@ -10332,12 +12024,17 @@ class _CinematicCombatDesktop extends StatelessWidget {
     required this.selectedTarget,
     required this.actions,
     required this.rollFeedback,
+    required this.rollInFlight,
     required this.spentTimings,
     required this.pendingDamageActions,
     required this.preparedActions,
     required this.activeMultiAttackActionKey,
+    required this.activeMultiAttackStepIndex,
+    required this.activeMultiAttackPendingAttacks,
     required this.reactionOptions,
     required this.hasTakenAttackActionThisTurn,
+    required this.martialArtsEligibleAttackThisTurn,
+    required this.flurryAlreadyUsedThisTurn,
     required this.activeEconomy,
     required this.queuedPreparedIndex,
     required this.queuedPreparedTotal,
@@ -10362,6 +12059,7 @@ class _CinematicCombatDesktop extends StatelessWidget {
     required this.onSelectTarget,
     required this.onSelectFocusedCombatant,
     required this.onEditHp,
+    required this.onRemoveBoardToken,
     required this.onRemoveActiveEffect,
     required this.onSelectWorkspace,
     required this.onSelectCommandTiming,
@@ -10381,8 +12079,8 @@ class _CinematicCombatDesktop extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.stitch;
-    final enemies = _indexedTeam(combatants, _CombatTeam.enemy);
-    final party = _indexedTeam(combatants, _CombatTeam.party);
+    final enemies = _indexedTeam(combatants, CombatTeam.enemy);
+    final party = _indexedTeam(combatants, CombatTeam.party);
     final aliveEnemies = enemies
         .where((entry) => entry.combatant.hp > 0)
         .map((entry) => entry.combatant.name)
@@ -10419,7 +12117,7 @@ class _CinematicCombatDesktop extends StatelessWidget {
             borderRadius: BorderRadius.circular(tokens.radiusSm),
             child: Stack(
               children: [
-                const Positioned.fill(child: _CinematicDungeonBackdrop()),
+                const Positioned.fill(child: CombatCinematicDungeonBackdrop()),
                 Positioned.fill(
                   child: RepaintBoundary(
                     child: boardControllerActive
@@ -10505,7 +12203,7 @@ class _CinematicCombatDesktop extends StatelessWidget {
                     onSelectWorkspace: onSelectWorkspace,
                   ),
                 ),
-                if (workspace != _CombatWorkspace.turn)
+                if (workspace != CombatWorkspace.turn)
                   Positioned(
                     left: 18,
                     right: 18,
@@ -10521,9 +12219,6 @@ class _CinematicCombatDesktop extends StatelessWidget {
                       rollFeedback: rollFeedback,
                     ),
                   ),
-                Positioned.fill(
-                  child: _CombatFallingDiceOverlay(feedback: rollFeedback),
-                ),
                 Positioned(
                   left: 10,
                   right: 10,
@@ -10537,8 +12232,14 @@ class _CinematicCombatDesktop extends StatelessWidget {
                     pendingDamageActions: pendingDamageActions,
                     preparedActions: preparedActions,
                     activeMultiAttackActionKey: activeMultiAttackActionKey,
+                    activeMultiAttackStepIndex: activeMultiAttackStepIndex,
+                    activeMultiAttackPendingAttacks:
+                        activeMultiAttackPendingAttacks,
                     reactionOptions: reactionOptions,
                     hasTakenAttackActionThisTurn: hasTakenAttackActionThisTurn,
+                    martialArtsEligibleAttackThisTurn:
+                        martialArtsEligibleAttackThisTurn,
+                    flurryAlreadyUsedThisTurn: flurryAlreadyUsedThisTurn,
                     queuedPreparedIndex: queuedPreparedIndex,
                     queuedPreparedTotal: queuedPreparedTotal,
                     queuedPreparedActionName: queuedPreparedActionName,
@@ -10570,63 +12271,10 @@ class _CinematicCombatDesktop extends StatelessWidget {
   }
 }
 
-class _CinematicDungeonBackdrop extends StatelessWidget {
-  const _CinematicDungeonBackdrop();
-
-  @override
-  Widget build(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
-    final pixelRatio = MediaQuery.devicePixelRatioOf(context);
-    final cacheWidth = (size.width * pixelRatio).clamp(1280.0, 2200.0).round();
-
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Image.asset(
-          'assets/images/combat/dungeon_battlefield.png',
-          fit: BoxFit.cover,
-          cacheWidth: cacheWidth,
-          filterQuality: FilterQuality.medium,
-          errorBuilder: (_, __, ___) => const _CombatArenaBackdrop(round: 1),
-        ),
-        DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.centerLeft,
-              end: Alignment.centerRight,
-              colors: [
-                Colors.black.withValues(alpha: 0.82),
-                Colors.black.withValues(alpha: 0.10),
-                Colors.black.withValues(alpha: 0.12),
-                Colors.black.withValues(alpha: 0.78),
-              ],
-              stops: const [0, 0.28, 0.68, 1],
-            ),
-          ),
-        ),
-        DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Colors.black.withValues(alpha: 0.48),
-                Colors.transparent,
-                Colors.black.withValues(alpha: 0.72),
-              ],
-              stops: const [0, 0.42, 1],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _CinematicTurnHeaderPanel extends StatelessWidget {
   final int round;
-  final _Combatant activeCombatant;
-  final _ActionEconomySnapshot economy;
+  final Combatant activeCombatant;
+  final CombatActionEconomySnapshot economy;
   final bool showEnemyHp;
   final VoidCallback onBack;
   final VoidCallback onNextTurn;
@@ -10643,15 +12291,15 @@ class _CinematicTurnHeaderPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.stitch;
-    final accent = _teamColor(activeCombatant.team, tokens);
+    final accent = combatTeamColor(activeCombatant.team, tokens);
 
-    return _CinematicPanelFrame(
+    return CombatCinematicPanelFrame(
       borderColor: accent,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
       backgroundAlpha: 0.74,
       child: Row(
         children: [
-          _CinematicRoundIconButton(
+          CombatCinematicRoundIconButton(
             icon: Icons.arrow_back_rounded,
             tooltip: 'Volver',
             onTap: onBack,
@@ -10668,7 +12316,7 @@ class _CinematicTurnHeaderPanel extends StatelessWidget {
             child: Text(
               '$round',
               style: const TextStyle(
-                color: _CinematicColors.paper,
+                color: CombatCinematicColors.paper,
                 fontSize: 19,
                 fontWeight: FontWeight.w900,
                 height: 1,
@@ -10686,7 +12334,7 @@ class _CinematicTurnHeaderPanel extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    color: _CinematicColors.paper,
+                    color: CombatCinematicColors.paper,
                     fontSize: 13,
                     fontWeight: FontWeight.w900,
                     height: 1,
@@ -10695,19 +12343,19 @@ class _CinematicTurnHeaderPanel extends StatelessWidget {
                 const SizedBox(height: 5),
                 Row(
                   children: [
-                    _CinematicEconomyDot(
+                    CombatCinematicEconomyDot(
                       icon: Icons.flash_on,
                       spent: economy.actionSpent,
                       color: accent,
                     ),
                     const SizedBox(width: 5),
-                    _CinematicEconomyDot(
+                    CombatCinematicEconomyDot(
                       icon: Icons.control_point_duplicate,
                       spent: economy.bonusActionSpent,
                       color: accent,
                     ),
                     const SizedBox(width: 5),
-                    _CinematicEconomyDot(
+                    CombatCinematicEconomyDot(
                       icon: Icons.reply_rounded,
                       spent: economy.reactionSpent,
                       color: accent,
@@ -10715,7 +12363,7 @@ class _CinematicTurnHeaderPanel extends StatelessWidget {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        _compactHpLabel(activeCombatant, showEnemyHp),
+                        compactCombatantHpLabel(activeCombatant, showEnemyHp),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -10731,7 +12379,7 @@ class _CinematicTurnHeaderPanel extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          _CinematicRoundIconButton(
+          CombatCinematicRoundIconButton(
             icon: Icons.skip_next_rounded,
             tooltip: 'Siguiente turno',
             onTap: onNextTurn,
@@ -10742,275 +12390,9 @@ class _CinematicTurnHeaderPanel extends StatelessWidget {
   }
 }
 
-class _CinematicEconomyDot extends StatelessWidget {
-  final IconData icon;
-  final bool spent;
-  final Color color;
-
-  const _CinematicEconomyDot({
-    required this.icon,
-    required this.spent,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: spent ? 'Usado' : 'Disponible',
-      child: Icon(
-        icon,
-        color: spent ? _CinematicColors.blood : color.withValues(alpha: 0.92),
-        size: 13,
-      ),
-    );
-  }
-}
-
-class _CinematicInitiativePanel extends StatelessWidget {
-  final int round;
-  final List<_Combatant> combatants;
-  final int activeIndex;
-  final bool showEnemyHp;
-  final ValueChanged<int> onSelectCombatant;
-  final ValueChanged<int> onEditHp;
-  final VoidCallback onBack;
-
-  const _CinematicInitiativePanel({
-    required this.round,
-    required this.combatants,
-    required this.activeIndex,
-    required this.showEnemyHp,
-    required this.onSelectCombatant,
-    required this.onEditHp,
-    required this.onBack,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return _CinematicPanelFrame(
-      borderColor: _CinematicColors.gold,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Turno $round',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: _CinematicColors.paper,
-                        fontSize: 21,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Iniciativa',
-                      style: TextStyle(
-                        color: tokens.textSecondary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              _CinematicRoundIconButton(
-                icon: Icons.arrow_back_rounded,
-                tooltip: 'Volver',
-                onTap: onBack,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Expanded(
-            child: ListView.separated(
-              padding: EdgeInsets.zero,
-              itemCount: combatants.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
-              itemBuilder: (context, index) {
-                final combatant = combatants[index];
-                return _CinematicInitiativeTile(
-                  combatant: combatant,
-                  selected: index == activeIndex,
-                  showEnemyHp: showEnemyHp,
-                  editableHp: showEnemyHp,
-                  onEditHp: () => onEditHp(index),
-                  onTap: () => onSelectCombatant(index),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CinematicInitiativeTile extends StatelessWidget {
-  final _Combatant combatant;
-  final bool selected;
-  final bool showEnemyHp;
-  final bool editableHp;
-  final VoidCallback onEditHp;
-  final VoidCallback onTap;
-
-  const _CinematicInitiativeTile({
-    required this.combatant,
-    required this.selected,
-    required this.showEnemyHp,
-    required this.editableHp,
-    required this.onEditHp,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    final accent = selected
-        ? _CinematicColors.goldBright
-        : _teamColor(combatant.team, tokens);
-    final showHp = _canShowHp(combatant, showEnemyHp);
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(tokens.radiusSm),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        height: editableHp ? 90 : 78,
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: selected ? 0.48 : 0.28),
-          borderRadius: BorderRadius.circular(tokens.radiusSm),
-          border: Border.all(
-            color: accent.withValues(alpha: selected ? 0.88 : 0.22),
-            width: selected ? 1.4 : 1,
-          ),
-          boxShadow: [
-            if (selected)
-              BoxShadow(
-                color: accent.withValues(alpha: 0.26),
-                blurRadius: 14,
-              ),
-          ],
-        ),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 56,
-              height: editableHp ? 78 : 66,
-              child: _CinematicPortraitBox(
-                combatant: combatant,
-                color: accent,
-                iconSize: 22,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          combatant.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: _CinematicColors.paper,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w900,
-                            height: 1,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      _CinematicTinyPill(
-                        label: 'CA ${combatant.ac}',
-                        color: accent,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    combatant.role,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: tokens.textSecondary,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  _CinematicHpBar(
-                    combatant: combatant,
-                    showHp: showHp,
-                    height: editableHp ? 22 : 14,
-                    onTap: editableHp ? onEditHp : null,
-                  ),
-                ],
-              ),
-            ),
-            if (selected)
-              Icon(
-                Icons.play_arrow_rounded,
-                color: accent,
-                size: 22,
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _CinematicTinyPill extends StatelessWidget {
-  final String label;
-  final Color color;
-
-  const _CinematicTinyPill({
-    required this.label,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.28),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.20)),
-      ),
-      child: Text(
-        label,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-          color: _CinematicColors.paper,
-          fontSize: 9,
-          fontWeight: FontWeight.w900,
-          height: 1,
-        ),
-      ),
-    );
-  }
-}
-
 class _CinematicObjectiveBanner extends StatelessWidget {
   final List<String> aliveEnemies;
-  final _Combatant selectedTarget;
+  final Combatant selectedTarget;
 
   const _CinematicObjectiveBanner({
     required this.aliveEnemies,
@@ -11038,7 +12420,7 @@ class _CinematicObjectiveBanner extends StatelessWidget {
             bottomRight: Radius.circular(18),
           ),
           border: Border.all(
-            color: _CinematicColors.gold.withValues(alpha: 0.36),
+            color: CombatCinematicColors.gold.withValues(alpha: 0.36),
           ),
           boxShadow: [
             BoxShadow(
@@ -11055,7 +12437,7 @@ class _CinematicObjectiveBanner extends StatelessWidget {
               aliveEnemies.isEmpty
                   ? Icons.verified_outlined
                   : Icons.dangerous_outlined,
-              color: _CinematicColors.paper,
+              color: CombatCinematicColors.paper,
               size: 24,
             ),
             const SizedBox(width: 11),
@@ -11070,7 +12452,8 @@ class _CinematicObjectiveBanner extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      color: _CinematicColors.paper.withValues(alpha: 0.58),
+                      color:
+                          CombatCinematicColors.paper.withValues(alpha: 0.58),
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
                     ),
@@ -11082,7 +12465,7 @@ class _CinematicObjectiveBanner extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
                     style: const TextStyle(
-                      color: _CinematicColors.paper,
+                      color: CombatCinematicColors.paper,
                       fontSize: 20,
                       fontWeight: FontWeight.w800,
                     ),
@@ -11098,13 +12481,13 @@ class _CinematicObjectiveBanner extends StatelessWidget {
 }
 
 class _CinematicToolbar extends StatelessWidget {
-  final _CombatWorkspace workspace;
+  final CombatWorkspace workspace;
   final bool showEnemyHp;
   final VoidCallback onRequestInitiative;
   final VoidCallback onRollInitiative;
   final VoidCallback onToggleDmView;
   final VoidCallback onRunDemo;
-  final ValueChanged<_CombatWorkspace> onSelectWorkspace;
+  final ValueChanged<CombatWorkspace> onSelectWorkspace;
 
   const _CinematicToolbar({
     required this.workspace,
@@ -11118,47 +12501,47 @@ class _CinematicToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _CinematicPanelFrame(
+    return CombatCinematicPanelFrame(
       padding: const EdgeInsets.all(4),
-      borderColor: _CinematicColors.gold,
+      borderColor: CombatCinematicColors.gold,
       child: Row(
         children: [
-          _CinematicToolbarButton(
+          CombatCinematicToolbarButton(
             icon: Icons.grid_view_outlined,
             tooltip: 'Turno',
-            selected: workspace == _CombatWorkspace.turn,
-            onTap: () => onSelectWorkspace(_CombatWorkspace.turn),
+            selected: workspace == CombatWorkspace.turn,
+            onTap: () => onSelectWorkspace(CombatWorkspace.turn),
           ),
-          _CinematicToolbarButton(
+          CombatCinematicToolbarButton(
             icon: Icons.receipt_long_outlined,
             tooltip: 'Log',
-            selected: workspace == _CombatWorkspace.log,
-            onTap: () => onSelectWorkspace(_CombatWorkspace.log),
+            selected: workspace == CombatWorkspace.log,
+            onTap: () => onSelectWorkspace(CombatWorkspace.log),
           ),
-          _CinematicToolbarButton(
+          CombatCinematicToolbarButton(
             icon: Icons.groups_2_outlined,
             tooltip: 'Resumen',
-            selected: workspace == _CombatWorkspace.overview,
-            onTap: () => onSelectWorkspace(_CombatWorkspace.overview),
+            selected: workspace == CombatWorkspace.overview,
+            onTap: () => onSelectWorkspace(CombatWorkspace.overview),
           ),
-          _CinematicToolbarButton(
+          CombatCinematicToolbarButton(
             icon: showEnemyHp
                 ? Icons.visibility_outlined
                 : Icons.visibility_off_outlined,
             tooltip: showEnemyHp ? 'Vista DM' : 'Vista jugador',
             onTap: onToggleDmView,
           ),
-          _CinematicToolbarButton(
+          CombatCinematicToolbarButton(
             icon: Icons.campaign_outlined,
             tooltip: 'Pedir iniciativa',
             onTap: onRequestInitiative,
           ),
-          _CinematicToolbarButton(
+          CombatCinematicToolbarButton(
             icon: Icons.casino_outlined,
             tooltip: 'Tirar iniciativa',
             onTap: onRollInitiative,
           ),
-          _CinematicToolbarButton(
+          CombatCinematicToolbarButton(
             icon: Icons.play_circle_outline,
             tooltip: 'Demo',
             onTap: onRunDemo,
@@ -11169,62 +12552,15 @@ class _CinematicToolbar extends StatelessWidget {
   }
 }
 
-class _CinematicToolbarButton extends StatelessWidget {
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onTap;
-  final bool selected;
-
-  const _CinematicToolbarButton({
-    required this.icon,
-    required this.tooltip,
-    required this.onTap,
-    this.selected = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final color = selected
-        ? _CinematicColors.goldBright
-        : _CinematicColors.paper.withValues(alpha: 0.72);
-
-    return Expanded(
-      child: Tooltip(
-        message: tooltip,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(6),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            margin: const EdgeInsets.symmetric(horizontal: 2),
-            decoration: BoxDecoration(
-              color: selected
-                  ? _CinematicColors.gold.withValues(alpha: 0.18)
-                  : Colors.white.withValues(alpha: 0.035),
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(
-                color: color.withValues(alpha: selected ? 0.42 : 0.13),
-              ),
-            ),
-            child: Center(
-              child: Icon(icon, color: color, size: 22),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _BoardLinkedControllerStage extends StatelessWidget {
-  final List<_Combatant> combatants;
+  final List<Combatant> combatants;
   final int activeIndex;
   final int targetIndex;
-  final _Combatant activeCombatant;
-  final _Combatant selectedTarget;
-  final List<_CombatAction> actions;
+  final Combatant activeCombatant;
+  final Combatant selectedTarget;
+  final List<CombatAction> actions;
   final String selectedTiming;
-  final _CombatAction? focusedAction;
+  final CombatAction? focusedAction;
   final String? sceneId;
   final bool showEnemyHp;
   final bool canControlActive;
@@ -11260,11 +12596,13 @@ class _BoardLinkedControllerStage extends StatelessWidget {
         : boardProvider.tokens
             .where((token) => token.sceneId == sceneId)
             .toList(growable: false);
-    final activeToken = _boardTokenByRef(sceneTokens, activeCombatant.id);
-    final targetToken = _boardTokenByRef(sceneTokens, selectedTarget.id);
+    final activeToken =
+        CombatBoardTokenLookup.byRef(sceneTokens, activeCombatant.id);
+    final targetToken =
+        CombatBoardTokenLookup.byRef(sceneTokens, selectedTarget.id);
     final distanceFeet = activeToken == null || targetToken == null
         ? null
-        : _boardDistanceFeet(activeToken, targetToken);
+        : CombatBoardGeometry.distanceFeet(activeToken, targetToken);
     final hostileTargets = combatants.asMap().entries.where((entry) {
       final combatant = entry.value;
       return combatant.team != activeCombatant.team && combatant.hp > 0;
@@ -11277,7 +12615,9 @@ class _BoardLinkedControllerStage extends StatelessWidget {
             .toList(growable: false)
         : hostileTargets;
     final visibleActions = actions
-        .where((action) => action.timing == selectedTiming)
+        .where((action) =>
+            action.timing == selectedTiming &&
+            !_actionHandledByMonkCombo(action))
         .toList(growable: false);
     final activeAction =
         focusedAction ?? _firstOrNull(visibleActions) ?? _firstOrNull(actions);
@@ -11387,8 +12727,8 @@ class _BoardLinkedControllerStage extends StatelessWidget {
 }
 
 class _BoardLinkedMovementPanel extends StatelessWidget {
-  final _Combatant activeCombatant;
-  final _Combatant selectedTarget;
+  final Combatant activeCombatant;
+  final Combatant selectedTarget;
   final BoardToken? activeToken;
   final BoardToken? targetToken;
   final int? distanceFeet;
@@ -11411,8 +12751,9 @@ class _BoardLinkedMovementPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.stitch;
-    final accent = _teamColor(activeCombatant.team, tokens);
+    final accent = combatTeamColor(activeCombatant.team, tokens);
     final canMove = canControlActive &&
+        activeCombatant.hp > 0 &&
         activeToken != null &&
         activeToken!.remainingMovementFeet >= 5;
     final position = activeToken == null
@@ -11420,7 +12761,7 @@ class _BoardLinkedMovementPanel extends StatelessWidget {
         : 'Grid ${activeToken!.x}, ${activeToken!.y}';
     final distance = distanceFeet == null ? '-- ft' : '$distanceFeet ft';
 
-    return _CinematicPanelFrame(
+    return CombatCinematicPanelFrame(
       borderColor: accent,
       backgroundAlpha: 0.82,
       padding: EdgeInsets.all(compact ? 10 : 12),
@@ -11429,7 +12770,7 @@ class _BoardLinkedMovementPanel extends StatelessWidget {
               children: [
                 SizedBox(
                   width: 70,
-                  child: _CinematicPortraitBox(
+                  child: CombatCinematicPortraitBox(
                     combatant: activeCombatant,
                     color: accent,
                     iconSize: 24,
@@ -11445,7 +12786,7 @@ class _BoardLinkedMovementPanel extends StatelessWidget {
                     distance: distance,
                   ),
                 ),
-                _MovementStrip(
+                CombatMovementStrip(
                   enabled: canMove,
                   onMove: (dx, dy) => unawaited(
                     onMoveBoardToken(activeCombatant.id, dx, dy),
@@ -11461,7 +12802,7 @@ class _BoardLinkedMovementPanel extends StatelessWidget {
                     SizedBox(
                       width: 74,
                       height: 74,
-                      child: _CinematicPortraitBox(
+                      child: CombatCinematicPortraitBox(
                         combatant: activeCombatant,
                         color: accent,
                         iconSize: 28,
@@ -11480,10 +12821,10 @@ class _BoardLinkedMovementPanel extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 12),
-                _MovementBudgetBar(token: activeToken),
+                CombatMovementBudgetBar(token: activeToken),
                 const Spacer(),
                 Center(
-                  child: _MovementPad(
+                  child: CombatMovementPad(
                     enabled: canMove,
                     onMove: (dx, dy) => unawaited(
                       onMoveBoardToken(activeCombatant.id, dx, dy),
@@ -11497,8 +12838,8 @@ class _BoardLinkedMovementPanel extends StatelessWidget {
 }
 
 class _BoardLinkedMovementReadout extends StatelessWidget {
-  final _Combatant activeCombatant;
-  final _Combatant selectedTarget;
+  final Combatant activeCombatant;
+  final Combatant selectedTarget;
   final BoardToken? token;
   final String position;
   final String distance;
@@ -11530,7 +12871,7 @@ class _BoardLinkedMovementReadout extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                  color: _CinematicColors.paper,
+                  color: CombatCinematicColors.paper,
                   fontSize: 17,
                   fontWeight: FontWeight.w900,
                   height: 1,
@@ -11544,19 +12885,19 @@ class _BoardLinkedMovementReadout extends StatelessWidget {
           spacing: 6,
           runSpacing: 6,
           children: [
-            _ControllerSignalPill(
+            CombatControllerSignalPill(
               icon: Icons.directions_run_rounded,
               label: token == null
                   ? '-- ft'
                   : '${token!.remainingMovementFeet}/${token!.speedFeet} ft',
               color: tokens.accentSuccess,
             ),
-            _ControllerSignalPill(
+            CombatControllerSignalPill(
               icon: Icons.grid_4x4_rounded,
               label: position,
               color: tokens.accentInfo,
             ),
-            _ControllerSignalPill(
+            CombatControllerSignalPill(
               icon: Icons.center_focus_strong_rounded,
               label: '${selectedTarget.name} $distance',
               color: targetRangeColor(token, tokens),
@@ -11574,9 +12915,9 @@ class _BoardLinkedMovementReadout extends StatelessWidget {
 }
 
 class _BoardLinkedTargetSelector extends StatelessWidget {
-  final List<MapEntry<int, _Combatant>> entries;
-  final _Combatant activeCombatant;
-  final _Combatant selectedTarget;
+  final List<MapEntry<int, Combatant>> entries;
+  final Combatant activeCombatant;
+  final Combatant selectedTarget;
   final int selectedIndex;
   final List<BoardToken> sceneTokens;
   final bool showEnemyHp;
@@ -11598,8 +12939,8 @@ class _BoardLinkedTargetSelector extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.stitch;
 
-    return _CinematicPanelFrame(
-      borderColor: _CinematicColors.gold,
+    return CombatCinematicPanelFrame(
+      borderColor: CombatCinematicColors.gold,
       backgroundAlpha: 0.78,
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
       child: Column(
@@ -11616,14 +12957,14 @@ class _BoardLinkedTargetSelector extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: _CinematicColors.paper,
+                    color: CombatCinematicColors.paper,
                     fontSize: 15,
                     fontWeight: FontWeight.w900,
                     height: 1,
                   ),
                 ),
               ),
-              _ControllerSignalPill(
+              CombatControllerSignalPill(
                 icon: Icons.track_changes_rounded,
                 label: selectedTarget.name,
                 color: tokens.accentWarning,
@@ -11639,12 +12980,13 @@ class _BoardLinkedTargetSelector extends StatelessWidget {
               itemBuilder: (context, index) {
                 final entry = entries[index];
                 final combatant = entry.value;
-                final token = _boardTokenByRef(sceneTokens, combatant.id);
-                final activeToken =
-                    _boardTokenByRef(sceneTokens, activeCombatant.id);
+                final token =
+                    CombatBoardTokenLookup.byRef(sceneTokens, combatant.id);
+                final activeToken = CombatBoardTokenLookup.byRef(
+                    sceneTokens, activeCombatant.id);
                 final distanceFeet = activeToken == null || token == null
                     ? null
-                    : _boardDistanceFeet(activeToken, token);
+                    : CombatBoardGeometry.distanceFeet(activeToken, token);
                 return SizedBox(
                   width: 214,
                   child: _BoardLinkedTargetCard(
@@ -11652,7 +12994,7 @@ class _BoardLinkedTargetSelector extends StatelessWidget {
                     token: token,
                     distanceFeet: distanceFeet,
                     selected: entry.key == selectedIndex,
-                    showHp: showEnemyHp || combatant.team == _CombatTeam.party,
+                    showHp: showEnemyHp || combatant.team == CombatTeam.party,
                     onTap: () => onSelectTarget(entry.key),
                     onEditHp: () => onEditHp(entry.key),
                   ),
@@ -11667,7 +13009,7 @@ class _BoardLinkedTargetSelector extends StatelessWidget {
 }
 
 class _BoardLinkedTargetCard extends StatelessWidget {
-  final _Combatant combatant;
+  final Combatant combatant;
   final BoardToken? token;
   final int? distanceFeet;
   final bool selected;
@@ -11689,8 +13031,8 @@ class _BoardLinkedTargetCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.stitch;
     final accent = selected
-        ? _CinematicColors.goldBright
-        : _teamColor(combatant.team, tokens);
+        ? CombatCinematicColors.goldBright
+        : combatTeamColor(combatant.team, tokens);
     final distance = distanceFeet == null ? '-- ft' : '$distanceFeet ft';
     final rangeLabel = token?.isTargetInRange == false ? 'Fuera' : 'En rango';
     final rangeColor = token?.isTargetInRange == false
@@ -11723,7 +13065,7 @@ class _BoardLinkedTargetCard extends StatelessWidget {
                   SizedBox(
                     width: 44,
                     height: 44,
-                    child: _CinematicPortraitBox(
+                    child: CombatCinematicPortraitBox(
                       combatant: combatant,
                       color: accent,
                       iconSize: 20,
@@ -11739,7 +13081,7 @@ class _BoardLinkedTargetCard extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            color: _CinematicColors.paper,
+                            color: CombatCinematicColors.paper,
                             fontSize: 14,
                             fontWeight: FontWeight.w900,
                             height: 1,
@@ -11763,7 +13105,7 @@ class _BoardLinkedTargetCard extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 10),
-              _CinematicHpBar(
+              CombatCinematicHpBar(
                 combatant: combatant,
                 showHp: showHp,
                 height: 20,
@@ -11772,7 +13114,7 @@ class _BoardLinkedTargetCard extends StatelessWidget {
               const Spacer(),
               Row(
                 children: [
-                  _ControllerSignalPill(
+                  CombatControllerSignalPill(
                     icon: token?.isTargetInRange == false
                         ? Icons.block_rounded
                         : Icons.my_location_rounded,
@@ -11794,7 +13136,7 @@ class _BoardLinkedTargetCard extends StatelessWidget {
 }
 
 class _BoardLinkedActionFocusPanel extends StatelessWidget {
-  final _CombatAction? action;
+  final CombatAction? action;
   final int? distanceFeet;
   final BoardToken? targetToken;
   final bool compact;
@@ -11819,7 +13161,7 @@ class _BoardLinkedActionFocusPanel extends StatelessWidget {
     final range = rangeFeet == null ? '-- ft' : '$rangeFeet ft';
     final inRange = targetToken?.isTargetInRange ?? true;
 
-    return _CinematicPanelFrame(
+    return CombatCinematicPanelFrame(
       borderColor: actionColor,
       backgroundAlpha: 0.80,
       padding: EdgeInsets.all(compact ? 10 : 12),
@@ -11853,7 +13195,7 @@ class _BoardLinkedActionFocusPanel extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: _CinematicColors.paper,
+                        color: CombatCinematicColors.paper,
                         fontSize: compact ? 14 : 16,
                         fontWeight: FontWeight.w900,
                         height: 1,
@@ -11881,17 +13223,17 @@ class _BoardLinkedActionFocusPanel extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
-              _ControllerSignalPill(
+              CombatControllerSignalPill(
                 icon: Icons.straighten_rounded,
                 label: range,
                 color: actionColor,
               ),
-              _ControllerSignalPill(
+              CombatControllerSignalPill(
                 icon: Icons.center_focus_strong_rounded,
                 label: distance ?? '-- ft',
                 color: inRange ? tokens.accentSuccess : tokens.accentAction,
               ),
-              _ControllerSignalPill(
+              CombatControllerSignalPill(
                 icon: inRange ? Icons.check_circle_outline : Icons.block,
                 label: inRange ? 'Listo' : 'Fuera',
                 color: inRange ? tokens.accentSuccess : tokens.accentAction,
@@ -11905,12 +13247,12 @@ class _BoardLinkedActionFocusPanel extends StatelessWidget {
 }
 
 class _CinematicTacticalCenterLayer extends StatelessWidget {
-  final List<_Combatant> combatants;
-  final List<_IndexedCombatant> party;
-  final List<_IndexedCombatant> enemies;
+  final List<Combatant> combatants;
+  final List<IndexedCombatant> party;
+  final List<IndexedCombatant> enemies;
   final int activeIndex;
   final int targetIndex;
-  final _CombatRollFeedback? rollFeedback;
+  final CombatRollFeedback? rollFeedback;
   final bool showEnemyHp;
   final EdgeInsets insets;
   final ValueChanged<int> onEditHp;
@@ -12028,8 +13370,8 @@ class _CinematicTacticalCenterLayer extends StatelessWidget {
   }
 }
 
-List<_IndexedCombatant> _initiativeSortedBattleEntries(
-  List<_IndexedCombatant> entries, {
+List<IndexedCombatant> _initiativeSortedBattleEntries(
+  List<IndexedCombatant> entries, {
   required int activeIndex,
   required int targetIndex,
 }) {
@@ -12051,10 +13393,10 @@ class _CinematicBattleTeamColumn extends StatelessWidget {
   final String title;
   final String subtitle;
   final IconData icon;
-  final List<_IndexedCombatant> entries;
+  final List<IndexedCombatant> entries;
   final int activeIndex;
   final int targetIndex;
-  final _CombatTeam activeTeam;
+  final CombatTeam activeTeam;
   final bool showEnemyHp;
   final ValueChanged<int> onEditHp;
   final void Function(String combatantId, String effectName)
@@ -12081,12 +13423,12 @@ class _CinematicBattleTeamColumn extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.stitch;
     final partyColumn = entries.any(
-      (entry) => entry.combatant.team == _CombatTeam.party,
+      (entry) => entry.combatant.team == CombatTeam.party,
     );
     final accent = partyColumn ? tokens.accentRead : tokens.accentAction;
     final aliveCount = entries.where((entry) => entry.combatant.hp > 0).length;
 
-    return _CinematicPanelFrame(
+    return CombatCinematicPanelFrame(
       borderColor: accent,
       padding: const EdgeInsets.all(10),
       backgroundAlpha: 0.42,
@@ -12106,7 +13448,7 @@ class _CinematicBattleTeamColumn extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        color: _CinematicColors.paper,
+                        color: CombatCinematicColors.paper,
                         fontSize: 12,
                         fontWeight: FontWeight.w900,
                         height: 1,
@@ -12126,7 +13468,7 @@ class _CinematicBattleTeamColumn extends StatelessWidget {
                   ],
                 ),
               ),
-              _CinematicTinyPill(
+              CombatCinematicTinyPill(
                 label: '$aliveCount/${entries.length}',
                 color: accent,
               ),
@@ -12180,7 +13522,7 @@ class _CinematicBattleTeamColumn extends StatelessWidget {
 }
 
 class _CinematicBattleRosterCard extends StatelessWidget {
-  final _IndexedCombatant entry;
+  final IndexedCombatant entry;
   final bool active;
   final bool targeted;
   final bool targetable;
@@ -12206,13 +13548,13 @@ class _CinematicBattleRosterCard extends StatelessWidget {
     final tokens = context.stitch;
     final combatant = entry.combatant;
     final down = combatant.hp <= 0;
-    final baseAccent = _teamColor(combatant.team, tokens);
+    final baseAccent = combatTeamColor(combatant.team, tokens);
     final accent = targeted
-        ? _CinematicColors.goldBright
+        ? CombatCinematicColors.goldBright
         : active
             ? tokens.accentInfo
             : baseAccent;
-    final showHp = _canShowHp(combatant, showEnemyHp);
+    final showHp = canShowCombatantHp(combatant, showEnemyHp);
     final activeLabels = combatant.conditions
         .where((label) => label != 'Player Character')
         .toList(growable: false);
@@ -12245,7 +13587,7 @@ class _CinematicBattleRosterCard extends StatelessWidget {
                 SizedBox(
                   width: 44,
                   height: 50,
-                  child: _CinematicPortraitBox(
+                  child: CombatCinematicPortraitBox(
                     combatant: combatant,
                     color: accent,
                     iconSize: 19,
@@ -12265,7 +13607,7 @@ class _CinematicBattleRosterCard extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
-                                color: _CinematicColors.paper,
+                                color: CombatCinematicColors.paper,
                                 fontSize: 12,
                                 fontWeight: FontWeight.w900,
                                 height: 1,
@@ -12285,14 +13627,14 @@ class _CinematicBattleRosterCard extends StatelessWidget {
                             ),
                           ],
                           const SizedBox(width: 5),
-                          _CinematicTinyPill(
+                          CombatCinematicTinyPill(
                             label: '${combatant.initiative}',
                             color: accent,
                           ),
                         ],
                       ),
                       const SizedBox(height: 4),
-                      _CinematicHpBar(
+                      CombatCinematicHpBar(
                         combatant: combatant,
                         showHp: showHp,
                         height: 12,
@@ -12333,7 +13675,7 @@ class _CinematicBattleRosterCard extends StatelessWidget {
                                   : null,
                               borderRadius:
                                   BorderRadius.circular(tokens.radiusPill),
-                              child: _CinematicTinyPill(
+                              child: CombatCinematicTinyPill(
                                 label: activeLabels.first,
                                 color: _statusAccentForLabel(
                                   activeLabels.first,
@@ -12358,9 +13700,9 @@ class _CinematicBattleRosterCard extends StatelessWidget {
 }
 
 class _CinematicEngagementPanel extends StatelessWidget {
-  final _Combatant activeCombatant;
-  final _Combatant selectedTarget;
-  final _CombatRollFeedback? rollFeedback;
+  final Combatant activeCombatant;
+  final Combatant selectedTarget;
+  final CombatRollFeedback? rollFeedback;
   final bool showEnemyHp;
 
   const _CinematicEngagementPanel({
@@ -12373,14 +13715,14 @@ class _CinematicEngagementPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.stitch;
-    final actorColor = _teamColor(activeCombatant.team, tokens);
-    final targetColor = _teamColor(selectedTarget.team, tokens);
+    final actorColor = combatTeamColor(activeCombatant.team, tokens);
+    final targetColor = combatTeamColor(selectedTarget.team, tokens);
     final feedbackAccent = rollFeedback == null
-        ? _CinematicColors.goldBright
+        ? CombatCinematicColors.goldBright
         : _accentForKind(rollFeedback!.accentKind, tokens);
     final result = rollFeedback?.result;
 
-    return _CinematicPanelFrame(
+    return CombatCinematicPanelFrame(
       borderColor: feedbackAccent,
       padding: const EdgeInsets.all(12),
       backgroundAlpha: 0.48,
@@ -12483,7 +13825,7 @@ class _CinematicEngagementPanel extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       textAlign: TextAlign.center,
                       style: const TextStyle(
-                        color: _CinematicColors.paper,
+                        color: CombatCinematicColors.paper,
                         fontSize: 12,
                         fontWeight: FontWeight.w900,
                         height: 1.08,
@@ -12501,7 +13843,7 @@ class _CinematicEngagementPanel extends StatelessWidget {
 }
 
 class _EngagementCombatantPlate extends StatelessWidget {
-  final _Combatant combatant;
+  final Combatant combatant;
   final String label;
   final Color color;
   final bool showEnemyHp;
@@ -12518,7 +13860,7 @@ class _EngagementCombatantPlate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.stitch;
-    final showHp = _canShowHp(combatant, showEnemyHp);
+    final showHp = canShowCombatantHp(combatant, showEnemyHp);
 
     return Container(
       clipBehavior: Clip.hardEdge,
@@ -12533,7 +13875,7 @@ class _EngagementCombatantPlate extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                _CombatantArtwork(
+                CombatantArtwork(
                   combatant: combatant,
                   color: color,
                   iconSize: compact ? 34 : 42,
@@ -12541,7 +13883,7 @@ class _EngagementCombatantPlate extends StatelessWidget {
                 Positioned(
                   left: 7,
                   top: 7,
-                  child: _CinematicTinyPill(label: label, color: color),
+                  child: CombatCinematicTinyPill(label: label, color: color),
                 ),
               ],
             ),
@@ -12561,14 +13903,14 @@ class _EngagementCombatantPlate extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.center,
                   style: const TextStyle(
-                    color: _CinematicColors.paper,
+                    color: CombatCinematicColors.paper,
                     fontSize: 11,
                     fontWeight: FontWeight.w900,
                     height: 1,
                   ),
                 ),
                 const SizedBox(height: 5),
-                _CinematicHpBar(
+                CombatCinematicHpBar(
                   combatant: combatant,
                   showHp: showHp,
                   height: 12,
@@ -12583,9 +13925,9 @@ class _EngagementCombatantPlate extends StatelessWidget {
 }
 
 class _CinematicBattlefieldLayer extends StatelessWidget {
-  final List<_Combatant> combatants;
-  final List<_IndexedCombatant> party;
-  final List<_IndexedCombatant> enemies;
+  final List<Combatant> combatants;
+  final List<IndexedCombatant> party;
+  final List<IndexedCombatant> enemies;
   final int activeIndex;
   final int targetIndex;
   final bool showEnemyHp;
@@ -12609,10 +13951,10 @@ class _CinematicBattlefieldLayer extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.stitch;
     final activeTeam = combatants.isEmpty
-        ? _CombatTeam.party
+        ? CombatTeam.party
         : combatants[activeIndex.clamp(0, combatants.length - 1).toInt()].team;
 
-    void handleTokenTap(_IndexedCombatant entry) {
+    void handleTokenTap(IndexedCombatant entry) {
       if (entry.index == activeIndex || entry.combatant.team == activeTeam) {
         onSelectFocusedCombatant(entry.index);
         return;
@@ -12664,7 +14006,7 @@ class _CinematicBattlefieldLayer extends StatelessWidget {
               bottom: insets.bottom - 8,
               height: 110,
               child: CustomPaint(
-                painter: _CinematicArenaFloorPainter(
+                painter: CombatCinematicArenaFloorPainter(
                   partyColor: tokens.accentRead,
                   enemyColor: tokens.accentAction,
                 ),
@@ -12776,7 +14118,7 @@ class _CinematicCrowdBadge extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           textAlign: TextAlign.center,
           style: const TextStyle(
-            color: _CinematicColors.paper,
+            color: CombatCinematicColors.paper,
             fontSize: 11,
             fontWeight: FontWeight.w900,
             height: 1,
@@ -12788,7 +14130,7 @@ class _CinematicCrowdBadge extends StatelessWidget {
 }
 
 class _CinematicBattleToken extends StatelessWidget {
-  final _IndexedCombatant entry;
+  final IndexedCombatant entry;
   final bool active;
   final bool targeted;
   final bool showEnemyHp;
@@ -12807,10 +14149,10 @@ class _CinematicBattleToken extends StatelessWidget {
     final tokens = context.stitch;
     final combatant = entry.combatant;
     final color = targeted
-        ? _CinematicColors.goldBright
+        ? CombatCinematicColors.goldBright
         : active
             ? tokens.accentInfo
-            : _teamColor(combatant.team, tokens);
+            : combatTeamColor(combatant.team, tokens);
     final down = combatant.hp <= 0;
 
     return Tooltip(
@@ -12829,10 +14171,10 @@ class _CinematicBattleToken extends StatelessWidget {
                 bottom: 4,
                 height: 30,
                 child: CustomPaint(
-                  painter: _CinematicTargetRingPainter(
+                  painter: CombatCinematicTargetRingPainter(
                     color: color,
                     active: active || targeted,
-                    enemy: combatant.team == _CombatTeam.enemy,
+                    enemy: combatant.team == CombatTeam.enemy,
                   ),
                 ),
               ),
@@ -12861,7 +14203,7 @@ class _CinematicBattleToken extends StatelessWidget {
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(13),
-                    child: _CombatantArtwork(
+                    child: CombatantArtwork(
                       combatant: combatant,
                       color: color,
                       iconSize: active ? 42 : 34,
@@ -12889,7 +14231,7 @@ class _CinematicBattleToken extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       textAlign: TextAlign.center,
                       style: const TextStyle(
-                        color: _CinematicColors.paper,
+                        color: CombatCinematicColors.paper,
                         fontSize: 10,
                         fontWeight: FontWeight.w900,
                       ),
@@ -12915,419 +14257,37 @@ class _CinematicBattleToken extends StatelessWidget {
   }
 }
 
-class _CinematicEnemyRail extends StatelessWidget {
-  final String title;
-  final List<_IndexedCombatant> targets;
-  final int activeIndex;
-  final int targetIndex;
-  final bool showEnemyHp;
-  final ValueChanged<int> onEditHp;
-  final ValueChanged<int> onSelectTarget;
-
-  const _CinematicEnemyRail({
-    required this.title,
-    required this.targets,
-    required this.activeIndex,
-    required this.targetIndex,
-    required this.showEnemyHp,
-    required this.onEditHp,
-    required this.onSelectTarget,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final compact = targets.length > 4;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 2, right: 2, bottom: 8),
-          child: Row(
-            children: [
-              const Icon(
-                Icons.my_location_outlined,
-                color: _CinematicColors.goldBright,
-                size: 15,
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  title.toUpperCase(),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: _CinematicColors.paper,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: ListView.separated(
-            padding: EdgeInsets.zero,
-            itemCount: targets.length,
-            separatorBuilder: (_, __) => SizedBox(height: compact ? 8 : 12),
-            itemBuilder: (context, index) {
-              final entry = targets[index];
-              return _CinematicEnemyCard(
-                entry: entry,
-                active: entry.index == activeIndex,
-                targeted: entry.index == targetIndex,
-                showEnemyHp: showEnemyHp,
-                compact: compact,
-                onEditHp: () => onEditHp(entry.index),
-                onTap: () => onSelectTarget(entry.index),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _CinematicEnemyCard extends StatelessWidget {
-  final _IndexedCombatant entry;
-  final bool active;
-  final bool targeted;
-  final bool showEnemyHp;
-  final bool compact;
-  final VoidCallback onEditHp;
-  final VoidCallback onTap;
-
-  const _CinematicEnemyCard({
-    required this.entry,
-    required this.active,
-    required this.targeted,
-    required this.showEnemyHp,
-    required this.compact,
-    required this.onEditHp,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    final combatant = entry.combatant;
-    final baseAccent = _teamColor(combatant.team, tokens);
-    final accent = targeted
-        ? _CinematicColors.goldBright
-        : active
-            ? tokens.accentInfo
-            : baseAccent;
-    final activeLabels = combatant.conditions
-        .where((label) => label != 'Player Character')
-        .toList(growable: false);
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(tokens.radiusSm),
-      child: _CinematicPanelFrame(
-        padding: EdgeInsets.all(compact ? 8 : 10),
-        borderColor: accent,
-        backgroundAlpha: targeted ? 0.78 : 0.62,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final boundedHeight = constraints.maxHeight.isFinite;
-            final cardCompact =
-                compact || (boundedHeight && constraints.maxHeight < 190);
-            final showEffects = !cardCompact &&
-                (!boundedHeight || constraints.maxHeight >= 190);
-            final portraitSize = cardCompact ? 48.0 : 64.0;
-            final content = Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    SizedBox(
-                      width: portraitSize,
-                      height: portraitSize,
-                      child: _CinematicPortraitBox(
-                        combatant: combatant,
-                        color: accent,
-                        iconSize: cardCompact ? 21 : 26,
-                      ),
-                    ),
-                    SizedBox(width: cardCompact ? 8 : 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            combatant.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: _CinematicColors.paper,
-                              fontSize: cardCompact ? 13 : 15,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                          if (!cardCompact) const SizedBox(height: 2),
-                          Text(
-                            combatant.role,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: tokens.textSecondary,
-                              fontSize: cardCompact ? 10 : 12,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          SizedBox(height: cardCompact ? 5 : 7),
-                          _CinematicHpBar(
-                            combatant: combatant,
-                            showHp: _canShowHp(combatant, showEnemyHp),
-                            height: cardCompact ? 18 : 22,
-                            onTap: showEnemyHp ? onEditHp : null,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                SizedBox(height: cardCompact ? 6 : 8),
-                Row(
-                  children: [
-                    Icon(
-                      Icons.shield_outlined,
-                      color: tokens.textSecondary,
-                      size: 16,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'CA ${combatant.ac}',
-                      style: const TextStyle(
-                        color: _CinematicColors.paper,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const Spacer(),
-                    if (targeted)
-                      Icon(Icons.my_location, color: accent, size: 17)
-                    else if (active)
-                      Icon(Icons.play_arrow_rounded, color: accent, size: 18),
-                  ],
-                ),
-                if (showEffects) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    'Efectos',
-                    style: TextStyle(
-                      color: _CinematicColors.paper.withValues(alpha: 0.68),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    activeLabels.isEmpty
-                        ? 'Ninguno'
-                        : activeLabels.take(3).join(', '),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: tokens.textSecondary,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      height: 1.15,
-                    ),
-                  ),
-                ],
-              ],
-            );
-
-            if (boundedHeight && constraints.maxHeight < 214) {
-              return SingleChildScrollView(
-                physics: const ClampingScrollPhysics(),
-                child: content,
-              );
-            }
-            return content;
-          },
-        ),
-      ),
-    );
-  }
-}
-
-class _CinematicActiveCard extends StatelessWidget {
-  final _Combatant combatant;
-  final bool showEnemyHp;
-  final _ActionEconomySnapshot economy;
-  final VoidCallback onEditHp;
-  final void Function(String combatantId, String effectName)
-      onRemoveActiveEffect;
-
-  const _CinematicActiveCard({
-    required this.combatant,
-    required this.showEnemyHp,
-    required this.economy,
-    required this.onEditHp,
-    required this.onRemoveActiveEffect,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    final accent = _teamColor(combatant.team, tokens);
-    final labels = [
-      if (combatant.tempHp > 0) 'Temp HP ${combatant.tempHp}',
-      ...combatant.conditions,
-    ];
-
-    return _CinematicPanelFrame(
-      borderColor: accent,
-      padding: const EdgeInsets.all(10),
-      backgroundAlpha: 0.76,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final boundedHeight = constraints.maxHeight.isFinite;
-          final compact = boundedHeight && constraints.maxHeight < 270;
-          final veryCompact = boundedHeight && constraints.maxHeight < 230;
-          final portraitWidth = veryCompact
-              ? 84.0
-              : compact
-                  ? 96.0
-                  : 112.0;
-          final idealPortraitHeight = combatant.team == _CombatTeam.party
-              ? portraitWidth * 1.25
-              : portraitWidth * 1.18;
-          final portraitHeight = boundedHeight
-              ? math.min(constraints.maxHeight, idealPortraitHeight)
-              : idealPortraitHeight;
-          final details = Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                combatant.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: _CinematicColors.paper,
-                  fontSize: compact ? 18 : 20,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              SizedBox(height: compact ? 2 : 3),
-              Text(
-                combatant.role,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: tokens.textSecondary,
-                  fontSize: compact ? 11 : 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              SizedBox(height: compact ? 7 : 10),
-              _CinematicHpBar(
-                combatant: combatant,
-                showHp: _canShowHp(combatant, showEnemyHp),
-                height: compact ? 22 : 26,
-                onTap: showEnemyHp ? onEditHp : null,
-              ),
-              SizedBox(height: compact ? 7 : 10),
-              Row(
-                children: [
-                  _CinematicMiniStat(label: 'CA', value: '${combatant.ac}'),
-                  const SizedBox(width: 8),
-                  _CinematicMiniStat(
-                    label: 'Init',
-                    value: '${combatant.initiative}',
-                  ),
-                  const SizedBox(width: 8),
-                  _CinematicMiniStat(label: 'Vel', value: '${combatant.speed}'),
-                ],
-              ),
-              SizedBox(height: compact ? 7 : 10),
-              _CinematicEconomyStrip(economy: economy),
-              if (labels.isNotEmpty && !veryCompact) ...[
-                SizedBox(height: compact ? 7 : 10),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (final label in labels.take(6))
-                      _ActiveEffectChip(
-                        label: label,
-                        color: _statusAccentForLabel(label, tokens, accent),
-                        removable: _canRemoveEffect(label),
-                        onRemove: () =>
-                            onRemoveActiveEffect(combatant.id, label),
-                      ),
-                  ],
-                ),
-              ],
-            ],
-          );
-
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Align(
-                alignment: Alignment.topCenter,
-                child: SizedBox(
-                  width: portraitWidth,
-                  height: portraitHeight,
-                  child: _CinematicPortraitBox(
-                    combatant: combatant,
-                    color: accent,
-                    iconSize: veryCompact
-                        ? 32
-                        : compact
-                            ? 36
-                            : 42,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: SingleChildScrollView(
-                  physics: const ClampingScrollPhysics(),
-                  child: details,
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
 class _CinematicActionDeck extends StatelessWidget {
-  final _Combatant activeCombatant;
-  final _Combatant selectedTarget;
-  final List<_CombatAction> actions;
+  final Combatant activeCombatant;
+  final Combatant selectedTarget;
+  final List<CombatAction> actions;
   final Set<String> spentTimings;
   final Set<String> pendingDamageActions;
-  final Map<String, _CombatAction> preparedActions;
+  final Map<String, CombatAction> preparedActions;
   final String? activeMultiAttackActionKey;
-  final List<_ReactionOption> reactionOptions;
+  final int activeMultiAttackStepIndex;
+  final List<PendingCombatAttack> activeMultiAttackPendingAttacks;
+  final List<ReactionOption> reactionOptions;
   final bool hasTakenAttackActionThisTurn;
+  final bool martialArtsEligibleAttackThisTurn;
+  final bool flurryAlreadyUsedThisTurn;
   final int queuedPreparedIndex;
   final int queuedPreparedTotal;
   final String? queuedPreparedActionName;
   final String selectedTiming;
   final Map<String, int> resourcePool;
-  final _CombatRollMode rollMode;
+  final CombatRollMode rollMode;
   final bool canControlActive;
   final String controlBlockedMessage;
   final ValueChanged<String> onSelectTiming;
-  final ValueChanged<_CombatRollMode> onSelectRollMode;
-  final void Function(int actorIndex, _CombatAction action) onUseReaction;
-  final ValueChanged<_CombatAction> onReadyAction;
+  final ValueChanged<CombatRollMode> onSelectRollMode;
+  final void Function(int actorIndex, CombatAction action) onUseReaction;
+  final ValueChanged<CombatAction> onReadyAction;
   final ValueChanged<String> onRollSavingThrow;
-  final void Function(_CombatAction action, _CombatActionRoll rollType)
+  final void Function(CombatAction action, CombatActionRoll rollType)
       onRollAction;
-  final ValueChanged<_CombatAction> onUseAction;
-  final ValueChanged<_CombatAction> onPrepareAction;
+  final ValueChanged<CombatAction> onUseAction;
+  final ValueChanged<CombatAction> onPrepareAction;
   final VoidCallback onLaunchPreparedTurn;
   final VoidCallback onClearPreparedActions;
   final VoidCallback onControlBlocked;
@@ -13341,8 +14301,12 @@ class _CinematicActionDeck extends StatelessWidget {
     required this.pendingDamageActions,
     required this.preparedActions,
     required this.activeMultiAttackActionKey,
+    required this.activeMultiAttackStepIndex,
+    required this.activeMultiAttackPendingAttacks,
     required this.reactionOptions,
     required this.hasTakenAttackActionThisTurn,
+    required this.martialArtsEligibleAttackThisTurn,
+    required this.flurryAlreadyUsedThisTurn,
     required this.queuedPreparedIndex,
     required this.queuedPreparedTotal,
     required this.queuedPreparedActionName,
@@ -13373,11 +14337,13 @@ class _CinematicActionDeck extends StatelessWidget {
     );
     final visibleActions = actions
         .where(
-          (action) => _actionVisibleInActionTiming(
-            action,
-            selectedTiming,
-            hasPendingOnHitTrigger: hasPendingOnHitTrigger,
-          ),
+          (action) =>
+              _actionVisibleInActionTiming(
+                action,
+                selectedTiming,
+                hasPendingOnHitTrigger: hasPendingOnHitTrigger,
+              ) &&
+              !_actionHandledByMonkCombo(action),
         )
         .toList(growable: false);
     _sortActionsForTurnFlow(
@@ -13395,9 +14361,7 @@ class _CinematicActionDeck extends StatelessWidget {
             ),
           );
     final featuredAction = prepared ??
-        (activeMultiAttackAction?.timing == selectedTiming
-            ? activeMultiAttackAction
-            : null) ??
+        activeMultiAttackAction ??
         _firstOrNull(visibleActions) ??
         _firstOrNull(actions);
     final featuredPending = featuredAction != null &&
@@ -13423,6 +14387,24 @@ class _CinematicActionDeck extends StatelessWidget {
       pendingDamageActions: pendingDamageActions,
       hasTakenAttackActionThisTurn: hasTakenAttackActionThisTurn,
     ).isNotEmpty;
+    final monkFlow = _monkCombatFlowState(
+      activeCombatant: activeCombatant,
+      actions: actions,
+      resourcePool: resourcePool,
+      spentTimings: spentTimings,
+      pendingDamageActions: pendingDamageActions,
+      activeMultiAttackActionKey: activeMultiAttackActionKey,
+      activeMultiAttackStepIndex: activeMultiAttackStepIndex,
+      activeMultiAttackPendingAttacks: activeMultiAttackPendingAttacks,
+      hasTakenAttackActionThisTurn: hasTakenAttackActionThisTurn,
+      martialArtsEligibleAttackThisTurn: martialArtsEligibleAttackThisTurn,
+      flurryAlreadyUsedThisTurn: flurryAlreadyUsedThisTurn,
+    );
+    final debugDetail = _combatModeDebugDetails(
+      actions: actions,
+      resourcePool: resourcePool,
+      monkFlow: monkFlow,
+    );
     final confirmLabel = queuedPreparedTotal > 0
         ? 'Tirar siguiente'
         : hasPrepared
@@ -13473,8 +14455,13 @@ class _CinematicActionDeck extends StatelessWidget {
             pendingDamageActions: pendingDamageActions,
             preparedActions: preparedActions,
             activeMultiAttackActionKey: activeMultiAttackActionKey,
+            activeMultiAttackStepIndex: activeMultiAttackStepIndex,
+            activeMultiAttackPendingAttacks: activeMultiAttackPendingAttacks,
             reactionOptions: reactionOptions,
             hasTakenAttackActionThisTurn: hasTakenAttackActionThisTurn,
+            martialArtsEligibleAttackThisTurn:
+                martialArtsEligibleAttackThisTurn,
+            flurryAlreadyUsedThisTurn: flurryAlreadyUsedThisTurn,
             queuedPreparedIndex: queuedPreparedIndex,
             queuedPreparedTotal: queuedPreparedTotal,
             queuedPreparedActionName: queuedPreparedActionName,
@@ -13500,8 +14487,8 @@ class _CinematicActionDeck extends StatelessWidget {
           );
         }
 
-        return _CinematicPanelFrame(
-          borderColor: _CinematicColors.gold,
+        return CombatCinematicPanelFrame(
+          borderColor: CombatCinematicColors.gold,
           padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
           backgroundAlpha: 0.78,
           child: Column(
@@ -13520,7 +14507,7 @@ class _CinematicActionDeck extends StatelessWidget {
                   ),
                   const SizedBox(width: 12),
                   if (queuedPreparedTotal > 0)
-                    _CinematicQueueChip(
+                    CombatCinematicQueueChip(
                       index: queuedPreparedIndex,
                       total: queuedPreparedTotal,
                       name: queuedPreparedActionName,
@@ -13536,11 +14523,24 @@ class _CinematicActionDeck extends StatelessWidget {
                   onUseReaction: onUseReaction,
                 ),
               ],
+              const SizedBox(height: 6),
+              CombatModeDebugBanner(
+                location: 'CinematicActionDeck',
+                detail: debugDetail,
+              ),
               if (preparedActions.isNotEmpty || featuredPending) ...[
                 const SizedBox(height: 6),
                 _CinematicTurnPlanStrip(
                   preparedActions: preparedActions,
                   pendingAction: featuredPending ? featuredAction : null,
+                ),
+              ],
+              if (selectedTiming == 'Action' && monkFlow != null) ...[
+                const SizedBox(height: 6),
+                _MonkCombatFlowPanel(
+                  state: monkFlow,
+                  onRollAction: onRollAction,
+                  onUseAction: onUseAction,
                 ),
               ],
               if (showTechniqueRail) ...[
@@ -13559,7 +14559,7 @@ class _CinematicActionDeck extends StatelessWidget {
               const SizedBox(height: 6),
               Expanded(
                 child: handActions.isEmpty
-                    ? _CinematicActionListEmpty(selectedTiming: selectedTiming)
+                    ? CombatActionListEmpty(selectedTiming: selectedTiming)
                     : ListView.separated(
                         scrollDirection: Axis.horizontal,
                         itemCount: handActions.length,
@@ -13607,30 +14607,30 @@ class _CinematicActionDeck extends StatelessWidget {
                 children: [
                   SizedBox(
                     width: 214,
-                    child: _CinematicFooterButton(
+                    child: CombatCinematicFooterButton(
                       icon: Icons.hourglass_bottom_outlined,
                       label: 'Terminar turno',
-                      color: _CinematicColors.paper,
+                      color: CombatCinematicColors.paper,
                       onTap: onNextTurn,
                     ),
                   ),
                   const SizedBox(width: 10),
                   if (hasPrepared)
-                    _CinematicFooterButton(
+                    CombatCinematicFooterButton(
                       icon: Icons.clear_all_outlined,
                       label: 'Limpiar plan',
-                      color: _CinematicColors.goldBright,
+                      color: CombatCinematicColors.goldBright,
                       onTap: onClearPreparedActions,
                       compact: true,
                     ),
                   const SizedBox(width: 10),
                   SizedBox(
                     width: 154,
-                    child: _CinematicFooterButton(
+                    child: CombatCinematicFooterButton(
                       icon: Icons.shield_outlined,
                       label: 'TS objetivo',
-                      color: _CinematicColors.goldBright,
-                      onTap: () => _showSavingThrowSheet(
+                      color: CombatCinematicColors.goldBright,
+                      onTap: () => showCombatSavingThrowSheet(
                         context: context,
                         target: selectedTarget,
                         actions: actions,
@@ -13651,7 +14651,7 @@ class _CinematicActionDeck extends StatelessWidget {
                   const Spacer(),
                   SizedBox(
                     width: 276,
-                    child: _CinematicConfirmButton(
+                    child: CombatCinematicConfirmButton(
                       enabled: featuredAction != null || hasPrepared,
                       label: confirmLabel,
                       onTap: confirmAction,
@@ -13668,11 +14668,11 @@ class _CinematicActionDeck extends StatelessWidget {
 }
 
 class _CinematicActionControlLockDock extends StatelessWidget {
-  final _Combatant activeCombatant;
+  final Combatant activeCombatant;
   final int actionCount;
   final String message;
-  final _CombatRollMode rollMode;
-  final ValueChanged<_CombatRollMode> onSelectRollMode;
+  final CombatRollMode rollMode;
+  final ValueChanged<CombatRollMode> onSelectRollMode;
   final VoidCallback onControlBlocked;
 
   const _CinematicActionControlLockDock({
@@ -13687,9 +14687,9 @@ class _CinematicActionControlLockDock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.stitch;
-    final accent = _teamColor(activeCombatant.team, tokens);
+    final accent = combatTeamColor(activeCombatant.team, tokens);
 
-    return _CinematicPanelFrame(
+    return CombatCinematicPanelFrame(
       borderColor: accent,
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
       backgroundAlpha: 0.80,
@@ -13708,7 +14708,7 @@ class _CinematicActionControlLockDock extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        color: _CinematicColors.paper,
+                        color: CombatCinematicColors.paper,
                         fontSize: 16,
                         fontWeight: FontWeight.w900,
                         height: 1,
@@ -13753,7 +14753,7 @@ class _CinematicActionControlLockDock extends StatelessWidget {
                 children: [
                   SizedBox(
                     width: 76,
-                    child: _CinematicPortraitBox(
+                    child: CombatCinematicPortraitBox(
                       combatant: activeCombatant,
                       color: accent,
                       iconSize: 28,
@@ -13777,7 +14777,7 @@ class _CinematicActionControlLockDock extends StatelessWidget {
                   const SizedBox(width: 14),
                   SizedBox(
                     width: 210,
-                    child: _CinematicFooterButton(
+                    child: CombatCinematicFooterButton(
                       icon: Icons.view_module_outlined,
                       label: 'Ver acciones',
                       color: accent,
@@ -13793,17 +14793,17 @@ class _CinematicActionControlLockDock extends StatelessWidget {
             children: [
               SizedBox(
                 width: 214,
-                child: _CinematicFooterButton(
+                child: CombatCinematicFooterButton(
                   icon: Icons.hourglass_bottom_outlined,
                   label: 'Esperar turno',
-                  color: _CinematicColors.paper,
+                  color: CombatCinematicColors.paper,
                   onTap: onControlBlocked,
                 ),
               ),
               const Spacer(),
               SizedBox(
                 width: 276,
-                child: _CinematicConfirmButton(
+                child: CombatCinematicConfirmButton(
                   enabled: true,
                   label: 'Accion bloqueada',
                   onTap: onControlBlocked,
@@ -13818,36 +14818,40 @@ class _CinematicActionControlLockDock extends StatelessWidget {
 }
 
 class _CinematicActionQuickDock extends StatelessWidget {
-  final _Combatant activeCombatant;
-  final _Combatant selectedTarget;
-  final List<_CombatAction> actions;
+  final Combatant activeCombatant;
+  final Combatant selectedTarget;
+  final List<CombatAction> actions;
   final Set<String> spentTimings;
   final Set<String> pendingDamageActions;
-  final Map<String, _CombatAction> preparedActions;
+  final Map<String, CombatAction> preparedActions;
   final String? activeMultiAttackActionKey;
-  final List<_ReactionOption> reactionOptions;
+  final int activeMultiAttackStepIndex;
+  final List<PendingCombatAttack> activeMultiAttackPendingAttacks;
+  final List<ReactionOption> reactionOptions;
   final bool hasTakenAttackActionThisTurn;
+  final bool martialArtsEligibleAttackThisTurn;
+  final bool flurryAlreadyUsedThisTurn;
   final int queuedPreparedIndex;
   final int queuedPreparedTotal;
   final String? queuedPreparedActionName;
   final String selectedTiming;
   final Map<String, int> resourcePool;
-  final _CombatRollMode rollMode;
-  final _CombatAction? featuredAction;
+  final CombatRollMode rollMode;
+  final CombatAction? featuredAction;
   final bool featuredPending;
   final bool featuredSpent;
   final String confirmLabel;
   final VoidCallback confirmAction;
   final bool hasPrepared;
   final ValueChanged<String> onSelectTiming;
-  final ValueChanged<_CombatRollMode> onSelectRollMode;
-  final void Function(int actorIndex, _CombatAction action) onUseReaction;
-  final ValueChanged<_CombatAction> onReadyAction;
+  final ValueChanged<CombatRollMode> onSelectRollMode;
+  final void Function(int actorIndex, CombatAction action) onUseReaction;
+  final ValueChanged<CombatAction> onReadyAction;
   final ValueChanged<String> onRollSavingThrow;
-  final void Function(_CombatAction action, _CombatActionRoll rollType)
+  final void Function(CombatAction action, CombatActionRoll rollType)
       onRollAction;
-  final ValueChanged<_CombatAction> onUseAction;
-  final ValueChanged<_CombatAction> onPrepareAction;
+  final ValueChanged<CombatAction> onUseAction;
+  final ValueChanged<CombatAction> onPrepareAction;
   final VoidCallback onClearPreparedActions;
   final VoidCallback onNextTurn;
 
@@ -13859,8 +14863,12 @@ class _CinematicActionQuickDock extends StatelessWidget {
     required this.pendingDamageActions,
     required this.preparedActions,
     required this.activeMultiAttackActionKey,
+    required this.activeMultiAttackStepIndex,
+    required this.activeMultiAttackPendingAttacks,
     required this.reactionOptions,
     required this.hasTakenAttackActionThisTurn,
+    required this.martialArtsEligibleAttackThisTurn,
+    required this.flurryAlreadyUsedThisTurn,
     required this.queuedPreparedIndex,
     required this.queuedPreparedTotal,
     required this.queuedPreparedActionName,
@@ -13893,11 +14901,13 @@ class _CinematicActionQuickDock extends StatelessWidget {
     );
     final visibleActions = actions
         .where(
-          (action) => _actionVisibleInActionTiming(
-            action,
-            selectedTiming,
-            hasPendingOnHitTrigger: hasPendingOnHitTrigger,
-          ),
+          (action) =>
+              _actionVisibleInActionTiming(
+                action,
+                selectedTiming,
+                hasPendingOnHitTrigger: hasPendingOnHitTrigger,
+              ) &&
+              !_actionHandledByMonkCombo(action),
         )
         .toList(growable: false);
     _sortActionsForTurnFlow(
@@ -13916,9 +14926,21 @@ class _CinematicActionQuickDock extends StatelessWidget {
       pendingDamageActions: pendingDamageActions,
       hasTakenAttackActionThisTurn: hasTakenAttackActionThisTurn,
     ).isNotEmpty;
-
-    return _CinematicPanelFrame(
-      borderColor: _CinematicColors.gold,
+    final monkFlow = _monkCombatFlowState(
+      activeCombatant: activeCombatant,
+      actions: actions,
+      resourcePool: resourcePool,
+      spentTimings: spentTimings,
+      pendingDamageActions: pendingDamageActions,
+      activeMultiAttackActionKey: activeMultiAttackActionKey,
+      activeMultiAttackStepIndex: activeMultiAttackStepIndex,
+      activeMultiAttackPendingAttacks: activeMultiAttackPendingAttacks,
+      hasTakenAttackActionThisTurn: hasTakenAttackActionThisTurn,
+      martialArtsEligibleAttackThisTurn: martialArtsEligibleAttackThisTurn,
+      flurryAlreadyUsedThisTurn: flurryAlreadyUsedThisTurn,
+    );
+    return CombatCinematicPanelFrame(
+      borderColor: CombatCinematicColors.gold,
       padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
       backgroundAlpha: 0.80,
       child: Column(
@@ -13937,7 +14959,7 @@ class _CinematicActionQuickDock extends StatelessWidget {
               ),
               if (queuedPreparedTotal > 0) ...[
                 const SizedBox(width: 10),
-                _CinematicQueueChip(
+                CombatCinematicQueueChip(
                   index: queuedPreparedIndex,
                   total: queuedPreparedTotal,
                   name: queuedPreparedActionName,
@@ -13960,6 +14982,15 @@ class _CinematicActionQuickDock extends StatelessWidget {
               pendingAction: featuredPending ? featuredAction : null,
             ),
           ],
+          if (selectedTiming == 'Action' && monkFlow != null) ...[
+            const SizedBox(height: 6),
+            _MonkCombatFlowPanel(
+              state: monkFlow,
+              onRollAction: onRollAction,
+              onUseAction: onUseAction,
+              compact: true,
+            ),
+          ],
           if (showTechniqueRail) ...[
             const SizedBox(height: 6),
             _CinematicTechniqueRail(
@@ -13980,8 +15011,7 @@ class _CinematicActionQuickDock extends StatelessWidget {
               children: [
                 Expanded(
                   child: handActions.isEmpty
-                      ? _CinematicActionListEmpty(
-                          selectedTiming: selectedTiming)
+                      ? CombatActionListEmpty(selectedTiming: selectedTiming)
                       : ListView.separated(
                           scrollDirection: Axis.horizontal,
                           itemCount: handActions.length,
@@ -14023,10 +15053,10 @@ class _CinematicActionQuickDock extends StatelessWidget {
                       Row(
                         children: [
                           Expanded(
-                            child: _CinematicFooterButton(
+                            child: CombatCinematicFooterButton(
                               icon: Icons.view_module_outlined,
                               label: 'Todas',
-                              color: _CinematicColors.goldBright,
+                              color: CombatCinematicColors.goldBright,
                               compact: true,
                               onTap: () => _showActionCatalogSheet(
                                 context: context,
@@ -14045,12 +15075,12 @@ class _CinematicActionQuickDock extends StatelessWidget {
                           ),
                           const SizedBox(width: 8),
                           Expanded(
-                            child: _CinematicFooterButton(
+                            child: CombatCinematicFooterButton(
                               icon: Icons.shield_outlined,
                               label: 'TS',
-                              color: _CinematicColors.goldBright,
+                              color: CombatCinematicColors.goldBright,
                               compact: true,
-                              onTap: () => _showSavingThrowSheet(
+                              onTap: () => showCombatSavingThrowSheet(
                                 context: context,
                                 target: selectedTarget,
                                 actions: actions,
@@ -14077,10 +15107,10 @@ class _CinematicActionQuickDock extends StatelessWidget {
             children: [
               SizedBox(
                 width: 190,
-                child: _CinematicFooterButton(
+                child: CombatCinematicFooterButton(
                   icon: Icons.hourglass_bottom_outlined,
                   label: 'Terminar turno',
-                  color: _CinematicColors.paper,
+                  color: CombatCinematicColors.paper,
                   onTap: onNextTurn,
                 ),
               ),
@@ -14088,10 +15118,10 @@ class _CinematicActionQuickDock extends StatelessWidget {
                 const SizedBox(width: 10),
                 SizedBox(
                   width: 168,
-                  child: _CinematicFooterButton(
+                  child: CombatCinematicFooterButton(
                     icon: Icons.clear_all_outlined,
                     label: 'Limpiar plan',
-                    color: _CinematicColors.goldBright,
+                    color: CombatCinematicColors.goldBright,
                     onTap: onClearPreparedActions,
                     compact: true,
                   ),
@@ -14100,7 +15130,7 @@ class _CinematicActionQuickDock extends StatelessWidget {
               const Spacer(),
               SizedBox(
                 width: 276,
-                child: _CinematicConfirmButton(
+                child: CombatCinematicConfirmButton(
                   enabled: featuredAction != null || hasPrepared,
                   label: confirmLabel,
                   onTap: confirmAction,
@@ -14115,10 +15145,10 @@ class _CinematicActionQuickDock extends StatelessWidget {
 }
 
 class _CinematicQuickActionSummary extends StatelessWidget {
-  final _CombatAction? action;
+  final CombatAction? action;
   final bool pendingDamage;
   final bool spent;
-  final Map<String, _CombatAction> preparedActions;
+  final Map<String, CombatAction> preparedActions;
   final Map<String, int> resourcePool;
 
   const _CinematicQuickActionSummary({
@@ -14134,7 +15164,7 @@ class _CinematicQuickActionSummary extends StatelessWidget {
     final tokens = context.stitch;
     final currentAction = action;
     if (currentAction == null) {
-      return _CinematicActionListEmpty(selectedTiming: 'este timing');
+      return const CombatActionListEmpty(selectedTiming: 'este timing');
     }
 
     final accent = _accentForKind(currentAction.accentKind, tokens);
@@ -14168,7 +15198,7 @@ class _CinematicQuickActionSummary extends StatelessWidget {
             ),
             child: Icon(
               pendingDamage ? Icons.auto_fix_high_outlined : currentAction.icon,
-              color: _CinematicColors.paper,
+              color: CombatCinematicColors.paper,
               size: 22,
             ),
           ),
@@ -14183,7 +15213,7 @@ class _CinematicQuickActionSummary extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    color: _CinematicColors.paper,
+                    color: CombatCinematicColors.paper,
                     fontSize: 15,
                     fontWeight: FontWeight.w900,
                     height: 1,
@@ -14220,7 +15250,7 @@ class _CinematicQuickActionSummary extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                color: _CinematicColors.paper,
+                color: CombatCinematicColors.paper,
                 fontSize: 10,
                 fontWeight: FontWeight.w900,
               ),
@@ -14232,7 +15262,7 @@ class _CinematicQuickActionSummary extends StatelessWidget {
   }
 }
 
-String _cinematicQuickActionLine(_CombatAction action, int? resourceRemaining) {
+String _cinematicQuickActionLine(CombatAction action, int? resourceRemaining) {
   final formula = action.attackFormula ??
       (action.requiresSavingThrow
           ? '${action.saveAbility} DC ${action.saveDc}'
@@ -14249,27 +15279,14 @@ String _cinematicQuickActionLine(_CombatAction action, int? resourceRemaining) {
   ].join('  -  ');
 }
 
-String _actionRangeText(_CombatAction action) {
+String _actionRangeText(CombatAction action) {
   final range = _rangeFeetForActionCard(action);
   if (range == null) return 'Especial';
   if (range <= 0) return 'Personal';
   return '$range ft';
 }
 
-String? _actionAreaText(_CombatAction action) {
-  if (!action.hasAreaEffect) return null;
-  final shape = switch (action.areaShape.toLowerCase()) {
-    'cone' => 'Cono',
-    'line' => 'Linea',
-    'cube' => 'Cubo',
-    'sphere' => 'Area',
-    'cylinder' => 'Area',
-    _ => 'Area',
-  };
-  return '$shape ${action.areaFeet} ft';
-}
-
-String _actionRollText(_CombatAction action) {
+String _actionRollText(CombatAction action) {
   if (action.attackFormula != null) return action.attackFormula!;
   if (action.requiresSavingThrow) {
     final ability = action.saveAbility ?? 'Save';
@@ -14281,7 +15298,7 @@ String _actionRollText(_CombatAction action) {
   return 'Uso';
 }
 
-String _actionImpactText(_CombatAction action) {
+String _actionImpactText(CombatAction action) {
   if (action.damageFormula != null) {
     final suffix = action.isHealing ? ' cura' : ' dano';
     return '${action.damageFormula}$suffix';
@@ -14298,7 +15315,7 @@ String _actionImpactText(_CombatAction action) {
   return action.type;
 }
 
-String? _actionResourceText(_CombatAction action, int? resourceRemaining) {
+String? _actionResourceText(CombatAction action, int? resourceRemaining) {
   final key = action.resourceKey;
   if (key == null || action.resourceCost <= 0) return null;
   final name = _readableActionResourceName(key);
@@ -14316,7 +15333,7 @@ String _actionDecisionStateText({
   return 'Lista';
 }
 
-String _actionRoleLine(_CombatAction action) {
+String _actionRoleLine(CombatAction action) {
   final tags =
       action.tags.where((tag) => tag.trim().isNotEmpty).take(2).join(' / ');
   if (tags.isEmpty) return action.type;
@@ -14324,11 +15341,11 @@ String _actionRoleLine(_CombatAction action) {
 }
 
 class _CinematicTimingTabs extends StatelessWidget {
-  final List<_CombatAction> actions;
+  final List<CombatAction> actions;
   final String selectedTiming;
   final Set<String> spentTimings;
   final Set<String> pendingDamageActions;
-  final Map<String, _CombatAction> preparedActions;
+  final Map<String, CombatAction> preparedActions;
   final ValueChanged<String> onSelectTiming;
 
   const _CinematicTimingTabs({
@@ -14387,12 +15404,12 @@ class _CinematicTimingTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = spent
-        ? _CinematicColors.blood
+        ? CombatCinematicColors.blood
         : prepared
-            ? _CinematicColors.goldBright
+            ? CombatCinematicColors.goldBright
             : selected
-                ? _CinematicColors.gold
-                : _CinematicColors.paper.withValues(alpha: 0.48);
+                ? CombatCinematicColors.gold
+                : CombatCinematicColors.paper.withValues(alpha: 0.48);
 
     return InkWell(
       onTap: onTap,
@@ -14403,7 +15420,7 @@ class _CinematicTimingTab extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 10),
         decoration: BoxDecoration(
           color: selected
-              ? _CinematicColors.gold.withValues(alpha: 0.15)
+              ? CombatCinematicColors.gold.withValues(alpha: 0.15)
               : Colors.black.withValues(alpha: 0.20),
           borderRadius: BorderRadius.circular(6),
           border: Border.all(color: color.withValues(alpha: 0.40)),
@@ -14419,7 +15436,7 @@ class _CinematicTimingTab extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                  color: _CinematicColors.paper,
+                  color: CombatCinematicColors.paper,
                   fontSize: 11,
                   fontWeight: FontWeight.w900,
                 ),
@@ -14446,8 +15463,8 @@ class _CinematicTimingTab extends StatelessWidget {
 }
 
 class _CinematicTurnPlanStrip extends StatelessWidget {
-  final Map<String, _CombatAction> preparedActions;
-  final _CombatAction? pendingAction;
+  final Map<String, CombatAction> preparedActions;
+  final CombatAction? pendingAction;
 
   const _CinematicTurnPlanStrip({
     required this.preparedActions,
@@ -14502,7 +15519,7 @@ class _CinematicTurnPlanStrip extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      color: _CinematicColors.paper,
+                      color: CombatCinematicColors.paper,
                       fontSize: 10,
                       fontWeight: FontWeight.w900,
                     ),
@@ -14519,7 +15536,7 @@ class _CinematicTurnPlanStrip extends StatelessWidget {
 
 class _TurnPlanEntry {
   final String label;
-  final _CombatAction action;
+  final CombatAction action;
   final Color color;
   final IconData icon;
 
@@ -14531,16 +15548,981 @@ class _TurnPlanEntry {
   });
 }
 
+class _MonkCombatFlowPanel extends StatelessWidget {
+  final MonkCombatFlowState state;
+  final void Function(CombatAction action, CombatActionRoll rollType)
+      onRollAction;
+  final ValueChanged<CombatAction> onUseAction;
+  final bool compact;
+
+  const _MonkCombatFlowPanel({
+    required this.state,
+    required this.onRollAction,
+    required this.onUseAction,
+    this.compact = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final identity = state.identity;
+    final accent = _classCombatVisualAccent(identity, tokens);
+    final highlighted = state.enabled ||
+        state.pendingDamage ||
+        state.flurryActive ||
+        state.martialArtsActive;
+
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0, end: highlighted ? 1 : 0),
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      builder: (context, emphasis, child) {
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          constraints: BoxConstraints(minHeight: compact ? 96 : 116),
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 9 : 11,
+            vertical: compact ? 8 : 10,
+          ),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                accent.withValues(alpha: 0.12 + emphasis * 0.05),
+                Colors.black.withValues(alpha: 0.28),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: accent.withValues(alpha: 0.30 + emphasis * 0.16),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: accent.withValues(alpha: 0.08 + emphasis * 0.06),
+                blurRadius: 16 + emphasis * 8,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final stacked = compact || constraints.maxWidth < 620;
+              final header = Row(
+                children: [
+                  Container(
+                    width: compact ? 34 : 40,
+                    height: compact ? 34 : 40,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.24),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: accent.withValues(alpha: 0.34),
+                      ),
+                    ),
+                    child: Icon(
+                      identity.icon,
+                      color: CombatCinematicColors.paper,
+                      size: compact ? 18 : 22,
+                    ),
+                  ),
+                  SizedBox(width: compact ? 8 : 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          identity.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: CombatCinematicColors.paper,
+                            fontSize: compact ? 12 : 14,
+                            fontWeight: FontWeight.w900,
+                            height: 1,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          identity.subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: tokens.textSecondary,
+                            fontSize: compact ? 8 : 10,
+                            fontWeight: FontWeight.w800,
+                            height: 1,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  SizedBox(width: compact ? 8 : 10),
+                  _MonkKiPipCounter(
+                    current: state.remainingKi,
+                    max: state.maxKi,
+                    color: accent,
+                    enabled: state.enabled ||
+                        state.flurryActive ||
+                        state.pendingDamage,
+                    compact: compact,
+                  ),
+                ],
+              );
+
+              final flow = Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _MonkAttackActionTrack(
+                    slots: state.attackActionSlots,
+                    resolved: state.resolvedAttackActionAttacks,
+                    color: accent,
+                    compact: compact,
+                  ),
+                  SizedBox(height: compact ? 5 : 7),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    child: state.pendingAttacks.isEmpty
+                        ? _MonkFlowStatusLine(
+                            key: ValueKey(state.status),
+                            text: state.status,
+                            color: accent,
+                            compact: compact,
+                          )
+                        : _MonkPendingAttackQueue(
+                            key: ValueKey(
+                              state.pendingAttacks
+                                  .map((attack) =>
+                                      '${attack.label}:${attack.status.name}')
+                                  .join('|'),
+                            ),
+                            attacks: state.pendingAttacks,
+                            color: accent,
+                            compact: compact,
+                          ),
+                  ),
+                  if (state.openHandTechniqueAvailable) ...[
+                    SizedBox(height: compact ? 5 : 7),
+                    _OpenHandTechniquePrompt(
+                      color: accent,
+                      compact: compact,
+                    ),
+                  ],
+                  if (identity.passiveTraits.isNotEmpty) ...[
+                    const SizedBox(height: 7),
+                    _ClassPassiveTraitStrip(
+                      traits: identity.passiveTraits,
+                      color: accent,
+                      compact: true,
+                    ),
+                  ],
+                ],
+              );
+
+              final actions = _MonkComboActionStrip(
+                state: state,
+                color: accent,
+                compact: compact,
+                onRollAction: onRollAction,
+                onUseAction: onUseAction,
+              );
+
+              if (stacked) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    header,
+                    SizedBox(height: compact ? 7 : 9),
+                    flow,
+                    SizedBox(height: compact ? 7 : 9),
+                    actions,
+                  ],
+                );
+              }
+
+              return Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        header,
+                        const SizedBox(height: 9),
+                        flow,
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  SizedBox(width: 292, child: actions),
+                ],
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _MonkFlowStatusLine extends StatelessWidget {
+  final String text;
+  final Color color;
+  final bool compact;
+
+  const _MonkFlowStatusLine({
+    super.key,
+    required this.text,
+    required this.color,
+    required this.compact,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 7 : 9,
+        vertical: compact ? 5 : 6,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(color: color.withValues(alpha: 0.20)),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.timeline_rounded,
+            color: color,
+            size: compact ? 12 : 14,
+          ),
+          SizedBox(width: compact ? 5 : 6),
+          Expanded(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: tokens.textSecondary,
+                fontSize: compact ? 9 : 11,
+                fontWeight: FontWeight.w800,
+                height: 1,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OpenHandTechniquePrompt extends StatelessWidget {
+  final Color color;
+  final bool compact;
+
+  const _OpenHandTechniquePrompt({
+    required this.color,
+    required this.compact,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final effects = const [
+      ('Prone', 'DEX save or knocked prone'),
+      ('Push 15 ft', 'STR save or pushed away'),
+      ('No reactions', 'Until the end of your next turn'),
+    ];
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 7 : 9,
+        vertical: compact ? 6 : 7,
+      ),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(color: color.withValues(alpha: 0.30)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.pan_tool_alt_outlined,
+              color: color, size: compact ? 13 : 15),
+          SizedBox(width: compact ? 5 : 7),
+          Flexible(
+            flex: 2,
+            child: Text(
+              'Open Hand Technique',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: CombatCinematicColors.paper,
+                fontSize: compact ? 9 : 10,
+                fontWeight: FontWeight.w900,
+                height: 1,
+              ),
+            ),
+          ),
+          const SizedBox(width: 7),
+          Expanded(
+            flex: 4,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (var index = 0; index < effects.length; index++) ...[
+                    if (index > 0) const SizedBox(width: 5),
+                    Tooltip(
+                      message: effects[index].$2,
+                      child: Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: compact ? 6 : 7,
+                          vertical: compact ? 3 : 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.20),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: color.withValues(alpha: 0.24),
+                          ),
+                        ),
+                        child: Text(
+                          effects[index].$1,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: tokens.textSecondary,
+                            fontSize: compact ? 8 : 9,
+                            fontWeight: FontWeight.w900,
+                            height: 1,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MonkAttackActionTrack extends StatelessWidget {
+  final int slots;
+  final int resolved;
+  final Color color;
+  final bool compact;
+
+  const _MonkAttackActionTrack({
+    required this.slots,
+    required this.resolved,
+    required this.color,
+    required this.compact,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final total = math.max(1, slots);
+    final done = resolved.clamp(0, total).toInt();
+
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 7 : 9,
+        vertical: compact ? 5 : 6,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(color: color.withValues(alpha: 0.20)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.gavel_outlined, color: color, size: compact ? 12 : 14),
+          SizedBox(width: compact ? 5 : 6),
+          Text(
+            'Attack Action',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: tokens.textSecondary,
+              fontSize: compact ? 8 : 10,
+              fontWeight: FontWeight.w900,
+              height: 1,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (var index = 0; index < total; index++) ...[
+                    if (index > 0) const SizedBox(width: 5),
+                    _MonkAttackSlotChip(
+                      label: index == 0 ? 'Attack 1' : 'Extra ${index + 1}',
+                      resolved: index < done,
+                      color: color,
+                      compact: compact,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MonkAttackSlotChip extends StatelessWidget {
+  final String label;
+  final bool resolved;
+  final Color color;
+  final bool compact;
+
+  const _MonkAttackSlotChip({
+    required this.label,
+    required this.resolved,
+    required this.color,
+    required this.compact,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final chipColor = resolved ? context.stitch.accentSuccess : color;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 6 : 7,
+        vertical: compact ? 3 : 4,
+      ),
+      decoration: BoxDecoration(
+        color: chipColor.withValues(alpha: resolved ? 0.16 : 0.09),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: chipColor.withValues(alpha: 0.28)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            resolved ? Icons.check_rounded : Icons.radio_button_unchecked,
+            color: chipColor,
+            size: compact ? 9 : 11,
+          ),
+          SizedBox(width: compact ? 3 : 4),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: CombatCinematicColors.paper,
+              fontSize: compact ? 8 : 9,
+              fontWeight: FontWeight.w900,
+              height: 1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MonkPendingAttackQueue extends StatelessWidget {
+  final List<PendingCombatAttack> attacks;
+  final Color color;
+  final bool compact;
+
+  const _MonkPendingAttackQueue({
+    super.key,
+    required this.attacks,
+    required this.color,
+    required this.compact,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: compact ? 18 : 20,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: attacks.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 5),
+        itemBuilder: (context, index) {
+          final attack = attacks[index];
+          final resolved = attack.resolved;
+          final damagePending = attack.damagePending;
+          final tokens = context.stitch;
+          final sourceColor = switch (attack.source) {
+            PendingCombatAttackSource.martialArts =>
+              CombatCinematicColors.goldBright,
+            PendingCombatAttackSource.flurryOfBlows => color,
+            PendingCombatAttackSource.extraAttack => tokens.accentRead,
+            PendingCombatAttackSource.attackAction => tokens.accentAction,
+            PendingCombatAttackSource.multiattack => color,
+          };
+          final chipColor = resolved
+              ? context.stitch.accentSuccess
+              : damagePending
+                  ? context.stitch.accentAction
+                  : sourceColor;
+          final sourceIcon = switch (attack.source) {
+            PendingCombatAttackSource.martialArts => Icons.back_hand_outlined,
+            PendingCombatAttackSource.flurryOfBlows => Icons.flash_on_rounded,
+            PendingCombatAttackSource.extraAttack =>
+              Icons.control_point_duplicate_outlined,
+            PendingCombatAttackSource.attackAction => Icons.gavel_outlined,
+            PendingCombatAttackSource.multiattack =>
+              Icons.radio_button_unchecked_rounded,
+          };
+          final icon = resolved
+              ? Icons.check_rounded
+              : damagePending
+                  ? Icons.auto_fix_high_outlined
+                  : sourceIcon;
+          return Container(
+            constraints: BoxConstraints(maxWidth: compact ? 118 : 146),
+            padding: EdgeInsets.symmetric(
+              horizontal: compact ? 6 : 7,
+              vertical: compact ? 3 : 4,
+            ),
+            decoration: BoxDecoration(
+              color: chipColor.withValues(alpha: resolved ? 0.16 : 0.12),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: chipColor.withValues(alpha: 0.30)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, color: chipColor, size: compact ? 10 : 12),
+                SizedBox(width: compact ? 4 : 5),
+                Flexible(
+                  child: Text(
+                    attack.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: CombatCinematicColors.paper,
+                      fontSize: compact ? 8 : 9,
+                      fontWeight: FontWeight.w900,
+                      height: 1,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _MonkComboActionStrip extends StatelessWidget {
+  final MonkCombatFlowState state;
+  final Color color;
+  final bool compact;
+  final void Function(CombatAction action, CombatActionRoll rollType)
+      onRollAction;
+  final ValueChanged<CombatAction> onUseAction;
+
+  const _MonkComboActionStrip({
+    required this.state,
+    required this.color,
+    required this.compact,
+    required this.onRollAction,
+    required this.onUseAction,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final martialArtsAction = state.martialArtsAction;
+    final flurryDetail = state.flurryActive
+        ? '${state.remainingFlurryAttacks}/${state.flurryAttackTotal} golpes'
+        : state.remainingKi <= 0
+            ? 'Sin Ki'
+            : '1 Ki - Bonus';
+
+    return Row(
+      children: [
+        if (martialArtsAction != null) ...[
+          Expanded(
+            child: _MonkComboButton(
+              icon: state.martialArtsPendingDamage
+                  ? Icons.auto_fix_high_outlined
+                  : Icons.back_hand_outlined,
+              label: state.martialArtsPendingDamage ? 'Dano MA' : 'Golpe MA',
+              detail: state.martialArtsPendingDamage
+                  ? 'resolver'
+                  : state.martialArtsActive
+                      ? '1/1 listo'
+                      : 'bonus sin Ki',
+              color: color,
+              enabled: state.martialArtsEnabled,
+              compact: compact,
+              filled: false,
+              onTap: () => _rollPrimaryAction(
+                martialArtsAction,
+                onRollAction,
+                onUseAction,
+                pendingDamage: state.martialArtsPendingDamage,
+              ),
+            ),
+          ),
+          const SizedBox(width: 7),
+        ],
+        Expanded(
+          child: _MonkComboButton(
+            icon: state.pendingDamage
+                ? Icons.auto_fix_high_outlined
+                : Icons.flash_on_rounded,
+            label: state.flurryActive ? state.ctaLabel : 'Gastar Ki',
+            detail: flurryDetail,
+            color: color,
+            enabled: state.enabled,
+            compact: compact,
+            filled: true,
+            onTap: () => _handleFlurryTap(context),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _handleFlurryTap(BuildContext context) async {
+    if (state.flurryActive || state.pendingDamage) {
+      _rollPrimaryAction(
+        state.flurryAction,
+        onRollAction,
+        onUseAction,
+        pendingDamage: state.pendingDamage,
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        final tokens = dialogContext.stitch;
+        return AlertDialog(
+          backgroundColor: tokens.surface,
+          title: const Text('Use Flurry of Blows?'),
+          content: Text(
+            'Spend 1 Ki and your Bonus Action to ready 2 unarmed strikes.',
+            style: TextStyle(color: tokens.textSecondary),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Use Flurry'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    _rollPrimaryAction(
+      state.flurryAction,
+      onRollAction,
+      onUseAction,
+      pendingDamage: false,
+    );
+  }
+}
+
+class _MonkComboButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String detail;
+  final Color color;
+  final bool enabled;
+  final bool compact;
+  final bool filled;
+  final VoidCallback onTap;
+
+  const _MonkComboButton({
+    required this.icon,
+    required this.label,
+    required this.detail,
+    required this.color,
+    required this.enabled,
+    required this.compact,
+    required this.filled,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final effectiveColor = enabled ? color : tokens.textMuted;
+    final backgroundAlpha = filled ? 0.88 : 0.12;
+    final foreground =
+        filled && enabled ? Colors.black : CombatCinematicColors.paper;
+
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(8),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        height: compact ? 48 : 54,
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 7 : 9,
+          vertical: compact ? 5 : 6,
+        ),
+        decoration: BoxDecoration(
+          color: effectiveColor.withValues(
+            alpha: enabled ? backgroundAlpha : 0.10,
+          ),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: effectiveColor.withValues(alpha: enabled ? 0.42 : 0.18),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: foreground, size: compact ? 16 : 18),
+            SizedBox(width: compact ? 5 : 7),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: foreground,
+                      fontSize: compact ? 10 : 11,
+                      fontWeight: FontWeight.w900,
+                      height: 1,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    detail,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: filled && enabled
+                          ? Colors.black.withValues(alpha: 0.72)
+                          : tokens.textSecondary,
+                      fontSize: compact ? 8 : 9,
+                      fontWeight: FontWeight.w800,
+                      height: 1,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MonkKiPipCounter extends StatelessWidget {
+  final int current;
+  final int max;
+  final Color color;
+  final bool enabled;
+  final bool compact;
+
+  const _MonkKiPipCounter({
+    required this.current,
+    required this.max,
+    required this.color,
+    required this.enabled,
+    this.compact = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final pipTotal = max <= 0 ? 0 : math.min(max, compact ? 5 : 6);
+    final overflow = max > pipTotal;
+    final inactiveColor = tokens.textMuted.withValues(alpha: 0.42);
+
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 6 : 8,
+        vertical: compact ? 4 : 5,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.26),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: (enabled ? color : tokens.textMuted).withValues(alpha: 0.42),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.blur_on_rounded,
+            color: enabled ? color : tokens.textMuted,
+            size: compact ? 11 : 13,
+          ),
+          SizedBox(width: compact ? 4 : 5),
+          for (var index = 0; index < pipTotal; index++) ...[
+            if (index > 0) SizedBox(width: compact ? 2 : 3),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              width: compact ? 6 : 7,
+              height: compact ? 6 : 7,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: index < current && enabled ? color : inactiveColor,
+                border: Border.all(
+                  color: index < current
+                      ? color.withValues(alpha: 0.72)
+                      : inactiveColor,
+                ),
+              ),
+            ),
+          ],
+          SizedBox(width: compact ? 5 : 6),
+          Text(
+            overflow ? '$current/$max' : '$current Ki',
+            maxLines: 1,
+            style: TextStyle(
+              color: enabled ? CombatCinematicColors.paper : tokens.textMuted,
+              fontSize: compact ? 9 : 10,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ClassPassiveTraitStrip extends StatelessWidget {
+  final List<ClassPassiveTrait> traits;
+  final Color color;
+  final bool compact;
+
+  const _ClassPassiveTraitStrip({
+    required this.traits,
+    required this.color,
+    this.compact = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (traits.isEmpty) return const SizedBox.shrink();
+    final visibleTraits = traits.take(compact ? 2 : 3).toList(growable: false);
+    final hiddenCount = traits.length - visibleTraits.length;
+
+    return SizedBox(
+      height: compact ? 18 : 21,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: visibleTraits.length + (hiddenCount > 0 ? 1 : 0),
+        separatorBuilder: (_, __) => SizedBox(width: compact ? 5 : 6),
+        itemBuilder: (context, index) {
+          if (index >= visibleTraits.length) {
+            return _PassiveTraitBadge(
+              label: '+$hiddenCount',
+              detail: 'Mas rasgos pasivos del personaje.',
+              icon: Icons.more_horiz,
+              color: color,
+              compact: compact,
+            );
+          }
+          final trait = visibleTraits[index];
+          return _PassiveTraitBadge(
+            label: trait.label,
+            detail: trait.detail,
+            icon: trait.icon,
+            color: color,
+            compact: compact,
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _PassiveTraitBadge extends StatelessWidget {
+  final String label;
+  final String detail;
+  final IconData icon;
+  final Color color;
+  final bool compact;
+
+  const _PassiveTraitBadge({
+    required this.label,
+    required this.detail,
+    required this.icon,
+    required this.color,
+    required this.compact,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: detail,
+      child: Container(
+        constraints: BoxConstraints(maxWidth: compact ? 128 : 168),
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 6 : 8,
+          vertical: compact ? 3 : 4,
+        ),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.20),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: color.withValues(alpha: 0.24)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color, size: compact ? 10 : 12),
+            SizedBox(width: compact ? 4 : 5),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: CombatCinematicColors.paper,
+                  fontSize: compact ? 8 : 9,
+                  fontWeight: FontWeight.w900,
+                  height: 1,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _CinematicTechniqueRail extends StatelessWidget {
-  final List<_CombatAction> actions;
+  final List<CombatAction> actions;
   final Map<String, int> resourcePool;
   final Set<String> spentTimings;
   final Set<String> pendingDamageActions;
   final String? activeMultiAttackActionKey;
   final bool hasTakenAttackActionThisTurn;
-  final void Function(_CombatAction action, _CombatActionRoll rollType)
+  final void Function(CombatAction action, CombatActionRoll rollType)
       onRollAction;
-  final ValueChanged<_CombatAction> onUseAction;
+  final ValueChanged<CombatAction> onUseAction;
   final bool compact;
 
   const _CinematicTechniqueRail({
@@ -14572,12 +16554,18 @@ class _CinematicTechniqueRail extends StatelessWidget {
     final color = resourceKey == null
         ? tokens.accentAction
         : _classKitAccent(resourceKey, tokens);
-    final title = resourceKey == null
-        ? 'Artes marciales'
-        : 'Artes marciales - ${_classKitTitle(resourceKey)}';
+    final isKiKit =
+        resourceKey != null && _isKiResourceKey(_rulesLabelText(resourceKey));
+    final title = isKiKit
+        ? 'Tecnicas activas'
+        : resourceKey == null
+            ? 'Artes marciales'
+            : 'Artes marciales - ${_classKitTitle(resourceKey)}';
     final subtitle = resourceRemaining == null
         ? 'Golpe adicional sin Ki tras atacar'
-        : '$resourceRemaining ${_classKitShortLabel(resourceKey ?? '')} disponibles';
+        : isKiKit
+            ? '$resourceRemaining Ki - acciones ejecutables'
+            : '$resourceRemaining ${_classKitShortLabel(resourceKey ?? '')} disponibles';
 
     return Container(
       height: compact ? 50 : 56,
@@ -14602,7 +16590,7 @@ class _CinematicTechniqueRail extends StatelessWidget {
             ),
             child: Icon(
               Icons.self_improvement_rounded,
-              color: _CinematicColors.paper,
+              color: CombatCinematicColors.paper,
               size: compact ? 18 : 21,
             ),
           ),
@@ -14618,7 +16606,7 @@ class _CinematicTechniqueRail extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: _CinematicColors.paper,
+                    color: CombatCinematicColors.paper,
                     fontSize: compact ? 11 : 12,
                     fontWeight: FontWeight.w900,
                     height: 1,
@@ -14647,7 +16635,7 @@ class _CinematicTechniqueRail extends StatelessWidget {
               separatorBuilder: (_, __) => const SizedBox(width: 7),
               itemBuilder: (context, index) {
                 final action = techniqueActions[index];
-                final blocked = _techniqueActionBlocked(
+                final blockedReason = _techniqueActionBlockedReason(
                   actions: actions,
                   action: action,
                   resourcePool: resourcePool,
@@ -14661,11 +16649,20 @@ class _CinematicTechniqueRail extends StatelessWidget {
                 return _TechniqueRailChip(
                   action: action,
                   color: color,
-                  blocked: blocked,
+                  blockedReason: blockedReason,
                   pendingDamage: pendingDamage,
                   compact: compact,
                   onTap: () {
-                    if (blocked) return;
+                    if (blockedReason != null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('${action.name}: $blockedReason'),
+                          behavior: SnackBarBehavior.floating,
+                          duration: const Duration(milliseconds: 1500),
+                        ),
+                      );
+                      return;
+                    }
                     _rollPrimaryAction(
                       action,
                       onRollAction,
@@ -14684,9 +16681,9 @@ class _CinematicTechniqueRail extends StatelessWidget {
 }
 
 class _TechniqueRailChip extends StatelessWidget {
-  final _CombatAction action;
+  final CombatAction action;
   final Color color;
-  final bool blocked;
+  final String? blockedReason;
   final bool pendingDamage;
   final bool compact;
   final VoidCallback onTap;
@@ -14694,7 +16691,7 @@ class _TechniqueRailChip extends StatelessWidget {
   const _TechniqueRailChip({
     required this.action,
     required this.color,
-    required this.blocked,
+    required this.blockedReason,
     required this.pendingDamage,
     required this.compact,
     required this.onTap,
@@ -14702,9 +16699,10 @@ class _TechniqueRailChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final blocked = blockedReason != null;
     final effectiveColor = blocked ? context.stitch.textMuted : color;
     return InkWell(
-      onTap: blocked ? null : onTap,
+      onTap: onTap,
       borderRadius: BorderRadius.circular(7),
       child: Container(
         width: compact ? 154 : 178,
@@ -14723,7 +16721,7 @@ class _TechniqueRailChip extends StatelessWidget {
           children: [
             Icon(
               pendingDamage ? Icons.auto_fix_high_outlined : action.icon,
-              color: _CinematicColors.paper,
+              color: CombatCinematicColors.paper,
               size: compact ? 15 : 17,
             ),
             const SizedBox(width: 7),
@@ -14737,7 +16735,7 @@ class _TechniqueRailChip extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: _CinematicColors.paper,
+                      color: CombatCinematicColors.paper,
                       fontSize: compact ? 10 : 11,
                       fontWeight: FontWeight.w900,
                       height: 1,
@@ -14745,7 +16743,7 @@ class _TechniqueRailChip extends StatelessWidget {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    _techniqueActionHint(action, blocked),
+                    _techniqueActionHint(action, blockedReason),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -14766,12 +16764,12 @@ class _TechniqueRailChip extends StatelessWidget {
 }
 
 class _CinematicActionLoadoutStrip extends StatelessWidget {
-  final _Combatant activeCombatant;
-  final _Combatant selectedTarget;
+  final Combatant activeCombatant;
+  final Combatant selectedTarget;
   final String selectedTiming;
   final int visibleActionCount;
   final int totalActionCount;
-  final _CombatAction? featuredAction;
+  final CombatAction? featuredAction;
   final bool pendingDamage;
   final bool spent;
   final Map<String, int> resourcePool;
@@ -14793,7 +16791,7 @@ class _CinematicActionLoadoutStrip extends StatelessWidget {
     final tokens = context.stitch;
     final action = featuredAction;
     final accent = action == null
-        ? _teamColor(activeCombatant.team, tokens)
+        ? combatTeamColor(activeCombatant.team, tokens)
         : _accentForKind(action.accentKind, tokens);
     final blocked =
         action == null ? false : _actionLacksResource(action, resourcePool);
@@ -14823,7 +16821,7 @@ class _CinematicActionLoadoutStrip extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                color: _CinematicColors.paper,
+                color: CombatCinematicColors.paper,
                 fontSize: 12,
                 fontWeight: FontWeight.w900,
                 height: 1,
@@ -14831,14 +16829,14 @@ class _CinematicActionLoadoutStrip extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          _CinematicActionInfoChip(
+          CombatActionInfoChip(
             icon: Icons.inventory_2_outlined,
             label: '$visibleActionCount/$totalActionCount',
             color: tokens.accentInfo,
             compact: true,
           ),
           const SizedBox(width: 6),
-          _CinematicActionInfoChip(
+          CombatActionInfoChip(
             icon: Icons.center_focus_strong_rounded,
             label: selectedTarget.name,
             color: tokens.accentWarning,
@@ -14846,7 +16844,7 @@ class _CinematicActionLoadoutStrip extends StatelessWidget {
           ),
           if (action != null) ...[
             const SizedBox(width: 6),
-            _CinematicActionInfoChip(
+            CombatActionInfoChip(
               icon: pendingDamage
                   ? Icons.auto_fix_high_outlined
                   : spent
@@ -14860,16 +16858,16 @@ class _CinematicActionLoadoutStrip extends StatelessWidget {
               color: pendingDamage
                   ? tokens.accentSuccess
                   : spent
-                      ? _CinematicColors.blood
+                      ? CombatCinematicColors.blood
                       : blocked
-                          ? _CinematicColors.blood
+                          ? CombatCinematicColors.blood
                           : accent,
               compact: true,
             ),
           ],
           if (resourceText != null) ...[
             const SizedBox(width: 6),
-            _CinematicActionInfoChip(
+            CombatActionInfoChip(
               icon: Icons.battery_charging_full_outlined,
               label: resourceText,
               color: tokens.accentSuccess,
@@ -14883,19 +16881,19 @@ class _CinematicActionLoadoutStrip extends StatelessWidget {
 }
 
 class _CinematicFeaturedActionCard extends StatelessWidget {
-  final _CombatAction action;
-  final _Combatant activeCombatant;
-  final _Combatant selectedTarget;
+  final CombatAction action;
+  final Combatant activeCombatant;
+  final Combatant selectedTarget;
   final bool prepared;
   final bool spent;
   final bool pendingDamage;
   final bool blocked;
   final int? resourceRemaining;
-  final void Function(_CombatAction action, _CombatActionRoll rollType)
+  final void Function(CombatAction action, CombatActionRoll rollType)
       onRollAction;
-  final ValueChanged<_CombatAction> onUseAction;
-  final ValueChanged<_CombatAction> onPrepareAction;
-  final ValueChanged<_CombatAction> onReadyAction;
+  final ValueChanged<CombatAction> onUseAction;
+  final ValueChanged<CombatAction> onPrepareAction;
+  final ValueChanged<CombatAction> onReadyAction;
 
   const _CinematicFeaturedActionCard({
     required this.action,
@@ -14926,7 +16924,7 @@ class _CinematicFeaturedActionCard extends StatelessWidget {
       blocked: blocked,
     );
 
-    return _CinematicActionTapRegion(
+    return CombatActionTapRegion(
       tooltip: _primaryActionTooltip(action, pendingDamage),
       onTap: () => _rollPrimaryAction(
         action,
@@ -14934,7 +16932,7 @@ class _CinematicFeaturedActionCard extends StatelessWidget {
         onUseAction,
         pendingDamage: pendingDamage,
       ),
-      child: _CinematicActionCardFrame(
+      child: CombatActionCardFrame(
         color: accent,
         blocked: blocked,
         prepared: prepared,
@@ -14966,7 +16964,7 @@ class _CinematicFeaturedActionCard extends StatelessWidget {
                       ),
                       child: Icon(
                         action.icon,
-                        color: _CinematicColors.paper,
+                        color: CombatCinematicColors.paper,
                         size: ultraTight
                             ? 18
                             : tight
@@ -14984,7 +16982,7 @@ class _CinematicFeaturedActionCard extends StatelessWidget {
                             maxLines: tight ? 1 : 2,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              color: _CinematicColors.paper,
+                              color: CombatCinematicColors.paper,
                               fontSize: ultraTight
                                   ? 14
                                   : tight
@@ -15001,7 +16999,7 @@ class _CinematicFeaturedActionCard extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
-                                color: _CinematicColors.actionTextMuted,
+                                color: CombatCinematicColors.actionTextMuted,
                                 fontSize: 12,
                                 fontWeight: FontWeight.w800,
                               ),
@@ -15012,7 +17010,7 @@ class _CinematicFeaturedActionCard extends StatelessWidget {
                     ),
                     if (stateLabel != null) ...[
                       const SizedBox(width: 7),
-                      _CinematicActionStateBadge(
+                      CombatActionStateBadge(
                         label: stateLabel,
                         color: _actionStateColor(
                           prepared: prepared,
@@ -15050,7 +17048,7 @@ class _CinematicFeaturedActionCard extends StatelessWidget {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      color: _CinematicColors.actionTextMuted,
+                      color: CombatCinematicColors.actionTextMuted,
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
                       height: 1.16,
@@ -15059,7 +17057,7 @@ class _CinematicFeaturedActionCard extends StatelessWidget {
                 ],
                 const Spacer(),
                 if (blocked && !ultraTight) ...[
-                  _CinematicActionInlineWarning(
+                  CombatActionInlineWarning(
                     label: resourceName == null
                         ? 'No disponible'
                         : '$resourceName agotado',
@@ -15070,7 +17068,7 @@ class _CinematicFeaturedActionCard extends StatelessWidget {
                 Row(
                   children: [
                     Expanded(
-                      child: _ParchmentActionButton(
+                      child: CombatParchmentActionButton(
                         label: _primaryActionLabel(action, pendingDamage),
                         icon: pendingDamage
                             ? Icons.auto_fix_high_outlined
@@ -15086,7 +17084,7 @@ class _CinematicFeaturedActionCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    _ParchmentIconButton(
+                    CombatParchmentIconButton(
                       icon: prepared ? Icons.bookmark_added : Icons.add_task,
                       tooltip: prepared ? 'Quitar del plan' : 'Preparar',
                       color: accent,
@@ -15095,7 +17093,7 @@ class _CinematicFeaturedActionCard extends StatelessWidget {
                     ),
                     if (!ultraTight && action.timing == 'Action') ...[
                       const SizedBox(width: 8),
-                      _ParchmentIconButton(
+                      CombatParchmentIconButton(
                         icon: Icons.flag_outlined,
                         tooltip: 'Ready action',
                         color: accent,
@@ -15105,11 +17103,11 @@ class _CinematicFeaturedActionCard extends StatelessWidget {
                     ],
                     if (!tight) ...[
                       const SizedBox(width: 8),
-                      _ParchmentIconButton(
+                      CombatParchmentIconButton(
                         icon: Icons.info_outline,
                         tooltip: 'Detalles',
                         color: accent,
-                        onTap: () => _showActionDetails(context, action),
+                        onTap: () => showCombatActionDetails(context, action),
                       ),
                     ],
                   ],
@@ -15124,17 +17122,17 @@ class _CinematicFeaturedActionCard extends StatelessWidget {
 }
 
 class _CinematicSmallActionCard extends StatelessWidget {
-  final _CombatAction action;
+  final CombatAction action;
   final bool prepared;
   final bool spent;
   final bool pendingDamage;
   final bool blocked;
   final int? resourceRemaining;
-  final void Function(_CombatAction action, _CombatActionRoll rollType)
+  final void Function(CombatAction action, CombatActionRoll rollType)
       onRollAction;
-  final ValueChanged<_CombatAction> onUseAction;
-  final ValueChanged<_CombatAction> onPrepareAction;
-  final ValueChanged<_CombatAction> onReadyAction;
+  final ValueChanged<CombatAction> onUseAction;
+  final ValueChanged<CombatAction> onPrepareAction;
+  final ValueChanged<CombatAction> onReadyAction;
 
   const _CinematicSmallActionCard({
     required this.action,
@@ -15160,7 +17158,7 @@ class _CinematicSmallActionCard extends StatelessWidget {
       blocked: blocked,
     );
 
-    return _CinematicActionTapRegion(
+    return CombatActionTapRegion(
       tooltip: _primaryActionTooltip(action, pendingDamage),
       onTap: () => _rollPrimaryAction(
         action,
@@ -15168,7 +17166,7 @@ class _CinematicSmallActionCard extends StatelessWidget {
         onUseAction,
         pendingDamage: pendingDamage,
       ),
-      child: _CinematicActionCardFrame(
+      child: CombatActionCardFrame(
         color: accent,
         blocked: blocked,
         prepared: prepared,
@@ -15184,7 +17182,7 @@ class _CinematicSmallActionCard extends StatelessWidget {
                   children: [
                     Icon(
                       action.icon,
-                      color: _CinematicColors.actionTextMuted,
+                      color: CombatCinematicColors.actionTextMuted,
                       size: veryTight ? 18 : 20,
                     ),
                     const SizedBox(width: 7),
@@ -15194,7 +17192,7 @@ class _CinematicSmallActionCard extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: _CinematicColors.paper,
+                          color: CombatCinematicColors.paper,
                           fontSize: ultraTight
                               ? 11
                               : veryTight
@@ -15207,7 +17205,7 @@ class _CinematicSmallActionCard extends StatelessWidget {
                     ),
                     if (stateLabel != null) ...[
                       const SizedBox(width: 5),
-                      _CinematicActionStateBadge(
+                      CombatActionStateBadge(
                         label: stateLabel,
                         color: _actionStateColor(
                           prepared: prepared,
@@ -15228,7 +17226,7 @@ class _CinematicSmallActionCard extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      color: _CinematicColors.actionTextMuted,
+                      color: CombatCinematicColors.actionTextMuted,
                       fontSize: 10,
                       fontWeight: FontWeight.w800,
                     ),
@@ -15255,7 +17253,7 @@ class _CinematicSmallActionCard extends StatelessWidget {
                 Row(
                   children: [
                     Expanded(
-                      child: _ParchmentActionButton(
+                      child: CombatParchmentActionButton(
                         label: _primaryActionLabel(action, pendingDamage),
                         icon: pendingDamage
                             ? Icons.auto_fix_high_outlined
@@ -15271,7 +17269,7 @@ class _CinematicSmallActionCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 7),
-                    _ParchmentIconButton(
+                    CombatParchmentIconButton(
                       icon: prepared ? Icons.bookmark_added : Icons.add,
                       tooltip: prepared ? 'Quitar del plan' : 'Preparar',
                       color: accent,
@@ -15280,7 +17278,7 @@ class _CinematicSmallActionCard extends StatelessWidget {
                     ),
                     if (!ultraTight && action.timing == 'Action') ...[
                       const SizedBox(width: 6),
-                      _ParchmentIconButton(
+                      CombatParchmentIconButton(
                         icon: Icons.flag_outlined,
                         tooltip: 'Ready action',
                         color: accent,
@@ -15299,154 +17297,8 @@ class _CinematicSmallActionCard extends StatelessWidget {
   }
 }
 
-class _CinematicActionCardFrame extends StatelessWidget {
-  final Widget child;
-  final Color color;
-  final bool blocked;
-  final bool prepared;
-  final bool dense;
-
-  const _CinematicActionCardFrame({
-    required this.child,
-    required this.color,
-    required this.blocked,
-    required this.prepared,
-    this.dense = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 160),
-      clipBehavior: Clip.hardEdge,
-      padding: EdgeInsets.all(dense ? 8 : 10),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: blocked
-              ? [
-                  const Color(0xFF4A211F),
-                  const Color(0xFF20110F),
-                  const Color(0xFF090605),
-                ]
-              : [
-                  Color.lerp(Colors.black, color, 0.36)!,
-                  _CinematicColors.actionSurfaceRaised,
-                  _CinematicColors.actionSurface,
-                ],
-          stops: const [0, 0.56, 1],
-        ),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: prepared
-              ? _CinematicColors.goldBright
-              : color.withValues(alpha: 0.52),
-          width: prepared ? 2 : 1.2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: color.withValues(alpha: prepared ? 0.34 : 0.22),
-            blurRadius: prepared ? 20 : 14,
-            offset: const Offset(0, 10),
-          ),
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.32),
-            blurRadius: 14,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Stack(
-        children: [
-          Positioned(
-            left: -18,
-            top: -18,
-            child: Icon(
-              Icons.hexagon_outlined,
-              color: color.withValues(alpha: 0.08),
-              size: dense ? 82 : 118,
-            ),
-          ),
-          Positioned.fill(child: child),
-        ],
-      ),
-    );
-  }
-}
-
-class _CinematicActionTapRegion extends StatelessWidget {
-  final Widget child;
-  final String tooltip;
-  final VoidCallback onTap;
-
-  const _CinematicActionTapRegion({
-    required this.child,
-    required this.tooltip,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(8),
-          child: child,
-        ),
-      ),
-    );
-  }
-}
-
-class _CinematicActionStateBadge extends StatelessWidget {
-  final String label;
-  final Color color;
-  final bool compact;
-
-  const _CinematicActionStateBadge({
-    required this.label,
-    required this.color,
-    this.compact = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      constraints: BoxConstraints(
-        minWidth: compact ? 36 : 44,
-        maxWidth: compact ? 54 : 68,
-      ),
-      padding: EdgeInsets.symmetric(
-        horizontal: compact ? 5 : 7,
-        vertical: compact ? 3 : 4,
-      ),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.44)),
-      ),
-      child: Text(
-        label,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          color: color,
-          fontSize: compact ? 7.5 : 8.5,
-          fontWeight: FontWeight.w900,
-          height: 1,
-        ),
-      ),
-    );
-  }
-}
-
 class _CinematicActionMetricGrid extends StatelessWidget {
-  final _CombatAction action;
+  final CombatAction action;
   final String? resourceName;
   final int? resourceRemaining;
   final bool blocked;
@@ -15466,27 +17318,27 @@ class _CinematicActionMetricGrid extends StatelessWidget {
     final impactColor = action.isHealing
         ? tokens.accentSuccess
         : _accentForKind(action.accentKind, tokens);
-    final areaText = _actionAreaText(action);
+    final areaText = combatActionAreaText(action);
 
     return Wrap(
       spacing: 7,
       runSpacing: 7,
       children: [
-        _CinematicActionInfoChip(
+        CombatActionInfoChip(
           icon: Icons.straighten_rounded,
           label: _actionRangeText(action),
           color: tokens.accentInfo,
           compact: compact,
         ),
-        _CinematicActionInfoChip(
+        CombatActionInfoChip(
           icon: action.requiresSavingThrow
               ? Icons.shield_outlined
               : Icons.casino_outlined,
           label: _actionRollText(action),
-          color: _CinematicColors.goldBright,
+          color: CombatCinematicColors.goldBright,
           compact: compact,
         ),
-        _CinematicActionInfoChip(
+        CombatActionInfoChip(
           icon: action.isHealing
               ? Icons.volunteer_activism_outlined
               : Icons.local_fire_department_outlined,
@@ -15495,19 +17347,19 @@ class _CinematicActionMetricGrid extends StatelessWidget {
           compact: compact,
         ),
         if (areaText != null)
-          _CinematicActionInfoChip(
+          CombatActionInfoChip(
             icon: Icons.blur_circular_rounded,
             label: areaText,
             color: tokens.accentMagic,
             compact: compact,
           ),
         if (resourceName != null)
-          _CinematicActionInfoChip(
+          CombatActionInfoChip(
             icon: blocked
                 ? Icons.battery_alert_outlined
                 : Icons.battery_charging_full_outlined,
             label: '$resourceName ${resourceRemaining ?? 0}',
-            color: blocked ? _CinematicColors.blood : tokens.accentSuccess,
+            color: blocked ? CombatCinematicColors.blood : tokens.accentSuccess,
             compact: compact,
           ),
       ],
@@ -15516,7 +17368,7 @@ class _CinematicActionMetricGrid extends StatelessWidget {
 }
 
 class _CinematicSmallActionStatLine extends StatelessWidget {
-  final _CombatAction action;
+  final CombatAction action;
   final int? resourceRemaining;
   final bool blocked;
   final bool compact;
@@ -15531,25 +17383,25 @@ class _CinematicSmallActionStatLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.stitch;
-    final areaText = _actionAreaText(action);
+    final areaText = combatActionAreaText(action);
     return Wrap(
       spacing: 5,
       runSpacing: 5,
       children: [
-        _CinematicActionInfoChip(
+        CombatActionInfoChip(
           icon: Icons.straighten_rounded,
           label: _actionRangeText(action),
           color: tokens.accentInfo,
           compact: true,
         ),
-        _CinematicActionInfoChip(
+        CombatActionInfoChip(
           icon: Icons.casino_outlined,
           label: _actionRollText(action),
-          color: _CinematicColors.goldBright,
+          color: CombatCinematicColors.goldBright,
           compact: true,
         ),
         if (!compact)
-          _CinematicActionInfoChip(
+          CombatActionInfoChip(
             icon: action.isHealing
                 ? Icons.volunteer_activism_outlined
                 : Icons.local_fire_department_outlined,
@@ -15558,19 +17410,19 @@ class _CinematicSmallActionStatLine extends StatelessWidget {
             compact: true,
           ),
         if (areaText != null)
-          _CinematicActionInfoChip(
+          CombatActionInfoChip(
             icon: Icons.blur_circular_rounded,
             label: areaText,
             color: tokens.accentMagic,
             compact: true,
           ),
         if (resourceRemaining != null)
-          _CinematicActionInfoChip(
+          CombatActionInfoChip(
             icon: blocked
                 ? Icons.battery_alert_outlined
                 : Icons.battery_charging_full_outlined,
             label: '$resourceRemaining',
-            color: blocked ? _CinematicColors.blood : tokens.accentSuccess,
+            color: blocked ? CombatCinematicColors.blood : tokens.accentSuccess,
             compact: true,
           ),
       ],
@@ -15579,8 +17431,8 @@ class _CinematicSmallActionStatLine extends StatelessWidget {
 }
 
 class _CinematicActionOutcomeStrip extends StatelessWidget {
-  final _CombatAction action;
-  final _Combatant? selectedTarget;
+  final CombatAction action;
+  final Combatant? selectedTarget;
   final bool pendingDamage;
   final Color color;
   final bool compact;
@@ -15629,7 +17481,7 @@ class _CinematicActionOutcomeStrip extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                color: _CinematicColors.paper,
+                color: CombatCinematicColors.paper,
                 fontSize: compact ? 10 : 11,
                 fontWeight: FontWeight.w900,
                 height: 1,
@@ -15656,497 +17508,10 @@ class _CinematicActionOutcomeStrip extends StatelessWidget {
   }
 }
 
-class _CinematicActionInfoChip extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-  final bool compact;
-
-  const _CinematicActionInfoChip({
-    required this.icon,
-    required this.label,
-    required this.color,
-    this.compact = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      constraints: BoxConstraints(
-        minWidth: compact ? 46 : 64,
-        maxWidth: compact ? 118 : 150,
-      ),
-      padding: EdgeInsets.symmetric(
-        horizontal: compact ? 7 : 8,
-        vertical: compact ? 4 : 5,
-      ),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: color.withValues(alpha: 0.30)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: color, size: compact ? 13 : 15),
-          const SizedBox(width: 5),
-          Flexible(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: _CinematicColors.paper,
-                fontSize: compact ? 9 : 10.5,
-                fontWeight: FontWeight.w900,
-                height: 1,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CinematicActionInlineWarning extends StatelessWidget {
-  final String label;
-
-  const _CinematicActionInlineWarning({
-    required this.label,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 26,
-      padding: const EdgeInsets.symmetric(horizontal: 9),
-      decoration: BoxDecoration(
-        color: _CinematicColors.blood.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(
-          color: _CinematicColors.blood.withValues(alpha: 0.36),
-        ),
-      ),
-      child: Row(
-        children: [
-          const Icon(
-            Icons.warning_amber_rounded,
-            color: _CinematicColors.paper,
-            size: 14,
-          ),
-          const SizedBox(width: 7),
-          Expanded(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: _CinematicColors.paper,
-                fontSize: 10,
-                fontWeight: FontWeight.w900,
-                height: 1,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ParchmentFormulaPill extends StatelessWidget {
-  final String label;
-  final String caption;
-  final bool compact;
-
-  const _ParchmentFormulaPill({
-    required this.label,
-    required this.caption,
-    this.compact = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          padding: EdgeInsets.symmetric(
-            horizontal: compact ? 7 : 8,
-            vertical: compact ? 5 : 6,
-          ),
-          decoration: BoxDecoration(
-            color: _CinematicColors.blood,
-            borderRadius: BorderRadius.circular(5),
-            border: Border.all(
-                color: const Color(0xFFFFD9B0).withValues(alpha: 0.20)),
-          ),
-          child: Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: compact ? 13 : 15,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-        ),
-        SizedBox(width: compact ? 5 : 7),
-        Text(
-          caption,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: _CinematicColors.actionTextMuted,
-            fontSize: compact ? 10 : 12,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ParchmentActionButton extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final Color color;
-  final VoidCallback onTap;
-  final bool compact;
-
-  const _ParchmentActionButton({
-    required this.label,
-    required this.icon,
-    required this.color,
-    required this.onTap,
-    this.compact = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(6),
-      child: Container(
-        height: compact ? 28 : 34,
-        padding: const EdgeInsets.symmetric(horizontal: 9),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.14),
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: color.withValues(alpha: 0.32)),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: _CinematicColors.paper, size: compact ? 14 : 16),
-            const SizedBox(width: 6),
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: _CinematicColors.paper,
-                  fontSize: compact ? 10 : 12,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ParchmentIconButton extends StatelessWidget {
-  final IconData icon;
-  final String tooltip;
-  final Color color;
-  final VoidCallback onTap;
-  final bool compact;
-
-  const _ParchmentIconButton({
-    required this.icon,
-    required this.tooltip,
-    required this.color,
-    required this.onTap,
-    this.compact = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final size = compact ? 28.0 : 34.0;
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(6),
-        child: Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: color.withValues(alpha: 0.28)),
-          ),
-          child: Icon(icon,
-              color: _CinematicColors.paper, size: compact ? 15 : 18),
-        ),
-      ),
-    );
-  }
-}
-
-class _CinematicFooterButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-  final VoidCallback onTap;
-  final bool compact;
-
-  const _CinematicFooterButton({
-    required this.icon,
-    required this.label,
-    required this.color,
-    required this.onTap,
-    this.compact = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(7),
-      child: Container(
-        height: compact ? 40 : 42,
-        padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 18),
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.38),
-          borderRadius: BorderRadius.circular(7),
-          border: Border.all(color: color.withValues(alpha: 0.30)),
-        ),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final hasFiniteWidth = constraints.maxWidth.isFinite;
-            final labelWidget = Text(
-              label.toUpperCase(),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: color,
-                fontSize: compact ? 10 : 12,
-                fontWeight: FontWeight.w900,
-              ),
-            );
-
-            return Row(
-              mainAxisSize:
-                  hasFiniteWidth ? MainAxisSize.max : MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(icon, color: color, size: compact ? 17 : 19),
-                const SizedBox(width: 10),
-                if (hasFiniteWidth)
-                  Flexible(child: labelWidget)
-                else
-                  ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxWidth: compact ? 112 : 160,
-                    ),
-                    child: labelWidget,
-                  ),
-              ],
-            );
-          },
-        ),
-      ),
-    );
-  }
-}
-
-class _CinematicConfirmButton extends StatelessWidget {
-  final bool enabled;
-  final String label;
-  final VoidCallback onTap;
-
-  const _CinematicConfirmButton({
-    required this.enabled,
-    required this.label,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Opacity(
-      opacity: enabled ? 1 : 0.52,
-      child: InkWell(
-        onTap: enabled ? onTap : null,
-        borderRadius: BorderRadius.circular(7),
-        child: Container(
-          height: 46,
-          padding: const EdgeInsets.symmetric(horizontal: 18),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [
-                Color(0xFF5F1510),
-                Color(0xFF9D241A),
-                Color(0xFF4E100E),
-              ],
-            ),
-            borderRadius: BorderRadius.circular(7),
-            border: Border.all(
-                color: const Color(0xFFD66B42).withValues(alpha: 0.62)),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF9D241A).withValues(alpha: 0.28),
-                blurRadius: 18,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Flexible(
-                child: Text(
-                  label.toUpperCase(),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: _CinematicColors.paper,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              const Icon(
-                Icons.arrow_forward_rounded,
-                color: _CinematicColors.paper,
-                size: 22,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _CinematicEmptyActionCard extends StatelessWidget {
-  const _CinematicEmptyActionCard();
-
-  @override
-  Widget build(BuildContext context) {
-    return _CinematicActionCardFrame(
-      color: _CinematicColors.gold,
-      blocked: false,
-      prepared: false,
-      child: const Center(
-        child: Text(
-          'Sin acciones disponibles',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: _CinematicColors.paper,
-            fontSize: 16,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _CinematicActionListEmpty extends StatelessWidget {
-  final String selectedTiming;
-
-  const _CinematicActionListEmpty({
-    required this.selectedTiming,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: _CinematicColors.gold.withValues(alpha: 0.18),
-        ),
-      ),
-      child: Text(
-        'No hay mas opciones para ${_compactTimingLabel(selectedTiming)}',
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          color: _CinematicColors.paper.withValues(alpha: 0.66),
-          fontSize: 13,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-    );
-  }
-}
-
-class _CinematicQueueChip extends StatelessWidget {
-  final int index;
-  final int total;
-  final String? name;
-
-  const _CinematicQueueChip({
-    required this.index,
-    required this.total,
-    required this.name,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      constraints: const BoxConstraints(maxWidth: 220),
-      height: 38,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: _CinematicColors.gold.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(7),
-        border: Border.all(
-          color: _CinematicColors.gold.withValues(alpha: 0.30),
-        ),
-      ),
-      child: Row(
-        children: [
-          const Icon(
-            Icons.playlist_play_outlined,
-            color: _CinematicColors.goldBright,
-            size: 18,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              '${math.min(index + 1, total)}/$total ${name ?? ''}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: _CinematicColors.paper,
-                fontSize: 11,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _CinematicReactionBar extends StatelessWidget {
-  final List<_ReactionOption> options;
+  final List<ReactionOption> options;
   final String activeName;
-  final void Function(int actorIndex, _CombatAction action) onUseReaction;
+  final void Function(int actorIndex, CombatAction action) onUseReaction;
 
   const _CinematicReactionBar({
     required this.options,
@@ -16168,7 +17533,7 @@ class _CinematicReactionBar extends StatelessWidget {
               color: Colors.black.withValues(alpha: 0.26),
               borderRadius: BorderRadius.circular(6),
               border: Border.all(
-                color: _CinematicColors.gold.withValues(alpha: 0.18),
+                color: CombatCinematicColors.gold.withValues(alpha: 0.18),
               ),
             ),
             child: const Text(
@@ -16176,7 +17541,7 @@ class _CinematicReactionBar extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                color: _CinematicColors.paper,
+                color: CombatCinematicColors.paper,
                 fontSize: 10,
                 fontWeight: FontWeight.w900,
                 height: 1,
@@ -16208,7 +17573,7 @@ class _CinematicReactionBar extends StatelessWidget {
 }
 
 class _CinematicReactionChip extends StatelessWidget {
-  final _ReactionOption option;
+  final ReactionOption option;
   final String activeName;
   final VoidCallback? onTap;
 
@@ -16221,7 +17586,7 @@ class _CinematicReactionChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.stitch;
-    final accent = _teamColor(option.combatant.team, tokens);
+    final accent = combatTeamColor(option.combatant.team, tokens);
     final disabled = option.spent;
     return Tooltip(
       message: disabled
@@ -16262,7 +17627,7 @@ class _CinematicReactionChip extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          color: _CinematicColors.paper,
+                          color: CombatCinematicColors.paper,
                           fontSize: 10,
                           fontWeight: FontWeight.w900,
                           height: 1,
@@ -16297,8 +17662,8 @@ class _CinematicReactionChip extends StatelessWidget {
 }
 
 class _CinematicRollModeToggle extends StatelessWidget {
-  final _CombatRollMode value;
-  final ValueChanged<_CombatRollMode> onChanged;
+  final CombatRollMode value;
+  final ValueChanged<CombatRollMode> onChanged;
 
   const _CinematicRollModeToggle({
     required this.value,
@@ -16307,123 +17672,41 @@ class _CinematicRollModeToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 42,
-      padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.34),
-        borderRadius: BorderRadius.circular(7),
-        border: Border.all(
-          color: _CinematicColors.gold.withValues(alpha: 0.24),
+    return CombatRollModeToggle<CombatRollMode>(
+      value: value,
+      onChanged: onChanged,
+      options: const [
+        CombatRollModeOption(
+          value: CombatRollMode.normal,
+          icon: Icons.casino_outlined,
+          label: 'N',
+          tooltip: 'Normal',
         ),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: _CinematicRollModeSegment(
-              icon: Icons.casino_outlined,
-              label: 'N',
-              tooltip: 'Normal',
-              selected: value == _CombatRollMode.normal,
-              onTap: () => onChanged(_CombatRollMode.normal),
-            ),
-          ),
-          const SizedBox(width: 3),
-          Expanded(
-            child: _CinematicRollModeSegment(
-              icon: Icons.keyboard_arrow_up_rounded,
-              label: 'ADV',
-              tooltip: 'Ventaja',
-              selected: value == _CombatRollMode.advantage,
-              onTap: () => onChanged(_CombatRollMode.advantage),
-            ),
-          ),
-          const SizedBox(width: 3),
-          Expanded(
-            child: _CinematicRollModeSegment(
-              icon: Icons.keyboard_arrow_down_rounded,
-              label: 'DIS',
-              tooltip: 'Desventaja',
-              selected: value == _CombatRollMode.disadvantage,
-              onTap: () => onChanged(_CombatRollMode.disadvantage),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CinematicRollModeSegment extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String tooltip;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _CinematicRollModeSegment({
-    required this.icon,
-    required this.label,
-    required this.tooltip,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final color =
-        selected ? _CinematicColors.goldBright : _CinematicColors.paper;
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(5),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 140),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: selected
-                ? _CinematicColors.gold.withValues(alpha: 0.20)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(5),
-            border: Border.all(
-              color: color.withValues(alpha: selected ? 0.36 : 0.10),
-            ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, color: color, size: 14),
-              const SizedBox(width: 3),
-              Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 9,
-                    fontWeight: FontWeight.w900,
-                    height: 1,
-                  ),
-                ),
-              ),
-            ],
-          ),
+        CombatRollModeOption(
+          value: CombatRollMode.advantage,
+          icon: Icons.keyboard_arrow_up_rounded,
+          label: 'ADV',
+          tooltip: 'Ventaja',
         ),
-      ),
+        CombatRollModeOption(
+          value: CombatRollMode.disadvantage,
+          icon: Icons.keyboard_arrow_down_rounded,
+          label: 'DIS',
+          tooltip: 'Desventaja',
+        ),
+      ],
     );
   }
 }
 
 class _CinematicWorkspaceOverlay extends StatelessWidget {
-  final _CombatWorkspace workspace;
-  final List<_Combatant> combatants;
+  final CombatWorkspace workspace;
+  final List<Combatant> combatants;
   final int activeIndex;
   final int targetIndex;
   final bool showEnemyHp;
-  final List<_CombatLogEntry> entries;
-  final _CombatRollFeedback? rollFeedback;
+  final List<CombatLogEntry> entries;
+  final CombatRollFeedback? rollFeedback;
 
   const _CinematicWorkspaceOverlay({
     required this.workspace,
@@ -16437,28 +17720,28 @@ class _CinematicWorkspaceOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _CinematicPanelFrame(
-      borderColor: _CinematicColors.gold,
+    return CombatCinematicPanelFrame(
+      borderColor: CombatCinematicColors.gold,
       padding: const EdgeInsets.all(14),
       backgroundAlpha: 0.76,
       child: switch (workspace) {
-        _CombatWorkspace.log =>
-          _GameFeedWindow(entries: entries, maxEntries: 12),
-        _CombatWorkspace.overview => _EncounterOverviewStage(
+        CombatWorkspace.log =>
+          CombatFeedWindow(entries: entries, maxEntries: 12),
+        CombatWorkspace.overview => _EncounterOverviewStage(
             combatants: combatants,
             activeIndex: activeIndex,
             targetIndex: targetIndex,
             rollFeedback: rollFeedback,
             showEnemyHp: showEnemyHp,
           ),
-        _CombatWorkspace.turn => const SizedBox.shrink(),
+        CombatWorkspace.turn => const SizedBox.shrink(),
       },
     );
   }
 }
 
 class _CombatFallingDiceOverlay extends StatelessWidget {
-  final _CombatRollFeedback? feedback;
+  final CombatRollFeedback? feedback;
 
   const _CombatFallingDiceOverlay({
     required this.feedback,
@@ -16837,7 +18120,7 @@ class _DndDiePainter extends CustomPainter {
 }
 
 class _DiceLandingResultPill extends StatelessWidget {
-  final _CombatRollFeedback feedback;
+  final CombatRollFeedback feedback;
   final Color color;
 
   const _DiceLandingResultPill({
@@ -16876,7 +18159,7 @@ class _DiceLandingResultPill extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
               style: const TextStyle(
-                color: _CinematicColors.paper,
+                color: CombatCinematicColors.paper,
                 fontSize: 13,
                 fontWeight: FontWeight.w900,
               ),
@@ -16981,7 +18264,7 @@ Color _dieColorForIndex(Color base, int index) {
 }
 
 class _CinematicRollToast extends StatelessWidget {
-  final _CombatRollFeedback feedback;
+  final CombatRollFeedback feedback;
 
   const _CinematicRollToast({
     required this.feedback,
@@ -17040,7 +18323,7 @@ class _CinematicRollToast extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        color: _CinematicColors.paper,
+                        color: CombatCinematicColors.paper,
                         fontSize: 17,
                         fontWeight: FontWeight.w900,
                       ),
@@ -17123,455 +18406,8 @@ class _FallingDiceTrail extends StatelessWidget {
   }
 }
 
-class _CinematicPanelFrame extends StatelessWidget {
-  final Widget child;
-  final EdgeInsets padding;
-  final Color borderColor;
-  final double backgroundAlpha;
-
-  const _CinematicPanelFrame({
-    required this.child,
-    this.padding = const EdgeInsets.all(14),
-    this.borderColor = _CinematicColors.gold,
-    this.backgroundAlpha = 0.68,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return RepaintBoundary(
-      child: Container(
-        clipBehavior: Clip.hardEdge,
-        padding: padding,
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: backgroundAlpha),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: borderColor.withValues(alpha: 0.38)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.30),
-              blurRadius: 14,
-              offset: const Offset(0, 8),
-            ),
-            BoxShadow(
-              color: borderColor.withValues(alpha: 0.08),
-              blurRadius: 12,
-            ),
-          ],
-        ),
-        child: child,
-      ),
-    );
-  }
-}
-
-class _CinematicPortraitBox extends StatelessWidget {
-  final _Combatant combatant;
-  final Color color;
-  final double iconSize;
-
-  const _CinematicPortraitBox({
-    required this.combatant,
-    required this.color,
-    required this.iconSize,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      clipBehavior: Clip.hardEdge,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(7),
-        border: Border.all(color: color.withValues(alpha: 0.34)),
-      ),
-      child: _CombatantArtwork(
-        combatant: combatant,
-        color: color,
-        iconSize: iconSize,
-      ),
-    );
-  }
-}
-
-class _CinematicHpBar extends StatelessWidget {
-  final _Combatant combatant;
-  final bool showHp;
-  final double height;
-  final VoidCallback? onTap;
-
-  const _CinematicHpBar({
-    required this.combatant,
-    required this.showHp,
-    required this.height,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    final editable = onTap != null;
-    final effectiveHeight = math.max(height, editable ? 22.0 : 16.0);
-    final valueColor = !showHp
-        ? tokens.textMuted
-        : combatant.hp <= 0
-            ? tokens.textMuted
-            : combatant.hpRatio <= 0.30
-                ? tokens.accentAction
-                : const Color(0xFFB0201C);
-
-    final bar = SizedBox(
-      height: effectiveHeight,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Positioned.fill(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(3),
-              child: LinearProgressIndicator(
-                value: showHp ? combatant.hpRatio : 1,
-                minHeight: effectiveHeight,
-                backgroundColor: Colors.black.withValues(alpha: 0.55),
-                valueColor: AlwaysStoppedAnimation<Color>(valueColor),
-              ),
-            ),
-          ),
-          Padding(
-            padding: EdgeInsets.only(
-              left: 4,
-              right: editable ? 22 : 4,
-            ),
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                _compactHpLabel(combatant, showHp),
-                maxLines: 1,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w900,
-                  height: 1,
-                ),
-              ),
-            ),
-          ),
-          if (editable)
-            Positioned(
-              right: 5,
-              child: Icon(
-                Icons.edit_outlined,
-                color: Colors.white.withValues(alpha: 0.88),
-                size: math.min(effectiveHeight - 6, 16),
-              ),
-            ),
-        ],
-      ),
-    );
-
-    if (!editable) return bar;
-    return Tooltip(
-      message: 'Editar HP',
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(4),
-          child: bar,
-        ),
-      ),
-    );
-  }
-}
-
-class _HpAdjustmentSheet extends StatelessWidget {
-  final _Combatant combatant;
-  final TextEditingController controller;
-  final VoidCallback onSubtract;
-  final VoidCallback onAdd;
-  final VoidCallback onSetExact;
-
-  const _HpAdjustmentSheet({
-    required this.combatant,
-    required this.controller,
-    required this.onSubtract,
-    required this.onAdd,
-    required this.onSetExact,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    final accent = _teamColor(combatant.team, tokens);
-    final size = MediaQuery.sizeOf(context);
-    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
-    final maxPanelHeight = math.max(120.0, size.height - bottomInset - 32);
-
-    return SafeArea(
-      top: false,
-      child: AnimatedPadding(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOutCubic,
-        padding: EdgeInsets.fromLTRB(16, 0, 16, bottomInset + 16),
-        child: Align(
-          alignment: Alignment.bottomCenter,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: 520,
-              maxHeight: maxPanelHeight,
-            ),
-            child: _CinematicPanelFrame(
-              borderColor: accent,
-              backgroundAlpha: 0.92,
-              child: SingleChildScrollView(
-                keyboardDismissBehavior:
-                    ScrollViewKeyboardDismissBehavior.onDrag,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      children: [
-                        SizedBox(
-                          width: 54,
-                          height: 54,
-                          child: _CinematicPortraitBox(
-                            combatant: combatant,
-                            color: accent,
-                            iconSize: 24,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                combatant.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: _CinematicColors.paper,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              _CinematicHpBar(
-                                combatant: combatant,
-                                showHp: true,
-                                height: 24,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: controller,
-                      autofocus: false,
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                      style: const TextStyle(
-                        color: _CinematicColors.paper,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w900,
-                      ),
-                      decoration: InputDecoration(
-                        labelText: 'Valor de HP',
-                        labelStyle: TextStyle(color: tokens.textSecondary),
-                        filled: true,
-                        fillColor: Colors.black.withValues(alpha: 0.26),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide(
-                            color:
-                                _CinematicColors.gold.withValues(alpha: 0.30),
-                          ),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: const BorderSide(
-                            color: _CinematicColors.goldBright,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        for (final value in const [1, 5, 10, 20])
-                          ActionChip(
-                            label: Text('$value'),
-                            onPressed: () {
-                              controller.text = '$value';
-                              controller.selection = TextSelection.fromPosition(
-                                TextPosition(offset: controller.text.length),
-                              );
-                            },
-                            backgroundColor:
-                                _CinematicColors.gold.withValues(alpha: 0.16),
-                            labelStyle: const TextStyle(
-                              color: _CinematicColors.paper,
-                              fontWeight: FontWeight.w900,
-                            ),
-                            side: BorderSide(
-                              color:
-                                  _CinematicColors.gold.withValues(alpha: 0.28),
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      alignment: WrapAlignment.center,
-                      children: [
-                        SizedBox(
-                          width: 150,
-                          child: _HpSheetButton(
-                            label: 'Restar',
-                            icon: Icons.remove_rounded,
-                            color: _CinematicColors.blood,
-                            onTap: onSubtract,
-                          ),
-                        ),
-                        SizedBox(
-                          width: 150,
-                          child: _HpSheetButton(
-                            label: 'Sumar',
-                            icon: Icons.add_rounded,
-                            color: _CinematicColors.goldBright,
-                            onTap: onAdd,
-                          ),
-                        ),
-                        SizedBox(
-                          width: 150,
-                          child: _HpSheetButton(
-                            label: 'Fijar',
-                            icon: Icons.done_rounded,
-                            color: accent,
-                            onTap: onSetExact,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _HpSheetButton extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _HpSheetButton({
-    required this.label,
-    required this.icon,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(7),
-      child: Container(
-        height: 44,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.14),
-          borderRadius: BorderRadius.circular(7),
-          border: Border.all(color: color.withValues(alpha: 0.34)),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: color, size: 18),
-            const SizedBox(width: 6),
-            Flexible(
-              child: Text(
-                label.toUpperCase(),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: color,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _CinematicMiniStat extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _CinematicMiniStat({
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.22),
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(
-            color: _CinematicColors.gold.withValues(alpha: 0.18),
-          ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: _CinematicColors.paper.withValues(alpha: 0.58),
-                fontSize: 10,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: _CinematicColors.paper,
-                fontSize: 14,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _CinematicEconomyStrip extends StatelessWidget {
-  final _ActionEconomySnapshot economy;
+  final CombatActionEconomySnapshot economy;
 
   const _CinematicEconomyStrip({
     required this.economy,
@@ -17583,28 +18419,28 @@ class _CinematicEconomyStrip extends StatelessWidget {
       spacing: 6,
       runSpacing: 6,
       children: [
-        _EconomyPill(
+        CombatCinematicEconomyPill(
           label: 'Action',
           spent: economy.actionSpent,
           icon: Icons.bolt_outlined,
         ),
-        _EconomyPill(
+        CombatCinematicEconomyPill(
           label: 'Bonus',
           spent: economy.bonusActionSpent,
           icon: Icons.control_point_duplicate_outlined,
         ),
-        _EconomyPill(
+        CombatCinematicEconomyPill(
           label: 'React',
           spent: economy.reactionSpent,
           icon: Icons.reply_outlined,
         ),
-        _EconomyPill(
+        CombatCinematicEconomyPill(
           label: '${economy.movementAvailable} ft',
           spent: false,
           icon: Icons.directions_run_outlined,
         ),
         if (economy.readiedActionName != null)
-          _EconomyPill(
+          CombatCinematicEconomyPill(
             label: 'Ready',
             spent: false,
             icon: Icons.flag_outlined,
@@ -17616,227 +18452,2040 @@ class _CinematicEconomyStrip extends StatelessWidget {
   }
 }
 
-class _EconomyPill extends StatelessWidget {
-  final String label;
-  final bool spent;
-  final IconData icon;
-  final String? tooltip;
+class _CombatUnifiedControllerView extends StatelessWidget {
+  final int round;
+  final List<Combatant> combatants;
+  final int activeIndex;
+  final int targetIndex;
+  final Combatant activeCombatant;
+  final Combatant selectedTarget;
+  final List<CombatAction> actions;
+  final CombatRollFeedback? rollFeedback;
+  final bool rollInFlight;
+  final Set<String> spentTimings;
+  final Set<String> pendingDamageActions;
+  final Map<String, CombatAction> preparedActions;
+  final String? activeMultiAttackActionKey;
+  final int activeMultiAttackStepIndex;
+  final List<PendingCombatAttack> activeMultiAttackPendingAttacks;
+  final List<ReactionOption> reactionOptions;
+  final bool hasTakenAttackActionThisTurn;
+  final bool martialArtsEligibleAttackThisTurn;
+  final bool flurryAlreadyUsedThisTurn;
+  final CombatActionEconomySnapshot activeEconomy;
+  final int queuedPreparedIndex;
+  final int queuedPreparedTotal;
+  final String? queuedPreparedActionName;
+  final String selectedCommandTiming;
+  final CombatWorkspace workspace;
+  final bool showEnemyHp;
+  final bool devMode;
+  final List<CombatLogEntry> entries;
+  final Map<String, int> resourcePool;
+  final CombatRollMode rollMode;
+  final bool canControlActive;
+  final String controlBlockedMessage;
+  final bool boardControllerActive;
+  final bool openingBattleBoard;
+  final String? boardSceneId;
+  final CombatAction? focusedBattleBoardAction;
+  final VoidCallback onBack;
+  final VoidCallback onRequestInitiative;
+  final VoidCallback onRollInitiative;
+  final VoidCallback onNextTurn;
+  final VoidCallback onToggleDmView;
+  final VoidCallback onToggleDevMode;
+  final VoidCallback onOpenDiceRoller;
+  final VoidCallback onShowBattleBoardControls;
+  final VoidCallback onEndCombat;
+  final VoidCallback onRunDemo;
+  final ValueChanged<int> onSelectTarget;
+  final ValueChanged<int> onSelectFocusedCombatant;
+  final ValueChanged<int> onEditHp;
+  final ValueChanged<int> onRemoveBoardToken;
+  final void Function(String combatantId, String effectName)
+      onRemoveActiveEffect;
+  final ValueChanged<CombatWorkspace> onSelectWorkspace;
+  final ValueChanged<String> onSelectCommandTiming;
+  final ValueChanged<CombatRollMode> onSelectRollMode;
+  final ValueChanged<CombatAction> onFocusAction;
+  final void Function(int actorIndex, CombatAction action) onUseReaction;
+  final ValueChanged<CombatAction> onReadyAction;
+  final ValueChanged<String> onRollSavingThrow;
+  final void Function(CombatAction action, CombatActionRoll rollType)
+      onRollAction;
+  final ValueChanged<CombatAction> onUseAction;
+  final ValueChanged<CombatAction> onPrepareAction;
+  final VoidCallback onLaunchPreparedTurn;
+  final VoidCallback onClearPreparedActions;
+  final VoidCallback onControlBlocked;
+  final Future<void> Function(String combatantId, int dx, int dy)
+      onMoveBoardToken;
 
-  const _EconomyPill({
-    required this.label,
-    required this.spent,
-    required this.icon,
-    this.tooltip,
+  const _CombatUnifiedControllerView({
+    required this.round,
+    required this.combatants,
+    required this.activeIndex,
+    required this.targetIndex,
+    required this.activeCombatant,
+    required this.selectedTarget,
+    required this.actions,
+    required this.rollFeedback,
+    required this.rollInFlight,
+    required this.spentTimings,
+    required this.pendingDamageActions,
+    required this.preparedActions,
+    required this.activeMultiAttackActionKey,
+    required this.activeMultiAttackStepIndex,
+    required this.activeMultiAttackPendingAttacks,
+    required this.reactionOptions,
+    required this.hasTakenAttackActionThisTurn,
+    required this.martialArtsEligibleAttackThisTurn,
+    required this.flurryAlreadyUsedThisTurn,
+    required this.activeEconomy,
+    required this.queuedPreparedIndex,
+    required this.queuedPreparedTotal,
+    required this.queuedPreparedActionName,
+    required this.selectedCommandTiming,
+    required this.workspace,
+    required this.showEnemyHp,
+    required this.devMode,
+    required this.entries,
+    required this.resourcePool,
+    required this.rollMode,
+    required this.canControlActive,
+    required this.controlBlockedMessage,
+    required this.boardControllerActive,
+    required this.openingBattleBoard,
+    required this.boardSceneId,
+    required this.focusedBattleBoardAction,
+    required this.onBack,
+    required this.onRequestInitiative,
+    required this.onRollInitiative,
+    required this.onNextTurn,
+    required this.onToggleDmView,
+    required this.onToggleDevMode,
+    required this.onOpenDiceRoller,
+    required this.onShowBattleBoardControls,
+    required this.onEndCombat,
+    required this.onRunDemo,
+    required this.onSelectTarget,
+    required this.onSelectFocusedCombatant,
+    required this.onEditHp,
+    required this.onRemoveBoardToken,
+    required this.onRemoveActiveEffect,
+    required this.onSelectWorkspace,
+    required this.onSelectCommandTiming,
+    required this.onSelectRollMode,
+    required this.onFocusAction,
+    required this.onUseReaction,
+    required this.onReadyAction,
+    required this.onRollSavingThrow,
+    required this.onRollAction,
+    required this.onUseAction,
+    required this.onPrepareAction,
+    required this.onLaunchPreparedTurn,
+    required this.onClearPreparedActions,
+    required this.onControlBlocked,
+    required this.onMoveBoardToken,
   });
 
   @override
   Widget build(BuildContext context) {
-    final color = spent ? _CinematicColors.blood : _CinematicColors.goldBright;
-    final child = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: spent ? 0.10 : 0.14),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.28)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: color, size: 12),
-          const SizedBox(width: 4),
-          Text(
-            spent ? '$label spent' : label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: color,
-              fontSize: 9,
-              fontWeight: FontWeight.w900,
-              height: 1,
-            ),
-          ),
-        ],
-      ),
+    final tokens = context.stitch;
+    final sceneTokens = boardControllerActive && boardSceneId != null
+        ? context
+            .watch<BattleBoardProvider>()
+            .tokens
+            .where((token) => token.sceneId == boardSceneId)
+            .toList(growable: false)
+        : <BoardToken>[];
+    final activeToken =
+        CombatBoardTokenLookup.byRef(sceneTokens, activeCombatant.id);
+    final selectedTargetToken =
+        CombatBoardTokenLookup.byRef(sceneTokens, selectedTarget.id);
+    final distanceFeet = activeToken == null || selectedTargetToken == null
+        ? null
+        : CombatBoardGeometry.distanceFeet(activeToken, selectedTargetToken);
+    final targetEntries = _controllerTargetEntries(
+      combatants,
+      activeIndex: activeIndex,
+    );
+    final decision = _controllerDecision(
+      actions: actions,
+      selectedTiming: selectedCommandTiming,
+      spentTimings: spentTimings,
+      pendingDamageActions: pendingDamageActions,
+      preparedActions: preparedActions,
+      resourcePool: resourcePool,
+      activeMultiAttackActionKey: activeMultiAttackActionKey,
+      focusedAction: focusedBattleBoardAction,
+      queuedPreparedTotal: queuedPreparedTotal,
+      rollInFlight: rollInFlight,
+      onNextTurn: onNextTurn,
+      onLaunchPreparedTurn: onLaunchPreparedTurn,
+      onRollAction: onRollAction,
+      onUseAction: onUseAction,
     );
 
-    if (tooltip == null || tooltip!.trim().isEmpty) return child;
-    return Tooltip(message: tooltip!, child: child);
-  }
-}
-
-class _CinematicRoundIconButton extends StatelessWidget {
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onTap;
-
-  const _CinematicRoundIconButton({
-    required this.icon,
-    required this.tooltip,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(999),
-        child: Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: _CinematicColors.gold.withValues(alpha: 0.12),
-            border: Border.all(
-              color: _CinematicColors.gold.withValues(alpha: 0.28),
+    return Padding(
+      padding: const EdgeInsets.all(8),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        child: Stack(
+          children: [
+            const Positioned.fill(child: CombatCinematicDungeonBackdrop()),
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.34),
+                ),
+              ),
             ),
-          ),
-          child: Icon(icon, color: _CinematicColors.paper, size: 20),
+            Positioned.fill(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final compact = constraints.maxWidth < 760;
+                  final leftWidth = math
+                      .min(286.0, math.max(232.0, constraints.maxWidth * 0.27))
+                      .toDouble();
+                  final rightWidth = math
+                      .min(270.0, math.max(224.0, constraints.maxWidth * 0.25))
+                      .toDouble();
+
+                  final actorPanel = _ConsoleActorMovePanel(
+                    round: round,
+                    activeCombatant: activeCombatant,
+                    selectedTarget: selectedTarget,
+                    economy: activeEconomy,
+                    showEnemyHp: showEnemyHp,
+                    activeToken: activeToken,
+                    targetToken: selectedTargetToken,
+                    distanceFeet: distanceFeet,
+                    canControlActive: canControlActive,
+                    onBack: onBack,
+                    onNextTurn: onNextTurn,
+                    onEditHp: () => onEditHp(activeIndex),
+                    onMove: (dx, dy) => unawaited(
+                      onMoveBoardToken(activeCombatant.id, dx, dy),
+                    ),
+                  );
+                  final actionPanel = _ConsoleActionListPanel(
+                    actions: actions,
+                    visibleActions: decision.visibleActions,
+                    selectedTiming: selectedCommandTiming,
+                    spentTimings: spentTimings,
+                    pendingDamageActions: pendingDamageActions,
+                    preparedActions: preparedActions,
+                    activeMultiAttackActionKey: activeMultiAttackActionKey,
+                    activeMultiAttackStepIndex: activeMultiAttackStepIndex,
+                    activeMultiAttackPendingAttacks:
+                        activeMultiAttackPendingAttacks,
+                    activeCombatant: activeCombatant,
+                    hasTakenAttackActionThisTurn: hasTakenAttackActionThisTurn,
+                    martialArtsEligibleAttackThisTurn:
+                        martialArtsEligibleAttackThisTurn,
+                    flurryAlreadyUsedThisTurn: flurryAlreadyUsedThisTurn,
+                    selectedAction: decision.featuredAction,
+                    resourcePool: resourcePool,
+                    canControlActive: canControlActive,
+                    controlBlockedMessage: controlBlockedMessage,
+                    onSelectTiming: onSelectCommandTiming,
+                    onFocusAction: onFocusAction,
+                    onRollAction: onRollAction,
+                    onUseAction: onUseAction,
+                    onPrepareAction: onPrepareAction,
+                    onReadyAction: onReadyAction,
+                    rollInFlight: rollInFlight,
+                  );
+                  final targetPanel = _ConsoleTargetPanel(
+                    targetEntries: targetEntries,
+                    actions: actions,
+                    combatants: combatants,
+                    activeIndex: activeIndex,
+                    selectedTarget: selectedTarget,
+                    targetIndex: targetIndex,
+                    sceneTokens: sceneTokens,
+                    activeToken: activeToken,
+                    showEnemyHp: showEnemyHp,
+                    devMode: devMode,
+                    rollMode: rollMode,
+                    workspace: workspace,
+                    canControlActive: canControlActive,
+                    boardControllerActive: boardControllerActive,
+                    openingBattleBoard: openingBattleBoard,
+                    confirmLabel: decision.confirmLabel,
+                    confirmEnabled: !rollInFlight &&
+                        (decision.featuredAction != null ||
+                            preparedActions.isNotEmpty),
+                    rollInFlight: rollInFlight,
+                    onConfirm: decision.confirmAction,
+                    onSelectTarget: onSelectTarget,
+                    onEditHp: onEditHp,
+                    onRemoveBoardToken: onRemoveBoardToken,
+                    onSelectRollMode: onSelectRollMode,
+                    onRollSavingThrow: onRollSavingThrow,
+                    onRollAction: onRollAction,
+                    onSelectWorkspace: onSelectWorkspace,
+                    onToggleDmView: onToggleDmView,
+                    onToggleDevMode: onToggleDevMode,
+                    onOpenDiceRoller: onOpenDiceRoller,
+                    onShowBattleBoardControls: onShowBattleBoardControls,
+                    onEndCombat: onEndCombat,
+                    onRequestInitiative: onRequestInitiative,
+                    onRollInitiative: onRollInitiative,
+                    onRunDemo: onRunDemo,
+                    onControlBlocked: onControlBlocked,
+                  );
+
+                  if (workspace != CombatWorkspace.turn) {
+                    return Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Column(
+                        children: [
+                          SizedBox(height: 158, child: actorPanel),
+                          const SizedBox(height: 8),
+                          Expanded(
+                            child: _CinematicWorkspaceOverlay(
+                              workspace: workspace,
+                              combatants: combatants,
+                              activeIndex: activeIndex,
+                              targetIndex: targetIndex,
+                              showEnemyHp: showEnemyHp,
+                              entries: entries,
+                              rollFeedback: rollFeedback,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+
+                  if (compact) {
+                    return Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Column(
+                        children: [
+                          SizedBox(height: 184, child: actorPanel),
+                          const SizedBox(height: 8),
+                          Expanded(child: actionPanel),
+                          const SizedBox(height: 8),
+                          SizedBox(height: 210, child: targetPanel),
+                        ],
+                      ),
+                    );
+                  }
+
+                  return Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SizedBox(width: leftWidth, child: actorPanel),
+                        const SizedBox(width: 8),
+                        Expanded(child: actionPanel),
+                        const SizedBox(width: 8),
+                        SizedBox(width: rightWidth, child: targetPanel),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-class _CinematicTargetRingPainter extends CustomPainter {
-  final Color color;
-  final bool active;
-  final bool enemy;
+class _ControllerDecision {
+  final List<CombatAction> visibleActions;
+  final CombatAction? featuredAction;
+  final String confirmLabel;
+  final VoidCallback confirmAction;
 
-  const _CinematicTargetRingPainter({
-    required this.color,
-    required this.active,
-    required this.enemy,
+  const _ControllerDecision({
+    required this.visibleActions,
+    required this.featuredAction,
+    required this.confirmLabel,
+    required this.confirmAction,
   });
+}
 
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rect = Rect.fromLTWH(0, 0, size.width, size.height);
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = active ? 2.6 : 1.7
-      ..color = color.withValues(alpha: active ? 0.78 : 0.38);
-    canvas.drawOval(rect, paint);
+_ControllerDecision _controllerDecision({
+  required List<CombatAction> actions,
+  required String selectedTiming,
+  required Set<String> spentTimings,
+  required Set<String> pendingDamageActions,
+  required Map<String, CombatAction> preparedActions,
+  required Map<String, int> resourcePool,
+  required String? activeMultiAttackActionKey,
+  required CombatAction? focusedAction,
+  required int queuedPreparedTotal,
+  required bool rollInFlight,
+  required VoidCallback onNextTurn,
+  required VoidCallback onLaunchPreparedTurn,
+  required void Function(CombatAction action, CombatActionRoll rollType)
+      onRollAction,
+  required ValueChanged<CombatAction> onUseAction,
+}) {
+  final hasPendingOnHitTrigger = _hasPendingOnHitTrigger(
+    actions,
+    pendingDamageActions,
+  );
+  final visibleActions = actions
+      .where(
+        (action) =>
+            _actionVisibleInActionTiming(
+              action,
+              selectedTiming,
+              hasPendingOnHitTrigger: hasPendingOnHitTrigger,
+            ) &&
+            !_actionHandledByMonkCombo(action),
+      )
+      .toList(growable: false);
+  _sortActionsForTurnFlow(
+    visibleActions,
+    selectedTiming: selectedTiming,
+    pendingDamageActions: pendingDamageActions,
+    resourcePool: resourcePool,
+  );
+  final prepared = preparedActions[selectedTiming];
+  final activeMultiAttackAction = activeMultiAttackActionKey == null
+      ? null
+      : _firstOrNull(
+          actions.where(
+            (action) => _actionCardKey(action) == activeMultiAttackActionKey,
+          ),
+        );
+  final focused =
+      focusedAction == null || focusedAction.timing != selectedTiming
+          ? null
+          : focusedAction;
+  final featuredAction = prepared ??
+      focused ??
+      activeMultiAttackAction ??
+      _firstOrNull(visibleActions) ??
+      _firstOrNull(actions);
+  final featuredPending = featuredAction != null &&
+      pendingDamageActions.contains(_actionCardKey(featuredAction));
+  final featuredMultiAttackActive = featuredAction != null &&
+      activeMultiAttackActionKey == _actionCardKey(featuredAction);
+  final featuredSpent = featuredAction != null &&
+      spentTimings.contains(featuredAction.timing) &&
+      !featuredPending &&
+      !featuredMultiAttackActive;
+  final hasPrepared = preparedActions.isNotEmpty;
+  final confirmLabel = rollInFlight
+      ? 'Rolling...'
+      : queuedPreparedTotal > 0
+          ? 'Tirar siguiente'
+          : hasPrepared
+              ? 'Tirar plan'
+              : featuredPending
+                  ? 'Resolver dano'
+                  : featuredMultiAttackActive
+                      ? 'Tirar siguiente'
+                      : featuredSpent
+                          ? 'Siguiente turno'
+                          : 'Confirmar y tirar';
+  final confirmAction = rollInFlight
+      ? () {}
+      : hasPrepared
+          ? onLaunchPreparedTurn
+          : () {
+              final action = featuredAction;
+              if (action == null) return;
+              if (featuredSpent) {
+                onNextTurn();
+                return;
+              }
+              _rollPrimaryAction(
+                action,
+                onRollAction,
+                onUseAction,
+                pendingDamage: featuredPending,
+              );
+            };
+  return _ControllerDecision(
+    visibleActions: visibleActions,
+    featuredAction: featuredAction,
+    confirmLabel: confirmLabel,
+    confirmAction: confirmAction,
+  );
+}
 
-    if (active) {
-      final glow = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 6
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8)
-        ..color = color.withValues(alpha: 0.25);
-      canvas.drawOval(rect.deflate(1), glow);
+List<IndexedCombatant> _controllerTargetEntries(
+  List<Combatant> combatants, {
+  required int activeIndex,
+}) {
+  if (combatants.isEmpty ||
+      activeIndex < 0 ||
+      activeIndex >= combatants.length) {
+    return const [];
+  }
+  final active = combatants[activeIndex];
+  final hostile = <IndexedCombatant>[];
+  final fallback = <IndexedCombatant>[];
+  final fallen = <IndexedCombatant>[];
+  for (var index = 0; index < combatants.length; index++) {
+    if (index == activeIndex) continue;
+    final entry = IndexedCombatant(index, combatants[index]);
+    if (combatants[index].hp <= 0) {
+      fallen.add(entry);
+      continue;
     }
-
-    final tickPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2
-      ..color = (enemy ? _CinematicColors.blood : color)
-          .withValues(alpha: active ? 0.75 : 0.34);
-    canvas.drawArc(
-        rect.inflate(6), -math.pi * 0.84, math.pi * 0.18, false, tickPaint);
-    canvas.drawArc(
-        rect.inflate(6), math.pi * 0.16, math.pi * 0.18, false, tickPaint);
+    fallback.add(entry);
+    if (combatants[index].team != active.team) hostile.add(entry);
   }
-
-  @override
-  bool shouldRepaint(covariant _CinematicTargetRingPainter oldDelegate) {
-    return oldDelegate.color != color ||
-        oldDelegate.active != active ||
-        oldDelegate.enemy != enemy;
-  }
+  final primary = hostile.isEmpty ? fallback : hostile;
+  return [...primary, ...fallen];
 }
 
-class _CinematicArenaFloorPainter extends CustomPainter {
-  final Color partyColor;
-  final Color enemyColor;
+class _ConsoleActorMovePanel extends StatelessWidget {
+  final int round;
+  final Combatant activeCombatant;
+  final Combatant selectedTarget;
+  final CombatActionEconomySnapshot economy;
+  final bool showEnemyHp;
+  final BoardToken? activeToken;
+  final BoardToken? targetToken;
+  final int? distanceFeet;
+  final bool canControlActive;
+  final VoidCallback onBack;
+  final VoidCallback onNextTurn;
+  final VoidCallback onEditHp;
+  final void Function(int dx, int dy) onMove;
 
-  const _CinematicArenaFloorPainter({
-    required this.partyColor,
-    required this.enemyColor,
+  const _ConsoleActorMovePanel({
+    required this.round,
+    required this.activeCombatant,
+    required this.selectedTarget,
+    required this.economy,
+    required this.showEnemyHp,
+    required this.activeToken,
+    required this.targetToken,
+    required this.distanceFeet,
+    required this.canControlActive,
+    required this.onBack,
+    required this.onNextTurn,
+    required this.onEditHp,
+    required this.onMove,
   });
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final centerY = size.height * 0.64;
-    final partyPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2
-      ..color = partyColor.withValues(alpha: 0.28);
-    final enemyPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2
-      ..color = enemyColor.withValues(alpha: 0.28);
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final accent = combatTeamColor(activeCombatant.team, tokens);
+    final speed = activeToken?.speedFeet ?? activeCombatant.speed;
+    final remaining = activeToken?.remainingMovementFeet ??
+        math.max(0, economy.movementAvailable);
+    final movementEnabled = canControlActive &&
+        activeCombatant.hp > 0 &&
+        activeToken != null &&
+        remaining >= 5;
+    final gridLabel = activeToken == null
+        ? 'Grid --'
+        : 'Grid ${activeToken!.x}, ${activeToken!.y}';
+    final distanceLabel =
+        distanceFeet == null ? 'Sin distancia' : '$distanceFeet ft';
 
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: Offset(size.width * 0.25, centerY),
-        width: size.width * 0.28,
-        height: 42,
-      ),
-      partyPaint,
-    );
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: Offset(size.width * 0.72, centerY - 6),
-        width: size.width * 0.34,
-        height: 48,
-      ),
-      enemyPaint,
-    );
+    return CombatCinematicPanelFrame(
+      borderColor: accent,
+      padding: const EdgeInsets.all(8),
+      backgroundAlpha: 0.82,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final short = constraints.maxHeight < 230;
+          final portraitSize = short ? 58.0 : 78.0;
+          final header = Row(
+            children: [
+              CombatPhoneIconButton(
+                icon: Icons.arrow_back_rounded,
+                tooltip: 'Volver',
+                onTap: onBack,
+              ),
+              const SizedBox(width: 7),
+              Container(
+                width: 38,
+                height: 34,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(7),
+                  border: Border.all(color: accent.withValues(alpha: 0.30)),
+                ),
+                child: Text(
+                  '$round',
+                  style: const TextStyle(
+                    color: CombatCinematicColors.paper,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                    height: 1,
+                  ),
+                ),
+              ),
+              const Spacer(),
+              CombatPhoneIconButton(
+                icon: Icons.skip_next_rounded,
+                tooltip: 'Siguiente turno',
+                color: CombatCinematicColors.goldBright,
+                onTap: onNextTurn,
+              ),
+            ],
+          );
 
-    final path = Path()
-      ..moveTo(size.width * 0.33, centerY - 22)
-      ..quadraticBezierTo(
-        size.width * 0.50,
-        centerY - 64,
-        size.width * 0.66,
-        centerY - 24,
-      );
-    final line = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.4
-      ..color = _CinematicColors.gold.withValues(alpha: 0.18);
-    canvas.drawPath(path, line);
+          final identity = Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: portraitSize,
+                height: portraitSize,
+                child: CombatCinematicPortraitBox(
+                  combatant: activeCombatant,
+                  color: accent,
+                  iconSize: short ? 30 : 38,
+                ),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      activeCombatant.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: CombatCinematicColors.paper,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                        height: 1,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      activeCombatant.role.isEmpty
+                          ? 'Aventurero'
+                          : activeCombatant.role,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: tokens.textSecondary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        height: 1.1,
+                      ),
+                    ),
+                    const SizedBox(height: 7),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: CombatCinematicHpBar(
+                            combatant: activeCombatant,
+                            showHp: showEnemyHp ||
+                                activeCombatant.team == CombatTeam.party,
+                            height: 22,
+                            onTap: canControlActive ? onEditHp : null,
+                          ),
+                        ),
+                        const SizedBox(width: 7),
+                        CombatConsoleValueBadge(
+                          label: 'AC',
+                          value: '${activeCombatant.ac}',
+                          color: accent,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+
+          final movement = Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _ConsoleMovementBudget(
+                remaining: remaining,
+                speed: speed,
+                linked: activeToken != null,
+                color: accent,
+              ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: Center(
+                  child: _ConsoleMoveStick(
+                    enabled: movementEnabled,
+                    onMove: onMove,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: CombatConsoleInfoPill(
+                      icon: Icons.grid_on_rounded,
+                      label: gridLabel,
+                      color: tokens.accentInfo,
+                    ),
+                  ),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: CombatConsoleInfoPill(
+                      icon: Icons.social_distance_outlined,
+                      label: distanceLabel,
+                      color: CombatCinematicColors.goldBright,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 7),
+              CombatConsoleInfoPill(
+                icon: targetToken == null
+                    ? Icons.crisis_alert_outlined
+                    : Icons.my_location_rounded,
+                label: 'Objetivo: ${selectedTarget.name}',
+                color: targetToken?.isTargetInRange == false
+                    ? CombatCinematicColors.blood
+                    : accent,
+              ),
+            ],
+          );
+
+          if (short) {
+            return Column(
+              children: [
+                header,
+                const SizedBox(height: 8),
+                Expanded(
+                  child: Row(
+                    children: [
+                      Expanded(child: identity),
+                      const SizedBox(width: 10),
+                      SizedBox(
+                        width: 138,
+                        child: movement,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          }
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              header,
+              const SizedBox(height: 9),
+              identity,
+              const SizedBox(height: 10),
+              Expanded(child: movement),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ConsoleMovementBudget extends StatelessWidget {
+  final int remaining;
+  final int speed;
+  final bool linked;
+  final Color color;
+
+  const _ConsoleMovementBudget({
+    required this.remaining,
+    required this.speed,
+    required this.linked,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final ratio = speed <= 0 ? 0.0 : (remaining / speed).clamp(0.0, 1.0);
+    final used = math.max(0, speed - remaining);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.directions_run_rounded,
+                size: 15, color: remaining >= 5 ? color : tokens.textMuted),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                linked ? '$remaining/$speed ft' : '$remaining ft disponibles',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: CombatCinematicColors.paper,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+            Text(
+              linked ? '$used usados' : 'sin token',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: tokens.textSecondary,
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: LinearProgressIndicator(
+            minHeight: 7,
+            value: ratio,
+            backgroundColor: Colors.white.withValues(alpha: 0.10),
+            valueColor: AlwaysStoppedAnimation<Color>(
+              remaining >= 5 ? color : tokens.textMuted,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ConsoleMoveStick extends StatefulWidget {
+  final bool enabled;
+  final void Function(int dx, int dy) onMove;
+
+  const _ConsoleMoveStick({
+    required this.enabled,
+    required this.onMove,
+  });
+
+  @override
+  State<_ConsoleMoveStick> createState() => _ConsoleMoveStickState();
+}
+
+class _ConsoleMoveStickState extends State<_ConsoleMoveStick> {
+  static const double _dragStep = 34;
+  Offset _dragDebt = Offset.zero;
+
+  void _drag(DragUpdateDetails details) {
+    if (!widget.enabled) return;
+    _dragDebt += details.delta;
+    while (_dragDebt.dx.abs() >= _dragStep) {
+      final dx = _dragDebt.dx > 0 ? 1 : -1;
+      widget.onMove(dx, 0);
+      _dragDebt = Offset(_dragDebt.dx - dx * _dragStep, _dragDebt.dy);
+    }
+    while (_dragDebt.dy.abs() >= _dragStep) {
+      final dy = _dragDebt.dy > 0 ? 1 : -1;
+      widget.onMove(0, dy);
+      _dragDebt = Offset(_dragDebt.dx, _dragDebt.dy - dy * _dragStep);
+    }
   }
 
   @override
-  bool shouldRepaint(covariant _CinematicArenaFloorPainter oldDelegate) {
-    return oldDelegate.partyColor != partyColor ||
-        oldDelegate.enemyColor != enemyColor;
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final accent = widget.enabled ? tokens.accentSuccess : tokens.textMuted;
+
+    return Opacity(
+      opacity: widget.enabled ? 1 : 0.58,
+      child: SizedBox.square(
+        dimension: 136,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            GestureDetector(
+              onPanUpdate: _drag,
+              onPanEnd: (_) => _dragDebt = Offset.zero,
+              child: Container(
+                width: 98,
+                height: 98,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.black.withValues(alpha: 0.42),
+                  border: Border.all(
+                    color: accent.withValues(alpha: 0.36),
+                    width: 2,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: accent.withValues(alpha: 0.18),
+                      blurRadius: 18,
+                    ),
+                  ],
+                ),
+                child: Icon(
+                  Icons.touch_app_rounded,
+                  color: accent,
+                  size: 28,
+                ),
+              ),
+            ),
+            Positioned(
+              top: 0,
+              child: _ConsoleStickButton(
+                icon: Icons.keyboard_arrow_up_rounded,
+                enabled: widget.enabled,
+                onTap: () => widget.onMove(0, -1),
+              ),
+            ),
+            Positioned(
+              bottom: 0,
+              child: _ConsoleStickButton(
+                icon: Icons.keyboard_arrow_down_rounded,
+                enabled: widget.enabled,
+                onTap: () => widget.onMove(0, 1),
+              ),
+            ),
+            Positioned(
+              left: 0,
+              child: _ConsoleStickButton(
+                icon: Icons.keyboard_arrow_left_rounded,
+                enabled: widget.enabled,
+                onTap: () => widget.onMove(-1, 0),
+              ),
+            ),
+            Positioned(
+              right: 0,
+              child: _ConsoleStickButton(
+                icon: Icons.keyboard_arrow_right_rounded,
+                enabled: widget.enabled,
+                onTap: () => widget.onMove(1, 0),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
-class _CinematicColors {
-  static const gold = Color(0xFF9C7140);
-  static const goldBright = Color(0xFFE5B46C);
-  static const paper = Color(0xFFF2D8B5);
-  static const actionSurface = Color(0xFF16110D);
-  static const actionSurfaceRaised = Color(0xFF221812);
-  static const actionTextMuted = Color(0xFFC3A57E);
-  static const blood = Color(0xFF8F1E19);
+class _ConsoleStickButton extends StatelessWidget {
+  final IconData icon;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  const _ConsoleStickButton({
+    required this.icon,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final color = enabled ? CombatCinematicColors.goldBright : tokens.textMuted;
+    return Tooltip(
+      message: 'Mover',
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        borderRadius: BorderRadius.circular(999),
+        child: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.black.withValues(alpha: 0.50),
+            border: Border.all(color: color.withValues(alpha: 0.36)),
+          ),
+          child: Icon(icon, color: color, size: 26),
+        ),
+      ),
+    );
+  }
 }
 
-class _CombatCompactLandscapeView extends StatelessWidget {
-  final int round;
-  final List<_Combatant> combatants;
-  final int activeIndex;
-  final int targetIndex;
-  final _Combatant activeCombatant;
-  final _Combatant selectedTarget;
-  final List<_CombatAction> actions;
-  final _CombatRollFeedback? rollFeedback;
+class _ConsoleActionListPanel extends StatelessWidget {
+  final List<CombatAction> actions;
+  final List<CombatAction> visibleActions;
+  final String selectedTiming;
   final Set<String> spentTimings;
   final Set<String> pendingDamageActions;
-  final Map<String, _CombatAction> preparedActions;
+  final Map<String, CombatAction> preparedActions;
+  final String? activeMultiAttackActionKey;
+  final int activeMultiAttackStepIndex;
+  final List<PendingCombatAttack> activeMultiAttackPendingAttacks;
+  final Combatant activeCombatant;
+  final bool hasTakenAttackActionThisTurn;
+  final bool martialArtsEligibleAttackThisTurn;
+  final bool flurryAlreadyUsedThisTurn;
+  final CombatAction? selectedAction;
+  final Map<String, int> resourcePool;
+  final bool canControlActive;
+  final String controlBlockedMessage;
+  final ValueChanged<String> onSelectTiming;
+  final ValueChanged<CombatAction> onFocusAction;
+  final void Function(CombatAction action, CombatActionRoll rollType)
+      onRollAction;
+  final ValueChanged<CombatAction> onUseAction;
+  final ValueChanged<CombatAction> onPrepareAction;
+  final ValueChanged<CombatAction> onReadyAction;
+  final bool rollInFlight;
+
+  const _ConsoleActionListPanel({
+    required this.actions,
+    required this.visibleActions,
+    required this.selectedTiming,
+    required this.spentTimings,
+    required this.pendingDamageActions,
+    required this.preparedActions,
+    required this.activeMultiAttackActionKey,
+    required this.activeMultiAttackStepIndex,
+    required this.activeMultiAttackPendingAttacks,
+    required this.activeCombatant,
+    required this.hasTakenAttackActionThisTurn,
+    required this.martialArtsEligibleAttackThisTurn,
+    required this.flurryAlreadyUsedThisTurn,
+    required this.selectedAction,
+    required this.resourcePool,
+    required this.canControlActive,
+    required this.controlBlockedMessage,
+    required this.onSelectTiming,
+    required this.onFocusAction,
+    required this.onRollAction,
+    required this.onUseAction,
+    required this.onPrepareAction,
+    required this.onReadyAction,
+    required this.rollInFlight,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final selected = selectedAction;
+    final selectedKey = selected == null ? null : _actionCardKey(selected);
+    final selectedPrepared =
+        selected != null && preparedActions[selected.timing] == selected;
+    final monkFlow = _monkCombatFlowState(
+      activeCombatant: activeCombatant,
+      actions: actions,
+      resourcePool: resourcePool,
+      spentTimings: spentTimings,
+      pendingDamageActions: pendingDamageActions,
+      activeMultiAttackActionKey: activeMultiAttackActionKey,
+      activeMultiAttackStepIndex: activeMultiAttackStepIndex,
+      activeMultiAttackPendingAttacks: activeMultiAttackPendingAttacks,
+      hasTakenAttackActionThisTurn: hasTakenAttackActionThisTurn,
+      martialArtsEligibleAttackThisTurn: martialArtsEligibleAttackThisTurn,
+      flurryAlreadyUsedThisTurn: flurryAlreadyUsedThisTurn,
+    );
+    final debugDetail = _combatModeDebugDetails(
+      actions: actions,
+      resourcePool: resourcePool,
+      monkFlow: monkFlow,
+    );
+
+    return CombatCinematicPanelFrame(
+      borderColor: CombatCinematicColors.gold,
+      padding: const EdgeInsets.fromLTRB(9, 9, 9, 10),
+      backgroundAlpha: 0.84,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.auto_fix_high_outlined,
+                color: CombatCinematicColors.goldBright,
+                size: 19,
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Acciones',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: CombatCinematicColors.paper,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                    height: 1,
+                  ),
+                ),
+              ),
+              Text(
+                '${visibleActions.length}/${actions.length}',
+                style: TextStyle(
+                  color: tokens.textSecondary,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 9),
+          _CinematicTimingTabs(
+            actions: actions,
+            selectedTiming: selectedTiming,
+            spentTimings: spentTimings,
+            pendingDamageActions: pendingDamageActions,
+            preparedActions: preparedActions,
+            onSelectTiming: onSelectTiming,
+          ),
+          const SizedBox(height: 8),
+          CombatModeDebugBanner(
+            location: 'ConsoleActionListPanel',
+            detail: debugDetail,
+          ),
+          if (selectedTiming == 'Action' && monkFlow != null) ...[
+            const SizedBox(height: 8),
+            _MonkCombatFlowPanel(
+              state: monkFlow,
+              onRollAction: rollInFlight ? (_, __) {} : onRollAction,
+              onUseAction: rollInFlight ? (_) {} : onUseAction,
+              compact: true,
+            ),
+          ],
+          if (selected != null) ...[
+            const SizedBox(height: 8),
+            _ConsoleSelectedActionBanner(
+              action: selected,
+              prepared: selectedPrepared,
+              pendingDamage: pendingDamageActions.contains(selectedKey),
+              blocked: _actionLacksResource(selected, resourcePool),
+              resourceRemaining: _actionResourceRemaining(
+                selected,
+                resourcePool,
+              ),
+            ),
+          ],
+          const SizedBox(height: 8),
+          Expanded(
+            child: !canControlActive
+                ? CombatConsoleLockState(message: controlBlockedMessage)
+                : visibleActions.isEmpty
+                    ? CombatActionListEmpty(selectedTiming: selectedTiming)
+                    : ListView.separated(
+                        itemCount: visibleActions.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (context, index) {
+                          final action = visibleActions[index];
+                          final key = _actionCardKey(action);
+                          return _ConsoleActionRow(
+                            action: action,
+                            selected: selectedKey == key,
+                            prepared: preparedActions[action.timing] == action,
+                            spent: spentTimings.contains(action.timing) &&
+                                activeMultiAttackActionKey != key,
+                            pendingDamage: pendingDamageActions.contains(key),
+                            blocked: _actionLacksResource(
+                              action,
+                              resourcePool,
+                            ),
+                            resourceRemaining: _actionResourceRemaining(
+                              action,
+                              resourcePool,
+                            ),
+                            onTap: () => onFocusAction(action),
+                          );
+                        },
+                      ),
+          ),
+          const SizedBox(height: 9),
+          Row(
+            children: [
+              Expanded(
+                child: CombatCinematicFooterButton(
+                  icon: Icons.view_module_outlined,
+                  label: 'Todas',
+                  color: CombatCinematicColors.goldBright,
+                  compact: true,
+                  onTap: rollInFlight
+                      ? () {}
+                      : () => _showActionCatalogSheet(
+                            context: context,
+                            actions: actions,
+                            spentTimings: spentTimings,
+                            pendingDamageActions: pendingDamageActions,
+                            resourcePool: resourcePool,
+                            preparedActions: preparedActions,
+                            selectedTiming: selectedTiming,
+                            onSelectTiming: onSelectTiming,
+                            onRollAction: onRollAction,
+                            onUseAction: onUseAction,
+                            onPrepareAction: onPrepareAction,
+                          ),
+                ),
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: CombatCinematicFooterButton(
+                  icon: Icons.playlist_add_check_circle_outlined,
+                  label: selectedPrepared ? 'En plan' : 'Planear',
+                  color: selectedPrepared
+                      ? tokens.accentSuccess
+                      : CombatCinematicColors.goldBright,
+                  compact: true,
+                  onTap: selected == null || rollInFlight
+                      ? () {}
+                      : () => onPrepareAction(selected),
+                ),
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: CombatCinematicFooterButton(
+                  icon: Icons.reply_outlined,
+                  label: 'Ready',
+                  color: CombatCinematicColors.paper,
+                  compact: true,
+                  onTap: selected == null || rollInFlight
+                      ? () {}
+                      : () => onReadyAction(selected),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ConsoleSelectedActionBanner extends StatelessWidget {
+  final CombatAction action;
+  final bool prepared;
+  final bool pendingDamage;
+  final bool blocked;
+  final int? resourceRemaining;
+
+  const _ConsoleSelectedActionBanner({
+    required this.action,
+    required this.prepared,
+    required this.pendingDamage,
+    required this.blocked,
+    required this.resourceRemaining,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final color = _actionStateColor(
+      prepared: prepared,
+      spent: false,
+      pendingDamage: pendingDamage,
+      blocked: blocked,
+      fallback: _accentForKind(action.accentKind, tokens),
+    );
+    final resource = _actionResourceText(action, resourceRemaining);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.13),
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(color: color.withValues(alpha: 0.30)),
+      ),
+      child: Row(
+        children: [
+          Icon(action.icon, color: color, size: 19),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              action.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: CombatCinematicColors.paper,
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          CombatConsoleMetricBlock(
+            label: 'Rango',
+            value: _actionRangeText(action),
+          ),
+          const SizedBox(width: 6),
+          CombatConsoleMetricBlock(
+            label: action.requiresSavingThrow ? 'TS' : 'Bonus',
+            value: _consoleRollBonusText(action),
+          ),
+          const SizedBox(width: 6),
+          CombatConsoleMetricBlock(
+            label: 'Impacto',
+            value: resource ?? _actionImpactText(action),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ConsoleActionRow extends StatelessWidget {
+  final CombatAction action;
+  final bool selected;
+  final bool prepared;
+  final bool spent;
+  final bool pendingDamage;
+  final bool blocked;
+  final int? resourceRemaining;
+  final VoidCallback onTap;
+
+  const _ConsoleActionRow({
+    required this.action,
+    required this.selected,
+    required this.prepared,
+    required this.spent,
+    required this.pendingDamage,
+    required this.blocked,
+    required this.resourceRemaining,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final color = _actionStateColor(
+      prepared: prepared,
+      spent: spent,
+      pendingDamage: pendingDamage,
+      blocked: blocked,
+      fallback: _accentForKind(action.accentKind, tokens),
+    );
+    final state = _actionDecisionStateText(
+      pendingDamage: pendingDamage,
+      spent: spent,
+      blocked: blocked,
+    );
+    final resource = _actionResourceText(action, resourceRemaining);
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        constraints: const BoxConstraints(minHeight: 72),
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: selected
+              ? color.withValues(alpha: 0.18)
+              : Colors.black.withValues(alpha: 0.30),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: color.withValues(alpha: selected ? 0.62 : 0.24),
+            width: selected ? 1.6 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(7),
+                border: Border.all(color: color.withValues(alpha: 0.30)),
+              ),
+              child: Icon(action.icon, color: color, size: 23),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          action.name.toUpperCase(),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: CombatCinematicColors.paper,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w900,
+                            height: 1,
+                          ),
+                        ),
+                      ),
+                      if (prepared || pendingDamage || spent || blocked)
+                        CombatConsoleStateChip(label: state, color: color),
+                    ],
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    _actionRoleLine(action),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: tokens.textSecondary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            CombatConsoleMetricBlock(
+              label: 'Rango',
+              value: _actionRangeText(action),
+            ),
+            const SizedBox(width: 6),
+            CombatConsoleMetricBlock(
+              label: action.requiresSavingThrow ? 'TS' : 'Bonus',
+              value: _consoleRollBonusText(action),
+            ),
+            const SizedBox(width: 6),
+            CombatConsoleMetricBlock(
+              label: 'Dano',
+              value: resource ?? _actionImpactText(action),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ConsoleTargetPanel extends StatelessWidget {
+  final List<IndexedCombatant> targetEntries;
+  final List<CombatAction> actions;
+  final List<Combatant> combatants;
+  final int activeIndex;
+  final Combatant selectedTarget;
+  final int targetIndex;
+  final List<BoardToken> sceneTokens;
+  final BoardToken? activeToken;
+  final bool showEnemyHp;
+  final bool devMode;
+  final CombatRollMode rollMode;
+  final CombatWorkspace workspace;
+  final bool canControlActive;
+  final bool boardControllerActive;
+  final bool openingBattleBoard;
+  final String confirmLabel;
+  final bool confirmEnabled;
+  final bool rollInFlight;
+  final VoidCallback onConfirm;
+  final ValueChanged<int> onSelectTarget;
+  final ValueChanged<int> onEditHp;
+  final ValueChanged<int> onRemoveBoardToken;
+  final ValueChanged<CombatRollMode> onSelectRollMode;
+  final ValueChanged<String> onRollSavingThrow;
+  final void Function(CombatAction action, CombatActionRoll rollType)
+      onRollAction;
+  final ValueChanged<CombatWorkspace> onSelectWorkspace;
+  final VoidCallback onToggleDmView;
+  final VoidCallback onToggleDevMode;
+  final VoidCallback onOpenDiceRoller;
+  final VoidCallback onShowBattleBoardControls;
+  final VoidCallback onEndCombat;
+  final VoidCallback onRequestInitiative;
+  final VoidCallback onRollInitiative;
+  final VoidCallback onRunDemo;
+  final VoidCallback onControlBlocked;
+
+  const _ConsoleTargetPanel({
+    required this.targetEntries,
+    required this.actions,
+    required this.combatants,
+    required this.activeIndex,
+    required this.selectedTarget,
+    required this.targetIndex,
+    required this.sceneTokens,
+    required this.activeToken,
+    required this.showEnemyHp,
+    required this.devMode,
+    required this.rollMode,
+    required this.workspace,
+    required this.canControlActive,
+    required this.boardControllerActive,
+    required this.openingBattleBoard,
+    required this.confirmLabel,
+    required this.confirmEnabled,
+    required this.rollInFlight,
+    required this.onConfirm,
+    required this.onSelectTarget,
+    required this.onEditHp,
+    required this.onRemoveBoardToken,
+    required this.onSelectRollMode,
+    required this.onRollSavingThrow,
+    required this.onRollAction,
+    required this.onSelectWorkspace,
+    required this.onToggleDmView,
+    required this.onToggleDevMode,
+    required this.onOpenDiceRoller,
+    required this.onShowBattleBoardControls,
+    required this.onEndCombat,
+    required this.onRequestInitiative,
+    required this.onRollInitiative,
+    required this.onRunDemo,
+    required this.onControlBlocked,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final workspaceIcon = workspace == CombatWorkspace.turn
+        ? Icons.receipt_long_outlined
+        : Icons.dashboard_customize_outlined;
+    final workspaceTarget = workspace == CombatWorkspace.turn
+        ? CombatWorkspace.log
+        : CombatWorkspace.turn;
+    final selectedToken =
+        CombatBoardTokenLookup.byRef(sceneTokens, selectedTarget.id);
+    final selectedDistance = activeToken == null || selectedToken == null
+        ? null
+        : CombatBoardGeometry.distanceFeet(activeToken!, selectedToken);
+    final footerEnabled = canControlActive && confirmEnabled && !rollInFlight;
+
+    return CombatCinematicPanelFrame(
+      borderColor: CombatCinematicColors.gold,
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 9),
+      backgroundAlpha: 0.84,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final tiny = constraints.maxHeight < 220;
+          final short = constraints.maxHeight < 280;
+          final gap = tiny ? 6.0 : 8.0;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  const Icon(
+                    Icons.crisis_alert_outlined,
+                    color: CombatCinematicColors.goldBright,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: Text(
+                      'Objetivos',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: CombatCinematicColors.paper,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    '${activeIndex + 1}/${combatants.length}',
+                    style: TextStyle(
+                      color: tokens.textSecondary,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  CombatPhoneIconButton(
+                    icon: workspaceIcon,
+                    tooltip:
+                        workspace == CombatWorkspace.turn ? 'Log' : 'Turno',
+                    onTap: () => onSelectWorkspace(workspaceTarget),
+                  ),
+                  const SizedBox(width: 4),
+                  _PhoneToolMenu(
+                    showEnemyHp: showEnemyHp,
+                    devMode: devMode,
+                    onToggleDmView: onToggleDmView,
+                    onToggleDevMode: onToggleDevMode,
+                    onRequestInitiative: onRequestInitiative,
+                    onRollInitiative: onRollInitiative,
+                    onRunDemo: onRunDemo,
+                    onShowOverview: () =>
+                        onSelectWorkspace(CombatWorkspace.overview),
+                  ),
+                ],
+              ),
+              if (!tiny) ...[
+                SizedBox(height: gap),
+                CombatConsoleInfoPill(
+                  icon: selectedToken?.isTargetInRange == false
+                      ? Icons.warning_amber_rounded
+                      : Icons.my_location_rounded,
+                  label: selectedDistance == null
+                      ? selectedTarget.name
+                      : '${selectedTarget.name} - $selectedDistance ft',
+                  color: selectedToken?.isTargetInRange == false
+                      ? CombatCinematicColors.blood
+                      : CombatCinematicColors.goldBright,
+                ),
+              ],
+              SizedBox(height: gap),
+              _ConsoleQuickToolBar(
+                boardControllerActive: boardControllerActive,
+                openingBattleBoard: openingBattleBoard,
+                devMode: devMode,
+                onOpenDiceRoller: onOpenDiceRoller,
+                onShowBattleBoardControls: onShowBattleBoardControls,
+                onToggleDevMode: onToggleDevMode,
+                onEndCombat: onEndCombat,
+              ),
+              SizedBox(height: gap),
+              Expanded(
+                child: targetEntries.isEmpty
+                    ? const CombatConsoleEmptyTargets()
+                    : ListView.separated(
+                        itemCount: targetEntries.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 7),
+                        itemBuilder: (context, index) {
+                          final entry = targetEntries[index];
+                          final token = CombatBoardTokenLookup.byRef(
+                            sceneTokens,
+                            entry.combatant.id,
+                          );
+                          final distance = activeToken == null || token == null
+                              ? null
+                              : CombatBoardGeometry.distanceFeet(
+                                  activeToken!, token);
+                          return _ConsoleTargetTile(
+                            entry: entry,
+                            token: token,
+                            selected: entry.index == targetIndex,
+                            distanceFeet: distance,
+                            showEnemyHp: showEnemyHp,
+                            enabled: canControlActive,
+                            onRemoveToken:
+                                boardControllerActive && entry.combatant.hp <= 0
+                                    ? () => onRemoveBoardToken(entry.index)
+                                    : null,
+                            onSelect: () {
+                              if (!canControlActive) {
+                                onControlBlocked();
+                                return;
+                              }
+                              onSelectTarget(entry.index);
+                            },
+                            onEditHp: () => onEditHp(entry.index),
+                          );
+                        },
+                      ),
+              ),
+              if (!short) ...[
+                const SizedBox(height: 9),
+                _CinematicRollModeToggle(
+                  value: rollMode,
+                  onChanged: canControlActive ? onSelectRollMode : (_) {},
+                ),
+              ],
+              SizedBox(height: gap),
+              Row(
+                children: [
+                  if (!tiny) ...[
+                    SizedBox(
+                      width: 76,
+                      child: CombatCinematicFooterButton(
+                        icon: Icons.shield_outlined,
+                        label: 'TS',
+                        color: CombatCinematicColors.goldBright,
+                        compact: true,
+                        onTap: canControlActive && !rollInFlight
+                            ? () => showCombatSavingThrowSheet(
+                                  context: context,
+                                  target: selectedTarget,
+                                  actions: actions,
+                                  onRollSavingThrow: onRollSavingThrow,
+                                  onRollAction: onRollAction,
+                                )
+                            : onControlBlocked,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  Expanded(
+                    child: CombatCinematicConfirmButton(
+                      enabled: footerEnabled,
+                      label: rollInFlight
+                          ? 'Rolling...'
+                          : canControlActive
+                              ? confirmLabel
+                              : 'Esperar turno',
+                      onTap: footerEnabled ? onConfirm : onControlBlocked,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ConsoleQuickToolBar extends StatelessWidget {
+  final bool boardControllerActive;
+  final bool openingBattleBoard;
+  final bool devMode;
+  final VoidCallback onOpenDiceRoller;
+  final VoidCallback onShowBattleBoardControls;
+  final VoidCallback onToggleDevMode;
+  final VoidCallback onEndCombat;
+
+  const _ConsoleQuickToolBar({
+    required this.boardControllerActive,
+    required this.openingBattleBoard,
+    required this.devMode,
+    required this.onOpenDiceRoller,
+    required this.onShowBattleBoardControls,
+    required this.onToggleDevMode,
+    required this.onEndCombat,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    return Row(
+      children: [
+        Expanded(
+          child: _ConsoleQuickToolButton(
+            icon: Icons.casino_outlined,
+            label: 'Dados',
+            color: tokens.accentMagic,
+            onTap: onOpenDiceRoller,
+          ),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: _ConsoleQuickToolButton(
+            icon: openingBattleBoard
+                ? Icons.hourglass_empty_rounded
+                : boardControllerActive
+                    ? Icons.connected_tv_rounded
+                    : Icons.grid_view_rounded,
+            label: 'Board',
+            color: tokens.accentInfo,
+            onTap: openingBattleBoard ? null : onShowBattleBoardControls,
+          ),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: _ConsoleQuickToolButton(
+            icon: devMode ? Icons.construction_rounded : Icons.science_outlined,
+            label: devMode ? 'Prueba ON' : 'Prueba',
+            color: devMode
+                ? tokens.accentSuccess
+                : CombatCinematicColors.goldBright,
+            onTap: onToggleDevMode,
+          ),
+        ),
+        const SizedBox(width: 6),
+        _ConsoleQuickToolButton(
+          icon: Icons.flag_circle_outlined,
+          label: '',
+          tooltip: 'Terminar combate',
+          color: tokens.accentAction,
+          width: 38,
+          onTap: onEndCombat,
+        ),
+      ],
+    );
+  }
+}
+
+class _ConsoleQuickToolButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String? tooltip;
+  final Color color;
+  final double? width;
+  final VoidCallback? onTap;
+
+  const _ConsoleQuickToolButton({
+    required this.icon,
+    required this.label,
+    this.tooltip,
+    required this.color,
+    this.width,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+    final button = Opacity(
+      opacity: enabled ? 1 : 0.48,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(7),
+        child: Container(
+          width: width,
+          height: 34,
+          padding: const EdgeInsets.symmetric(horizontal: 7),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.14),
+            borderRadius: BorderRadius.circular(7),
+            border: Border.all(color: color.withValues(alpha: 0.30)),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: color, size: 16),
+              if (label.isNotEmpty) ...[
+                const SizedBox(width: 5),
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: CombatCinematicColors.paper,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                      height: 1,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+
+    return Tooltip(message: tooltip ?? label, child: button);
+  }
+}
+
+class _ConsoleTargetTile extends StatelessWidget {
+  final IndexedCombatant entry;
+  final BoardToken? token;
+  final bool selected;
+  final int? distanceFeet;
+  final bool showEnemyHp;
+  final bool enabled;
+  final VoidCallback? onRemoveToken;
+  final VoidCallback onSelect;
+  final VoidCallback onEditHp;
+
+  const _ConsoleTargetTile({
+    required this.entry,
+    required this.token,
+    required this.selected,
+    required this.distanceFeet,
+    required this.showEnemyHp,
+    required this.enabled,
+    required this.onRemoveToken,
+    required this.onSelect,
+    required this.onEditHp,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final combatant = entry.combatant;
+    final color = combatTeamColor(combatant.team, tokens);
+    final hpVisible = canShowCombatantHp(combatant, showEnemyHp);
+    final canEditHp = hpVisible;
+    final rangeColor = token?.isTargetInRange == false
+        ? CombatCinematicColors.blood
+        : CombatCinematicColors.goldBright;
+
+    return Opacity(
+      opacity: enabled ? 1 : 0.64,
+      child: InkWell(
+        onTap: onSelect,
+        borderRadius: BorderRadius.circular(8),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          height: 58,
+          padding: const EdgeInsets.all(7),
+          decoration: BoxDecoration(
+            color: selected
+                ? color.withValues(alpha: 0.18)
+                : Colors.black.withValues(alpha: 0.28),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: selected
+                  ? CombatCinematicColors.goldBright.withValues(alpha: 0.68)
+                  : color.withValues(alpha: 0.24),
+              width: selected ? 1.6 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 42,
+                height: 42,
+                child: CombatCinematicPortraitBox(
+                  combatant: combatant,
+                  color: color,
+                  iconSize: 25,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      combatant.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: CombatCinematicColors.paper,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w900,
+                        height: 1,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            combatant.role.isEmpty
+                                ? 'Objetivo'
+                                : combatant.role,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: tokens.textSecondary,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              height: 1,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          distanceFeet == null ? 'Grid --' : '$distanceFeet ft',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: rangeColor,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w900,
+                            height: 1,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 6),
+              Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (onRemoveToken != null)
+                    Tooltip(
+                      message: 'Retirar ficha del tablero',
+                      child: InkWell(
+                        onTap: onRemoveToken,
+                        borderRadius: BorderRadius.circular(999),
+                        child: Container(
+                          width: 24,
+                          height: 24,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: CombatCinematicColors.blood.withValues(
+                              alpha: 0.18,
+                            ),
+                            border: Border.all(
+                              color: CombatCinematicColors.blood.withValues(
+                                alpha: 0.34,
+                              ),
+                            ),
+                          ),
+                          child: const Icon(
+                            Icons.delete_outline_rounded,
+                            color: CombatCinematicColors.paper,
+                            size: 14,
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    Text(
+                      'AC ${combatant.ac}',
+                      style: const TextStyle(
+                        color: CombatCinematicColors.paper,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        height: 1,
+                      ),
+                    ),
+                  const SizedBox(height: 5),
+                  GestureDetector(
+                    onTap: canEditHp ? onEditHp : null,
+                    child: Text(
+                      compactCombatantHpLabel(combatant, showEnemyHp),
+                      style: TextStyle(
+                        color: canEditHp ? color : tokens.textMuted,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        height: 1,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _consoleRollBonusText(CombatAction action) {
+  if (action.requiresSavingThrow) return 'DC ${action.saveDc}';
+  if (action.hasMultiAttack) return '${action.multiAttackSteps.length}x';
+  final formula = action.attackFormula;
+  if (formula == null) return '-';
+  final compact = formula.replaceAll(RegExp(r'\s+'), '').toLowerCase();
+  final match = RegExp(r'^d20([+-]\d+)$').firstMatch(compact);
+  if (match != null) return match.group(1)!;
+  if (compact == 'd20') return '+0';
+  return formula;
+}
+
+class _CombatPhoneControllerView extends StatelessWidget {
+  final int round;
+  final List<Combatant> combatants;
+  final int activeIndex;
+  final int targetIndex;
+  final Combatant activeCombatant;
+  final Combatant selectedTarget;
+  final List<CombatAction> actions;
+  final CombatRollFeedback? rollFeedback;
+  final Set<String> spentTimings;
+  final Set<String> pendingDamageActions;
+  final Map<String, CombatAction> preparedActions;
+  final String? activeMultiAttackActionKey;
+  final int activeMultiAttackStepIndex;
+  final List<PendingCombatAttack> activeMultiAttackPendingAttacks;
+  final List<ReactionOption> reactionOptions;
+  final bool hasTakenAttackActionThisTurn;
+  final bool martialArtsEligibleAttackThisTurn;
+  final bool flurryAlreadyUsedThisTurn;
+  final CombatActionEconomySnapshot activeEconomy;
   final int queuedPreparedIndex;
   final int queuedPreparedTotal;
   final String? queuedPreparedActionName;
   final String selectedCommandTiming;
+  final CombatWorkspace workspace;
   final bool showEnemyHp;
+  final List<CombatLogEntry> entries;
   final Map<String, int> resourcePool;
+  final CombatRollMode rollMode;
   final bool canControlActive;
   final String controlBlockedMessage;
+  final bool boardControllerActive;
+  final String? boardSceneId;
+  final CombatAction? focusedBattleBoardAction;
   final VoidCallback onBack;
   final VoidCallback onRequestInitiative;
   final VoidCallback onRollInitiative;
@@ -17845,18 +20494,27 @@ class _CombatCompactLandscapeView extends StatelessWidget {
   final VoidCallback onRunDemo;
   final ValueChanged<int> onSelectTarget;
   final ValueChanged<int> onSelectFocusedCombatant;
+  final ValueChanged<int> onEditHp;
   final void Function(String combatantId, String effectName)
       onRemoveActiveEffect;
+  final ValueChanged<CombatWorkspace> onSelectWorkspace;
   final ValueChanged<String> onSelectCommandTiming;
-  final void Function(_CombatAction action, _CombatActionRoll rollType)
+  final ValueChanged<CombatRollMode> onSelectRollMode;
+  final ValueChanged<CombatAction> onFocusAction;
+  final void Function(int actorIndex, CombatAction action) onUseReaction;
+  final ValueChanged<CombatAction> onReadyAction;
+  final ValueChanged<String> onRollSavingThrow;
+  final void Function(CombatAction action, CombatActionRoll rollType)
       onRollAction;
-  final ValueChanged<_CombatAction> onUseAction;
-  final ValueChanged<_CombatAction> onPrepareAction;
+  final ValueChanged<CombatAction> onUseAction;
+  final ValueChanged<CombatAction> onPrepareAction;
   final VoidCallback onLaunchPreparedTurn;
   final VoidCallback onClearPreparedActions;
   final VoidCallback onControlBlocked;
+  final Future<void> Function(String combatantId, int dx, int dy)
+      onMoveBoardToken;
 
-  const _CombatCompactLandscapeView({
+  const _CombatPhoneControllerView({
     required this.round,
     required this.combatants,
     required this.activeIndex,
@@ -17868,14 +20526,28 @@ class _CombatCompactLandscapeView extends StatelessWidget {
     required this.spentTimings,
     required this.pendingDamageActions,
     required this.preparedActions,
+    required this.activeMultiAttackActionKey,
+    required this.activeMultiAttackStepIndex,
+    required this.activeMultiAttackPendingAttacks,
+    required this.reactionOptions,
+    required this.hasTakenAttackActionThisTurn,
+    required this.martialArtsEligibleAttackThisTurn,
+    required this.flurryAlreadyUsedThisTurn,
+    required this.activeEconomy,
     required this.queuedPreparedIndex,
     required this.queuedPreparedTotal,
     required this.queuedPreparedActionName,
     required this.selectedCommandTiming,
+    required this.workspace,
     required this.showEnemyHp,
+    required this.entries,
     required this.resourcePool,
+    required this.rollMode,
     required this.canControlActive,
     required this.controlBlockedMessage,
+    required this.boardControllerActive,
+    required this.boardSceneId,
+    required this.focusedBattleBoardAction,
     required this.onBack,
     required this.onRequestInitiative,
     required this.onRollInitiative,
@@ -17884,145 +20556,738 @@ class _CombatCompactLandscapeView extends StatelessWidget {
     required this.onRunDemo,
     required this.onSelectTarget,
     required this.onSelectFocusedCombatant,
+    required this.onEditHp,
     required this.onRemoveActiveEffect,
+    required this.onSelectWorkspace,
     required this.onSelectCommandTiming,
+    required this.onSelectRollMode,
+    required this.onFocusAction,
+    required this.onUseReaction,
+    required this.onReadyAction,
+    required this.onRollSavingThrow,
     required this.onRollAction,
     required this.onUseAction,
     required this.onPrepareAction,
     required this.onLaunchPreparedTurn,
     required this.onClearPreparedActions,
     required this.onControlBlocked,
+    required this.onMoveBoardToken,
   });
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final party = _indexedTeam(combatants, CombatTeam.party);
+    final enemies = _indexedTeam(combatants, CombatTeam.enemy);
+
     return Padding(
       padding: const EdgeInsets.all(8),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          const gap = 8.0;
-          final sideWidth =
-              math.min(232.0, math.max(196.0, constraints.maxWidth * 0.27));
-          final targetWidth =
-              math.min(238.0, math.max(188.0, constraints.maxWidth * 0.25));
-          final planHeight =
-              math.min(128.0, math.max(112.0, constraints.maxHeight * 0.32));
-
-          void openCatalog(String timing) {
-            if (!canControlActive) {
-              onControlBlocked();
-              return;
-            }
-            onSelectCommandTiming(timing);
-            _showActionCatalogSheet(
-              context: context,
-              actions: actions,
-              spentTimings: spentTimings,
-              pendingDamageActions: pendingDamageActions,
-              resourcePool: resourcePool,
-              preparedActions: preparedActions,
-              selectedTiming: timing,
-              onSelectTiming: onSelectCommandTiming,
-              onRollAction: onRollAction,
-              onUseAction: onUseAction,
-              onPrepareAction: onPrepareAction,
-            );
-          }
-
-          return Column(
-            children: [
-              SizedBox(
-                height: 54,
-                child: _CompactLandscapeTopBar(
-                  round: round,
-                  combatants: combatants,
-                  activeIndex: activeIndex,
-                  showEnemyHp: showEnemyHp,
-                  onBack: onBack,
-                  onRequestInitiative: onRequestInitiative,
-                  onRollInitiative: onRollInitiative,
-                  onNextTurn: onNextTurn,
-                  onToggleDmView: onToggleDmView,
-                  onRunDemo: onRunDemo,
-                  onSelectCombatant: onSelectFocusedCombatant,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        child: Stack(
+          children: [
+            const Positioned.fill(child: CombatCinematicDungeonBackdrop()),
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.34),
                 ),
               ),
-              const SizedBox(height: gap),
-              Expanded(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    SizedBox(
-                      width: sideWidth,
-                      child: _CompactActiveCombatantCard(
-                        combatant: activeCombatant,
-                        actions: actions,
-                        selectedTiming: selectedCommandTiming,
-                        spentTimings: spentTimings,
-                        showEnemyHp: showEnemyHp,
-                        enabled: canControlActive,
-                        disabledMessage: controlBlockedMessage,
-                        onOpenCatalog: openCatalog,
-                        onRemoveActiveEffect: onRemoveActiveEffect,
+            ),
+            Positioned.fill(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final veryShort = constraints.maxHeight < 620;
+                  final topHeight = veryShort ? 58.0 : 64.0;
+                  final deckHeight = math
+                      .min(
+                        veryShort ? 292.0 : 324.0,
+                        math.max(
+                          veryShort ? 250.0 : 282.0,
+                          constraints.maxHeight * (veryShort ? 0.48 : 0.44),
+                        ),
+                      )
+                      .toDouble();
+                  const gap = 8.0;
+                  final stage = boardControllerActive
+                      ? _BoardLinkedControllerStage(
+                          combatants: combatants,
+                          activeIndex: activeIndex,
+                          targetIndex: targetIndex,
+                          activeCombatant: activeCombatant,
+                          selectedTarget: selectedTarget,
+                          actions: actions,
+                          selectedTiming: selectedCommandTiming,
+                          focusedAction: focusedBattleBoardAction,
+                          sceneId: boardSceneId,
+                          showEnemyHp: showEnemyHp,
+                          canControlActive: canControlActive,
+                          insets: EdgeInsets.zero,
+                          onSelectTarget: onSelectTarget,
+                          onEditHp: onEditHp,
+                          onMoveBoardToken: onMoveBoardToken,
+                        )
+                      : _CinematicTacticalCenterLayer(
+                          combatants: combatants,
+                          party: party,
+                          enemies: enemies,
+                          activeIndex: activeIndex,
+                          targetIndex: targetIndex,
+                          rollFeedback: rollFeedback,
+                          showEnemyHp: showEnemyHp,
+                          insets: EdgeInsets.zero,
+                          onEditHp: onEditHp,
+                          onRemoveActiveEffect: onRemoveActiveEffect,
+                          onSelectTarget: onSelectTarget,
+                          onSelectFocusedCombatant: onSelectFocusedCombatant,
+                        );
+
+                  return Stack(
+                    children: [
+                      Positioned(
+                        left: 8,
+                        right: 8,
+                        top: 8,
+                        height: topHeight,
+                        child: _PhoneControllerTopBar(
+                          round: round,
+                          activeCombatant: activeCombatant,
+                          selectedTarget: selectedTarget,
+                          economy: activeEconomy,
+                          workspace: workspace,
+                          showEnemyHp: showEnemyHp,
+                          boardControllerActive: boardControllerActive,
+                          onBack: onBack,
+                          onNextTurn: onNextTurn,
+                          onToggleDmView: onToggleDmView,
+                          onRequestInitiative: onRequestInitiative,
+                          onRollInitiative: onRollInitiative,
+                          onRunDemo: onRunDemo,
+                          onSelectWorkspace: onSelectWorkspace,
+                        ),
                       ),
+                      Positioned(
+                        left: 8,
+                        right: 8,
+                        top: 8 + topHeight + gap,
+                        bottom: deckHeight + 16,
+                        child: workspace == CombatWorkspace.log
+                            ? _CinematicWorkspaceOverlay(
+                                workspace: workspace,
+                                combatants: combatants,
+                                activeIndex: activeIndex,
+                                targetIndex: targetIndex,
+                                showEnemyHp: showEnemyHp,
+                                entries: entries,
+                                rollFeedback: rollFeedback,
+                              )
+                            : stage,
+                      ),
+                      Positioned(
+                        left: 8,
+                        right: 8,
+                        bottom: 8,
+                        height: deckHeight,
+                        child: _PhoneActionDeck(
+                          activeCombatant: activeCombatant,
+                          selectedTarget: selectedTarget,
+                          actions: actions,
+                          spentTimings: spentTimings,
+                          pendingDamageActions: pendingDamageActions,
+                          preparedActions: preparedActions,
+                          activeMultiAttackActionKey:
+                              activeMultiAttackActionKey,
+                          reactionOptions: reactionOptions,
+                          hasTakenAttackActionThisTurn:
+                              hasTakenAttackActionThisTurn,
+                          queuedPreparedIndex: queuedPreparedIndex,
+                          queuedPreparedTotal: queuedPreparedTotal,
+                          queuedPreparedActionName: queuedPreparedActionName,
+                          selectedTiming: selectedCommandTiming,
+                          resourcePool: resourcePool,
+                          rollMode: rollMode,
+                          canControlActive: canControlActive,
+                          controlBlockedMessage: controlBlockedMessage,
+                          onSelectTiming: onSelectCommandTiming,
+                          onSelectRollMode: onSelectRollMode,
+                          onUseReaction: onUseReaction,
+                          onReadyAction: onReadyAction,
+                          onRollSavingThrow: onRollSavingThrow,
+                          onRollAction: onRollAction,
+                          onUseAction: onUseAction,
+                          onPrepareAction: onPrepareAction,
+                          onLaunchPreparedTurn: onLaunchPreparedTurn,
+                          onClearPreparedActions: onClearPreparedActions,
+                          onControlBlocked: onControlBlocked,
+                          onNextTurn: onNextTurn,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PhoneControllerTopBar extends StatelessWidget {
+  final int round;
+  final Combatant activeCombatant;
+  final Combatant selectedTarget;
+  final CombatActionEconomySnapshot economy;
+  final CombatWorkspace workspace;
+  final bool showEnemyHp;
+  final bool boardControllerActive;
+  final VoidCallback onBack;
+  final VoidCallback onNextTurn;
+  final VoidCallback onToggleDmView;
+  final VoidCallback onRequestInitiative;
+  final VoidCallback onRollInitiative;
+  final VoidCallback onRunDemo;
+  final ValueChanged<CombatWorkspace> onSelectWorkspace;
+
+  const _PhoneControllerTopBar({
+    required this.round,
+    required this.activeCombatant,
+    required this.selectedTarget,
+    required this.economy,
+    required this.workspace,
+    required this.showEnemyHp,
+    required this.boardControllerActive,
+    required this.onBack,
+    required this.onNextTurn,
+    required this.onToggleDmView,
+    required this.onRequestInitiative,
+    required this.onRollInitiative,
+    required this.onRunDemo,
+    required this.onSelectWorkspace,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final accent = combatTeamColor(activeCombatant.team, tokens);
+    final workspaceIcon = workspace == CombatWorkspace.log
+        ? Icons.grid_view_outlined
+        : Icons.receipt_long_outlined;
+    final workspaceTarget = workspace == CombatWorkspace.log
+        ? CombatWorkspace.turn
+        : CombatWorkspace.log;
+
+    return CombatCinematicPanelFrame(
+      borderColor: accent,
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
+      backgroundAlpha: 0.82,
+      child: Row(
+        children: [
+          CombatPhoneIconButton(
+            icon: Icons.arrow_back_rounded,
+            tooltip: 'Volver',
+            onTap: onBack,
+          ),
+          const SizedBox(width: 7),
+          Container(
+            width: 42,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(7),
+              border: Border.all(color: accent.withValues(alpha: 0.28)),
+            ),
+            child: Text(
+              '$round',
+              style: const TextStyle(
+                color: CombatCinematicColors.paper,
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+                height: 1,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  activeCombatant.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: CombatCinematicColors.paper,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                    height: 1,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    CombatCinematicEconomyDot(
+                      icon: Icons.flash_on,
+                      spent: economy.actionSpent,
+                      color: accent,
                     ),
-                    const SizedBox(width: gap),
+                    const SizedBox(width: 4),
+                    CombatCinematicEconomyDot(
+                      icon: Icons.control_point_duplicate,
+                      spent: economy.bonusActionSpent,
+                      color: accent,
+                    ),
+                    const SizedBox(width: 4),
+                    CombatCinematicEconomyDot(
+                      icon: Icons.reply_rounded,
+                      spent: economy.reactionSpent,
+                      color: accent,
+                    ),
+                    const SizedBox(width: 7),
                     Expanded(
-                      child: Column(
-                        children: [
-                          Expanded(
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Expanded(
-                                  child: _CombatDiceTheater(
-                                    feedback: rollFeedback,
-                                    activeCombatant: activeCombatant,
-                                    selectedTarget: selectedTarget,
-                                  ),
-                                ),
-                                const SizedBox(width: gap),
-                                SizedBox(
-                                  width: targetWidth,
-                                  child: _CompactTargetCard(
-                                    combatants: combatants,
-                                    activeIndex: activeIndex,
-                                    targetIndex: targetIndex,
-                                    combatant: selectedTarget,
-                                    rollFeedback: rollFeedback,
-                                    showEnemyHp: showEnemyHp,
-                                    onSelectTarget: onSelectTarget,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: gap),
-                          SizedBox(
-                            height: planHeight,
-                            child: _CompactPreparedTurnStrip(
-                              activeCombatant: activeCombatant,
-                              actions: actions,
-                              preparedActions: preparedActions,
-                              spentTimings: spentTimings,
-                              queuedPreparedIndex: queuedPreparedIndex,
-                              queuedPreparedTotal: queuedPreparedTotal,
-                              queuedPreparedActionName:
-                                  queuedPreparedActionName,
-                              selectedTiming: selectedCommandTiming,
-                              enabled: canControlActive,
-                              disabledMessage: controlBlockedMessage,
-                              onDisabledTap: onControlBlocked,
-                              onOpenCatalog: openCatalog,
-                              onLaunch: onLaunchPreparedTurn,
-                              onClear: onClearPreparedActions,
-                            ),
-                          ),
-                        ],
+                      child: Text(
+                        boardControllerActive
+                            ? '${economy.movementAvailable} ft - ${selectedTarget.name}'
+                            : compactCombatantHpLabel(
+                                activeCombatant, showEnemyHp),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: tokens.textSecondary,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                     ),
                   ],
                 ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 7),
+          CombatPhoneIconButton(
+            icon: workspaceIcon,
+            tooltip: workspace == CombatWorkspace.log ? 'Turno' : 'Log',
+            onTap: () => onSelectWorkspace(workspaceTarget),
+          ),
+          const SizedBox(width: 5),
+          _PhoneToolMenu(
+            showEnemyHp: showEnemyHp,
+            onToggleDmView: onToggleDmView,
+            onRequestInitiative: onRequestInitiative,
+            onRollInitiative: onRollInitiative,
+            onRunDemo: onRunDemo,
+            onShowOverview: () => onSelectWorkspace(CombatWorkspace.overview),
+          ),
+          const SizedBox(width: 5),
+          CombatPhoneIconButton(
+            icon: Icons.skip_next_rounded,
+            tooltip: 'Siguiente turno',
+            color: CombatCinematicColors.goldBright,
+            onTap: onNextTurn,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PhoneToolMenu extends StatelessWidget {
+  final bool showEnemyHp;
+  final bool devMode;
+  final VoidCallback onToggleDmView;
+  final VoidCallback? onToggleDevMode;
+  final VoidCallback onRequestInitiative;
+  final VoidCallback onRollInitiative;
+  final VoidCallback onRunDemo;
+  final VoidCallback onShowOverview;
+
+  const _PhoneToolMenu({
+    required this.showEnemyHp,
+    this.devMode = false,
+    required this.onToggleDmView,
+    this.onToggleDevMode,
+    required this.onRequestInitiative,
+    required this.onRollInitiative,
+    required this.onRunDemo,
+    required this.onShowOverview,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<String>(
+      tooltip: 'Herramientas',
+      color: context.stitch.surfaceRaised,
+      icon: const Icon(
+        Icons.more_horiz_rounded,
+        color: CombatCinematicColors.paper,
+      ),
+      onSelected: (value) {
+        switch (value) {
+          case 'view':
+            onToggleDmView();
+          case 'dev':
+            onToggleDevMode?.call();
+          case 'overview':
+            onShowOverview();
+          case 'initiative':
+            onRequestInitiative();
+          case 'roll':
+            onRollInitiative();
+          case 'demo':
+            onRunDemo();
+        }
+      },
+      itemBuilder: (context) => [
+        PopupMenuItem(
+          value: 'view',
+          child: Text(showEnemyHp ? 'Vista jugador' : 'Vista DM'),
+        ),
+        if (onToggleDevMode != null)
+          PopupMenuItem(
+            value: 'dev',
+            child: Text(devMode ? 'Desactivar modo prueba' : 'Modo prueba'),
+          ),
+        const PopupMenuItem(
+          value: 'overview',
+          child: Text('Resumen'),
+        ),
+        const PopupMenuItem(
+          value: 'initiative',
+          child: Text('Pedir iniciativa'),
+        ),
+        const PopupMenuItem(
+          value: 'roll',
+          child: Text('Tirar iniciativa'),
+        ),
+        const PopupMenuItem(
+          value: 'demo',
+          child: Text('Demo'),
+        ),
+      ],
+    );
+  }
+}
+
+class _PhoneActionDeck extends StatelessWidget {
+  final Combatant activeCombatant;
+  final Combatant selectedTarget;
+  final List<CombatAction> actions;
+  final Set<String> spentTimings;
+  final Set<String> pendingDamageActions;
+  final Map<String, CombatAction> preparedActions;
+  final String? activeMultiAttackActionKey;
+  final List<ReactionOption> reactionOptions;
+  final bool hasTakenAttackActionThisTurn;
+  final int queuedPreparedIndex;
+  final int queuedPreparedTotal;
+  final String? queuedPreparedActionName;
+  final String selectedTiming;
+  final Map<String, int> resourcePool;
+  final CombatRollMode rollMode;
+  final bool canControlActive;
+  final String controlBlockedMessage;
+  final ValueChanged<String> onSelectTiming;
+  final ValueChanged<CombatRollMode> onSelectRollMode;
+  final void Function(int actorIndex, CombatAction action) onUseReaction;
+  final ValueChanged<CombatAction> onReadyAction;
+  final ValueChanged<String> onRollSavingThrow;
+  final void Function(CombatAction action, CombatActionRoll rollType)
+      onRollAction;
+  final ValueChanged<CombatAction> onUseAction;
+  final ValueChanged<CombatAction> onPrepareAction;
+  final VoidCallback onLaunchPreparedTurn;
+  final VoidCallback onClearPreparedActions;
+  final VoidCallback onControlBlocked;
+  final VoidCallback onNextTurn;
+
+  const _PhoneActionDeck({
+    required this.activeCombatant,
+    required this.selectedTarget,
+    required this.actions,
+    required this.spentTimings,
+    required this.pendingDamageActions,
+    required this.preparedActions,
+    required this.activeMultiAttackActionKey,
+    required this.reactionOptions,
+    required this.hasTakenAttackActionThisTurn,
+    required this.queuedPreparedIndex,
+    required this.queuedPreparedTotal,
+    required this.queuedPreparedActionName,
+    required this.selectedTiming,
+    required this.resourcePool,
+    required this.rollMode,
+    required this.canControlActive,
+    required this.controlBlockedMessage,
+    required this.onSelectTiming,
+    required this.onSelectRollMode,
+    required this.onUseReaction,
+    required this.onReadyAction,
+    required this.onRollSavingThrow,
+    required this.onRollAction,
+    required this.onUseAction,
+    required this.onPrepareAction,
+    required this.onLaunchPreparedTurn,
+    required this.onClearPreparedActions,
+    required this.onControlBlocked,
+    required this.onNextTurn,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (!canControlActive) {
+      return _PhoneControlLockDock(
+        activeCombatant: activeCombatant,
+        message: controlBlockedMessage,
+        onControlBlocked: onControlBlocked,
+      );
+    }
+
+    final hasPendingOnHitTrigger = _hasPendingOnHitTrigger(
+      actions,
+      pendingDamageActions,
+    );
+    final visibleActions = actions
+        .where(
+          (action) =>
+              _actionVisibleInActionTiming(
+                action,
+                selectedTiming,
+                hasPendingOnHitTrigger: hasPendingOnHitTrigger,
+              ) &&
+              !_actionHandledByMonkCombo(action),
+        )
+        .toList(growable: false);
+    _sortActionsForTurnFlow(
+      visibleActions,
+      selectedTiming: selectedTiming,
+      pendingDamageActions: pendingDamageActions,
+      resourcePool: resourcePool,
+    );
+    final prepared = preparedActions[selectedTiming];
+    final activeMultiAttackAction = activeMultiAttackActionKey == null
+        ? null
+        : _firstOrNull(
+            actions.where(
+              (action) => _actionCardKey(action) == activeMultiAttackActionKey,
+            ),
+          );
+    final featuredAction = prepared ??
+        activeMultiAttackAction ??
+        _firstOrNull(visibleActions) ??
+        _firstOrNull(actions);
+    final featuredPending = featuredAction != null &&
+        pendingDamageActions.contains(_actionCardKey(featuredAction));
+    final featuredMultiAttackActive = featuredAction != null &&
+        activeMultiAttackActionKey == _actionCardKey(featuredAction);
+    final featuredSpent = featuredAction != null &&
+        spentTimings.contains(featuredAction.timing) &&
+        !featuredPending &&
+        !featuredMultiAttackActive;
+    final handActions = [
+      if (featuredAction != null) featuredAction,
+      ...visibleActions.where((action) => action != featuredAction),
+    ].take(8).toList(growable: false);
+    final hasPrepared = preparedActions.isNotEmpty;
+    final confirmLabel = queuedPreparedTotal > 0
+        ? 'Tirar siguiente'
+        : hasPrepared
+            ? 'Tirar plan'
+            : featuredPending
+                ? 'Resolver dano'
+                : featuredMultiAttackActive
+                    ? 'Tirar siguiente'
+                    : featuredSpent
+                        ? 'Siguiente turno'
+                        : 'Confirmar';
+    final VoidCallback confirmAction = hasPrepared
+        ? onLaunchPreparedTurn
+        : () {
+            final action = featuredAction;
+            if (action == null) return;
+            if (featuredSpent) {
+              onNextTurn();
+              return;
+            }
+            _rollPrimaryAction(
+              action,
+              onRollAction,
+              onUseAction,
+              pendingDamage: featuredPending,
+            );
+          };
+    final showTechniqueRail = _techniqueRailActions(
+      actions: actions,
+      resourcePool: resourcePool,
+      pendingDamageActions: pendingDamageActions,
+      hasTakenAttackActionThisTurn: hasTakenAttackActionThisTurn,
+    ).isNotEmpty;
+
+    return CombatCinematicPanelFrame(
+      borderColor: CombatCinematicColors.gold,
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 9),
+      backgroundAlpha: 0.84,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final short = constraints.maxHeight < 285;
+          final roomy = constraints.maxHeight >= 350;
+          final actionCardHeight = short ? 118.0 : 142.0;
+          final actionCardWidth =
+              math.min(254.0, math.max(220.0, constraints.maxWidth * 0.72));
+
+          return Column(
+            children: [
+              _CinematicTimingTabs(
+                actions: actions,
+                selectedTiming: selectedTiming,
+                spentTimings: spentTimings,
+                pendingDamageActions: pendingDamageActions,
+                preparedActions: preparedActions,
+                onSelectTiming: onSelectTiming,
+              ),
+              if (selectedTiming == 'Reaction' &&
+                  reactionOptions.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                _CinematicReactionBar(
+                  options: reactionOptions,
+                  activeName: activeCombatant.name,
+                  onUseReaction: onUseReaction,
+                ),
+              ],
+              if (roomy && (preparedActions.isNotEmpty || featuredPending)) ...[
+                const SizedBox(height: 6),
+                _CinematicTurnPlanStrip(
+                  preparedActions: preparedActions,
+                  pendingAction: featuredPending ? featuredAction : null,
+                ),
+              ],
+              if (roomy && showTechniqueRail) ...[
+                const SizedBox(height: 6),
+                _CinematicTechniqueRail(
+                  actions: actions,
+                  resourcePool: resourcePool,
+                  spentTimings: spentTimings,
+                  pendingDamageActions: pendingDamageActions,
+                  activeMultiAttackActionKey: activeMultiAttackActionKey,
+                  hasTakenAttackActionThisTurn: hasTakenAttackActionThisTurn,
+                  onRollAction: onRollAction,
+                  onUseAction: onUseAction,
+                  compact: true,
+                ),
+              ],
+              const SizedBox(height: 7),
+              SizedBox(
+                height: actionCardHeight,
+                child: handActions.isEmpty
+                    ? CombatActionListEmpty(
+                        selectedTiming: selectedTiming,
+                      )
+                    : ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: handActions.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 8),
+                        itemBuilder: (context, index) {
+                          final action = handActions[index];
+                          final key = _actionCardKey(action);
+                          return SizedBox(
+                            width: actionCardWidth,
+                            child: _CinematicSmallActionCard(
+                              action: action,
+                              prepared:
+                                  preparedActions[action.timing] == action,
+                              spent: spentTimings.contains(action.timing) &&
+                                  activeMultiAttackActionKey != key,
+                              pendingDamage: pendingDamageActions.contains(key),
+                              blocked:
+                                  _actionLacksResource(action, resourcePool),
+                              resourceRemaining: _actionResourceRemaining(
+                                action,
+                                resourcePool,
+                              ),
+                              onRollAction: onRollAction,
+                              onUseAction: onUseAction,
+                              onPrepareAction: onPrepareAction,
+                              onReadyAction: onReadyAction,
+                            ),
+                          );
+                        },
+                      ),
+              ),
+              const Spacer(),
+              Row(
+                children: [
+                  Expanded(
+                    child: CombatCinematicFooterButton(
+                      icon: Icons.view_module_outlined,
+                      label: 'Todas',
+                      color: CombatCinematicColors.goldBright,
+                      compact: true,
+                      onTap: () => _showActionCatalogSheet(
+                        context: context,
+                        actions: actions,
+                        spentTimings: spentTimings,
+                        pendingDamageActions: pendingDamageActions,
+                        resourcePool: resourcePool,
+                        preparedActions: preparedActions,
+                        selectedTiming: selectedTiming,
+                        onSelectTiming: onSelectTiming,
+                        onRollAction: onRollAction,
+                        onUseAction: onUseAction,
+                        onPrepareAction: onPrepareAction,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: CombatCinematicFooterButton(
+                      icon: Icons.shield_outlined,
+                      label: 'TS',
+                      color: CombatCinematicColors.goldBright,
+                      compact: true,
+                      onTap: () => showCombatSavingThrowSheet(
+                        context: context,
+                        target: selectedTarget,
+                        actions: actions,
+                        onRollSavingThrow: onRollSavingThrow,
+                        onRollAction: onRollAction,
+                      ),
+                    ),
+                  ),
+                  if (hasPrepared) ...[
+                    const SizedBox(width: 7),
+                    Expanded(
+                      child: CombatCinematicFooterButton(
+                        icon: Icons.clear_all_outlined,
+                        label: 'Limpiar',
+                        color: CombatCinematicColors.paper,
+                        compact: true,
+                        onTap: onClearPreparedActions,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 7),
+              Row(
+                children: [
+                  SizedBox(
+                    width: 118,
+                    child: _CinematicRollModeToggle(
+                      value: rollMode,
+                      onChanged: onSelectRollMode,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: CombatCinematicConfirmButton(
+                      enabled: featuredAction != null || hasPrepared,
+                      label: confirmLabel,
+                      onTap: confirmAction,
+                    ),
+                  ),
+                ],
               ),
             ],
           );
@@ -18032,18 +21297,116 @@ class _CombatCompactLandscapeView extends StatelessWidget {
   }
 }
 
+class _PhoneControlLockDock extends StatelessWidget {
+  final Combatant activeCombatant;
+  final String message;
+  final VoidCallback onControlBlocked;
+
+  const _PhoneControlLockDock({
+    required this.activeCombatant,
+    required this.message,
+    required this.onControlBlocked,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final accent = combatTeamColor(activeCombatant.team, tokens);
+
+    return CombatCinematicPanelFrame(
+      borderColor: accent,
+      padding: const EdgeInsets.all(12),
+      backgroundAlpha: 0.84,
+      child: Column(
+        children: [
+          Row(
+            children: [
+              SizedBox(
+                width: 58,
+                height: 58,
+                child: CombatCinematicPortraitBox(
+                  combatant: activeCombatant,
+                  color: accent,
+                  iconSize: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Turno de ${activeCombatant.name}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: CombatCinematicColors.paper,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      message,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: tokens.textSecondary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        height: 1.12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const Spacer(),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.24),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: accent.withValues(alpha: 0.24)),
+            ),
+            child: Text(
+              'Puedes mirar el turno, elegir objetivos para el tablero y esperar tu momento. Las acciones ajenas quedan ocultas en el controlador de jugador.',
+              maxLines: 4,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: tokens.textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                height: 1.18,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          CombatCinematicConfirmButton(
+            enabled: true,
+            label: 'Esperar turno',
+            onTap: onControlBlocked,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _CombatNarrowModeView extends StatelessWidget {
   final int round;
-  final List<_Combatant> combatants;
+  final List<Combatant> combatants;
   final int activeIndex;
   final int targetIndex;
-  final _Combatant activeCombatant;
-  final _Combatant selectedTarget;
-  final List<_CombatAction> actions;
-  final _CombatRollFeedback? rollFeedback;
+  final Combatant activeCombatant;
+  final Combatant selectedTarget;
+  final List<CombatAction> actions;
+  final CombatRollFeedback? rollFeedback;
   final Set<String> spentTimings;
   final Set<String> pendingDamageActions;
-  final Map<String, _CombatAction> preparedActions;
+  final Map<String, CombatAction> preparedActions;
   final int queuedPreparedIndex;
   final int queuedPreparedTotal;
   final String? queuedPreparedActionName;
@@ -18063,10 +21426,10 @@ class _CombatNarrowModeView extends StatelessWidget {
   final void Function(String combatantId, String effectName)
       onRemoveActiveEffect;
   final ValueChanged<String> onSelectCommandTiming;
-  final void Function(_CombatAction action, _CombatActionRoll rollType)
+  final void Function(CombatAction action, CombatActionRoll rollType)
       onRollAction;
-  final ValueChanged<_CombatAction> onUseAction;
-  final ValueChanged<_CombatAction> onPrepareAction;
+  final ValueChanged<CombatAction> onUseAction;
+  final ValueChanged<CombatAction> onPrepareAction;
   final VoidCallback onLaunchPreparedTurn;
   final VoidCallback onClearPreparedActions;
   final VoidCallback onControlBlocked;
@@ -18156,7 +21519,7 @@ class _CombatNarrowModeView extends StatelessWidget {
         ),
         if (isPortrait) ...[
           const SizedBox(height: 8),
-          const _LandscapeNudge(),
+          const CombatLandscapeNudge(),
         ],
         const SizedBox(height: 8),
         SizedBox(
@@ -18252,46 +21615,9 @@ class _CombatNarrowModeView extends StatelessWidget {
   }
 }
 
-class _LandscapeNudge extends StatelessWidget {
-  const _LandscapeNudge();
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: tokens.accentInfo.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(tokens.radiusSm),
-        border: Border.all(color: tokens.accentInfo.withValues(alpha: 0.24)),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.screen_rotation_alt_outlined,
-              color: tokens.accentInfo, size: 16),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'Landscape gives Combat Mode more room for turns, dice and target.',
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: tokens.textSecondary,
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _CompactLandscapeTopBar extends StatelessWidget {
   final int round;
-  final List<_Combatant> combatants;
+  final List<Combatant> combatants;
   final int activeIndex;
   final bool showEnemyHp;
   final VoidCallback onBack;
@@ -18341,7 +21667,7 @@ class _CompactLandscapeTopBar extends StatelessWidget {
       ),
       child: Row(
         children: [
-          _CompactIconButton(
+          CombatCompactIconButton(
             icon: Icons.arrow_back,
             label: 'Back',
             onTap: onBack,
@@ -18390,30 +21716,30 @@ class _CompactLandscapeTopBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 7),
-          _CompactIconButton(
+          CombatCompactIconButton(
             icon: showEnemyHp
                 ? Icons.visibility_outlined
                 : Icons.visibility_off_outlined,
             label: showEnemyHp ? 'DM' : 'Player',
             onTap: onToggleDmView,
           ),
-          _CompactIconButton(
+          CombatCompactIconButton(
             icon: Icons.campaign_outlined,
             label: 'Init',
             onTap: onRequestInitiative,
           ),
-          _CompactIconButton(
+          CombatCompactIconButton(
             icon: Icons.casino_outlined,
             label: 'Roll',
             onTap: onRollInitiative,
           ),
-          _CompactIconButton(
+          CombatCompactIconButton(
             icon: Icons.play_circle_outline,
             label: 'Demo',
             onTap: onRunDemo,
           ),
           const SizedBox(width: 3),
-          _CompactIconButton(
+          CombatCompactIconButton(
             icon: Icons.skip_next_rounded,
             label: 'Next',
             color: tokens.accentAction,
@@ -18426,7 +21752,7 @@ class _CompactLandscapeTopBar extends StatelessWidget {
 }
 
 class _CompactInitiativeChip extends StatelessWidget {
-  final _Combatant combatant;
+  final Combatant combatant;
   final bool selected;
   final bool showEnemyHp;
   final VoidCallback onTap;
@@ -18442,8 +21768,8 @@ class _CompactInitiativeChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.stitch;
     final color =
-        selected ? tokens.accentInfo : _teamColor(combatant.team, tokens);
-    final hpLabel = _compactHpLabel(combatant, showEnemyHp);
+        selected ? tokens.accentInfo : combatTeamColor(combatant.team, tokens);
+    final hpLabel = compactCombatantHpLabel(combatant, showEnemyHp);
 
     return InkWell(
       onTap: onTap,
@@ -18514,48 +21840,9 @@ class _CompactInitiativeChip extends StatelessWidget {
   }
 }
 
-class _CompactIconButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color? color;
-  final VoidCallback onTap;
-
-  const _CompactIconButton({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    final accent = color ?? tokens.accentRead;
-
-    return Tooltip(
-      message: label,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(tokens.radiusSm),
-        child: Container(
-          width: 39,
-          height: 38,
-          margin: const EdgeInsets.only(left: 4),
-          decoration: BoxDecoration(
-            color: accent.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(tokens.radiusSm),
-            border: Border.all(color: accent.withValues(alpha: 0.26)),
-          ),
-          child: Icon(icon, color: Colors.white, size: 18),
-        ),
-      ),
-    );
-  }
-}
-
 class _CompactActiveCombatantCard extends StatelessWidget {
-  final _Combatant combatant;
-  final List<_CombatAction> actions;
+  final Combatant combatant;
+  final List<CombatAction> actions;
   final String selectedTiming;
   final Set<String> spentTimings;
   final bool showEnemyHp;
@@ -18580,7 +21867,7 @@ class _CompactActiveCombatantCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.stitch;
-    final accent = _teamColor(combatant.team, tokens);
+    final accent = combatTeamColor(combatant.team, tokens);
     const timings = ['Action', 'Bonus Action', 'Reaction', 'Free', 'Movement'];
 
     return Container(
@@ -18613,7 +21900,7 @@ class _CompactActiveCombatantCard extends StatelessWidget {
                 height: portraitHeight,
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(tokens.radiusSm),
-                  child: _CombatantArtwork(
+                  child: CombatantArtwork(
                     combatant: combatant,
                     color: accent,
                     iconSize: 52,
@@ -18661,14 +21948,15 @@ class _CompactActiveCombatantCard extends StatelessWidget {
               Row(
                 children: [
                   Expanded(
-                    child: _GameMetric(
+                    child: CombatGameMetric(
                       label: 'HP',
-                      value: _compactHpLabel(combatant, showEnemyHp),
+                      value: compactCombatantHpLabel(combatant, showEnemyHp),
                     ),
                   ),
                   const SizedBox(width: 7),
                   Expanded(
-                    child: _GameMetric(label: 'AC', value: '${combatant.ac}'),
+                    child:
+                        CombatGameMetric(label: 'AC', value: '${combatant.ac}'),
                   ),
                 ],
               ),
@@ -18686,7 +21974,7 @@ class _CompactActiveCombatantCard extends StatelessWidget {
                         onLongPress: () =>
                             onRemoveActiveEffect(combatant.id, effect),
                         borderRadius: BorderRadius.circular(tokens.radiusPill),
-                        child: _StatusChip(label: effect, color: accent),
+                        child: CombatStatusChip(label: effect, color: accent),
                       );
                     },
                   ),
@@ -18694,7 +21982,7 @@ class _CompactActiveCombatantCard extends StatelessWidget {
               ],
               if (!enabled) ...[
                 SizedBox(height: isTight ? 5 : 7),
-                _CompactControlLockNotice(message: disabledMessage),
+                CombatCompactControlLockNotice(message: disabledMessage),
               ],
               const Spacer(),
               Wrap(
@@ -18704,8 +21992,9 @@ class _CompactActiveCombatantCard extends StatelessWidget {
                   for (final timing in timings)
                     SizedBox(
                       width: buttonWidth,
-                      child: _CompactTimingCommandButton(
-                        timing: timing,
+                      child: CombatCompactTimingCommandButton(
+                        icon: _timingIcon(timing),
+                        label: _compactTimingLabel(timing),
                         count: _compactActionCountForTiming(actions, timing),
                         selected: timing == selectedTiming,
                         spent: spentTimings.contains(timing),
@@ -18722,125 +22011,12 @@ class _CompactActiveCombatantCard extends StatelessWidget {
   }
 }
 
-class _CompactTimingCommandButton extends StatelessWidget {
-  final String timing;
-  final int count;
-  final bool selected;
-  final bool spent;
-  final VoidCallback onTap;
-
-  const _CompactTimingCommandButton({
-    required this.timing,
-    required this.count,
-    required this.selected,
-    required this.spent,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    final color = spent
-        ? tokens.accentAction
-        : selected
-            ? tokens.accentMagic
-            : tokens.accentRead;
-
-    return InkWell(
-      onTap: spent ? null : onTap,
-      borderRadius: BorderRadius.circular(tokens.radiusSm),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        height: 35,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: spent ? 0.10 : 0.15),
-          borderRadius: BorderRadius.circular(tokens.radiusSm),
-          border: Border.all(
-              color: color.withValues(alpha: selected ? 0.58 : 0.24)),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              spent ? Icons.check_circle_outline : _timingIcon(timing),
-              color: Colors.white,
-              size: 14,
-            ),
-            const SizedBox(width: 5),
-            Expanded(
-              child: Text(
-                _compactTimingLabel(timing),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
-            Text(
-              '$count',
-              style: TextStyle(
-                color: spent ? tokens.textMuted : tokens.textSecondary,
-                fontSize: 10,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _CompactControlLockNotice extends StatelessWidget {
-  final String message;
-
-  const _CompactControlLockNotice({
-    required this.message,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      decoration: BoxDecoration(
-        color: tokens.accentWarning.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(tokens.radiusSm),
-        border: Border.all(color: tokens.accentWarning.withValues(alpha: 0.24)),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.lock_outline, color: tokens.accentWarning, size: 14),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              message,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: tokens.textSecondary,
-                fontSize: 10,
-                fontWeight: FontWeight.w800,
-                height: 1.08,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _CompactTargetCard extends StatelessWidget {
-  final List<_Combatant> combatants;
+  final List<Combatant> combatants;
   final int activeIndex;
   final int targetIndex;
-  final _Combatant combatant;
-  final _CombatRollFeedback? rollFeedback;
+  final Combatant combatant;
+  final CombatRollFeedback? rollFeedback;
   final bool showEnemyHp;
   final ValueChanged<int> onSelectTarget;
 
@@ -18857,7 +22033,7 @@ class _CompactTargetCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.stitch;
-    final accent = _teamColor(combatant.team, tokens);
+    final accent = combatTeamColor(combatant.team, tokens);
     final impactFeedback = rollFeedback != null &&
             _feedbackMentionsCombatant(rollFeedback!, combatant)
         ? rollFeedback
@@ -18865,7 +22041,7 @@ class _CompactTargetCard extends StatelessWidget {
     final impactAccent = impactFeedback == null
         ? accent
         : _accentForKind(impactFeedback.accentKind, tokens);
-    final showHp = _canShowHp(combatant, showEnemyHp);
+    final showHp = canShowCombatantHp(combatant, showEnemyHp);
     final isTightViewport = MediaQuery.sizeOf(context).height < 390;
     final validTargets = <int>[
       for (var index = 0; index < combatants.length; index++)
@@ -18936,7 +22112,7 @@ class _CompactTargetCard extends StatelessWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  _CombatantArtwork(
+                  CombatantArtwork(
                     combatant: combatant,
                     color: accent,
                     iconSize: 54,
@@ -18983,14 +22159,14 @@ class _CompactTargetCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: _GameMetric(
+                child: CombatGameMetric(
                   label: 'HP',
-                  value: _compactHpLabel(combatant, showEnemyHp),
+                  value: compactCombatantHpLabel(combatant, showEnemyHp),
                 ),
               ),
               const SizedBox(width: 7),
               Expanded(
-                child: _GameMetric(label: 'AC', value: '${combatant.ac}'),
+                child: CombatGameMetric(label: 'AC', value: '${combatant.ac}'),
               ),
             ],
           ),
@@ -19001,9 +22177,9 @@ class _CompactTargetCard extends StatelessWidget {
 }
 
 class _CompactPreparedTurnStrip extends StatelessWidget {
-  final _Combatant activeCombatant;
-  final List<_CombatAction> actions;
-  final Map<String, _CombatAction> preparedActions;
+  final Combatant activeCombatant;
+  final List<CombatAction> actions;
+  final Map<String, CombatAction> preparedActions;
   final Set<String> spentTimings;
   final int queuedPreparedIndex;
   final int queuedPreparedTotal;
@@ -19141,7 +22317,7 @@ class _CompactPreparedTurnStrip extends StatelessWidget {
           ),
           if (!enabled) ...[
             const SizedBox(height: 7),
-            _CompactControlLockNotice(message: disabledMessage),
+            CombatCompactControlLockNotice(message: disabledMessage),
           ],
           const SizedBox(height: 7),
           Expanded(
@@ -19177,7 +22353,7 @@ class _CompactPreparedTurnStrip extends StatelessWidget {
 
 class _CompactPreparedSlot extends StatelessWidget {
   final String timing;
-  final _CombatAction? action;
+  final CombatAction? action;
   final bool selected;
   final bool spent;
   final VoidCallback onTap;
@@ -19275,666 +22451,22 @@ class _CompactPreparedSlot extends StatelessWidget {
   }
 }
 
-class _CombatModeBar extends StatelessWidget {
-  final _CombatWorkspace workspace;
-  final ValueChanged<_CombatWorkspace> onSelectWorkspace;
-
-  const _CombatModeBar({
-    required this.workspace,
-    required this.onSelectWorkspace,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: tokens.surfaceRaised.withValues(alpha: 0.90),
-        borderRadius: BorderRadius.circular(tokens.radiusSm),
-        border: Border.all(color: tokens.accentInfo.withValues(alpha: 0.18)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Row(
-              children: [
-                Icon(Icons.tune_outlined, color: tokens.accentInfo, size: 16),
-                const SizedBox(width: 8),
-                Text(
-                  switch (workspace) {
-                    _CombatWorkspace.turn => 'Turn workspace',
-                    _CombatWorkspace.log => 'Turn log',
-                    _CombatWorkspace.overview => 'Encounter overview',
-                  },
-                  style: TextStyle(
-                    color: tokens.textSecondary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          _WorkspaceToggle(
-            selected: workspace,
-            onSelect: onSelectWorkspace,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _WorkspaceToggle extends StatelessWidget {
-  final _CombatWorkspace selected;
-  final ValueChanged<_CombatWorkspace> onSelect;
-
-  const _WorkspaceToggle({
-    required this.selected,
-    required this.onSelect,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return Container(
-      padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(tokens.radiusSm),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _WorkspaceToggleButton(
-            label: 'Turn',
-            icon: Icons.ads_click_outlined,
-            selected: selected == _CombatWorkspace.turn,
-            onTap: () => onSelect(_CombatWorkspace.turn),
-          ),
-          const SizedBox(width: 3),
-          _WorkspaceToggleButton(
-            label: 'Log',
-            icon: Icons.receipt_long_outlined,
-            selected: selected == _CombatWorkspace.log,
-            onTap: () => onSelect(_CombatWorkspace.log),
-          ),
-          const SizedBox(width: 3),
-          _WorkspaceToggleButton(
-            label: 'Overview',
-            icon: Icons.grid_view_outlined,
-            selected: selected == _CombatWorkspace.overview,
-            onTap: () => onSelect(_CombatWorkspace.overview),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _WorkspaceToggleButton extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _WorkspaceToggleButton({
-    required this.label,
-    required this.icon,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    final color = selected ? tokens.accentMagic : tokens.textMuted;
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(tokens.radiusSm),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        height: 34,
-        padding: const EdgeInsets.symmetric(horizontal: 9),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: selected ? 0.22 : 0.04),
-          borderRadius: BorderRadius.circular(tokens.radiusSm),
-          border: Border.all(
-              color: color.withValues(alpha: selected ? 0.45 : 0.08)),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: Colors.white, size: 14),
-            const SizedBox(width: 5),
-            Text(
-              label,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 11,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _GameTopHud extends StatelessWidget {
-  final int round;
-  final List<_Combatant> combatants;
-  final int activeIndex;
-  final bool showEnemyHp;
-  final VoidCallback onBack;
-  final VoidCallback onRequestInitiative;
-  final VoidCallback onRollInitiative;
-  final VoidCallback onNextTurn;
-  final VoidCallback onToggleDmView;
-  final VoidCallback onRunDemo;
-  final ValueChanged<int> onSelectCombatant;
-
-  const _GameTopHud({
-    required this.round,
-    required this.combatants,
-    required this.activeIndex,
-    required this.showEnemyHp,
-    required this.onBack,
-    required this.onRequestInitiative,
-    required this.onRollInitiative,
-    required this.onNextTurn,
-    required this.onToggleDmView,
-    required this.onRunDemo,
-    required this.onSelectCombatant,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return Container(
-      clipBehavior: Clip.hardEdge,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            const Color(0xFF202A33).withValues(alpha: 0.96),
-            tokens.surfaceRaised.withValues(alpha: 0.96),
-            tokens.panel.withValues(alpha: 0.90),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(tokens.radiusSm),
-        border: Border.all(color: tokens.accentRead.withValues(alpha: 0.24)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.26),
-            blurRadius: 22,
-            offset: const Offset(0, 12),
-          ),
-        ],
-      ),
-      child: Stack(
-        children: [
-          Positioned(
-            top: -42,
-            left: 0,
-            right: 0,
-            child: IgnorePointer(
-              child: Icon(
-                Icons.explore_outlined,
-                color: Colors.white.withValues(alpha: 0.055),
-                size: 112,
-              ),
-            ),
-          ),
-          Row(
-            children: [
-              _HudMenuButton(onBack: onBack),
-              const SizedBox(width: 10),
-              _HudSectionLabel(
-                title: 'TURN',
-                subtitle: 'ORDER',
-                icon: Icons.auto_awesome_motion_outlined,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      for (var index = 0;
-                          index < combatants.length;
-                          index++) ...[
-                        if (index > 0) const SizedBox(width: 9),
-                        _TurnOrderAvatar(
-                          combatant: combatants[index],
-                          isActive: index == activeIndex,
-                          showEnemyHp: showEnemyHp,
-                          onTap: () => onSelectCombatant(index),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              _RoundBadge(round: round),
-              const SizedBox(width: 10),
-              _HudActionButton(
-                onPressed: onToggleDmView,
-                icon: showEnemyHp
-                    ? Icons.visibility_outlined
-                    : Icons.visibility_off_outlined,
-                label: showEnemyHp ? 'DM' : 'Player',
-                color: showEnemyHp ? tokens.accentWarning : tokens.accentRead,
-              ),
-              const SizedBox(width: 7),
-              _HudActionButton(
-                onPressed: onRequestInitiative,
-                icon: Icons.campaign_outlined,
-                label: 'Ask Init',
-                color: tokens.accentRead,
-              ),
-              const SizedBox(width: 7),
-              _HudActionButton(
-                onPressed: onRollInitiative,
-                icon: Icons.casino_outlined,
-                label: 'Roll',
-                color: tokens.accentMagic,
-              ),
-              const SizedBox(width: 7),
-              _HudActionButton(
-                onPressed: onRunDemo,
-                icon: Icons.play_circle_outline,
-                label: 'Demo',
-                color: tokens.accentAction,
-              ),
-              const SizedBox(width: 7),
-              _HudNextButton(onPressed: onNextTurn),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TurnOrderAvatar extends StatelessWidget {
-  final _Combatant combatant;
-  final bool isActive;
-  final bool showEnemyHp;
-  final VoidCallback onTap;
-
-  const _TurnOrderAvatar({
-    required this.combatant,
-    required this.isActive,
-    required this.showEnemyHp,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    final accent =
-        isActive ? tokens.accentInfo : _teamColor(combatant.team, tokens);
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(tokens.radiusSm),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        width: isActive ? 142 : 126,
-        height: 62,
-        padding: const EdgeInsets.all(7),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              accent.withValues(alpha: isActive ? 0.28 : 0.14),
-              tokens.surfaceRaised.withValues(alpha: isActive ? 0.92 : 0.78),
-              Colors.black.withValues(alpha: 0.22),
-            ],
-          ),
-          borderRadius: BorderRadius.circular(tokens.radiusSm),
-          border: Border.all(
-            color: accent.withValues(alpha: isActive ? 0.76 : 0.26),
-            width: isActive ? 1.5 : 1,
-          ),
-          boxShadow: [
-            if (isActive)
-              BoxShadow(
-                color: accent.withValues(alpha: 0.26),
-                blurRadius: 18,
-              ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 42,
-              height: 42,
-              clipBehavior: Clip.hardEdge,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: accent.withValues(alpha: 0.16),
-                border: Border.all(color: accent.withValues(alpha: 0.54)),
-              ),
-              child: _CombatantArtwork(
-                combatant: combatant,
-                color: accent,
-                iconSize: 19,
-              ),
-            ),
-            const SizedBox(width: 7),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 5,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.28),
-                          borderRadius:
-                              BorderRadius.circular(tokens.radiusPill),
-                        ),
-                        child: Text(
-                          '${combatant.initiative}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 9,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 5),
-                      Expanded(
-                        child: Text(
-                          combatant.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 5),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(tokens.radiusPill),
-                    child: LinearProgressIndicator(
-                      value: _canShowHp(combatant, showEnemyHp)
-                          ? combatant.hpRatio
-                          : 1,
-                      minHeight: 5,
-                      backgroundColor: Colors.white.withValues(alpha: 0.10),
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        _canShowHp(combatant, showEnemyHp)
-                            ? combatant.hpRatio <= 0.30
-                                ? tokens.accentAction
-                                : tokens.accentSuccess
-                            : tokens.textMuted,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    _compactHpLabel(combatant, showEnemyHp),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: tokens.textSecondary,
-                      fontSize: 9,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (isActive) ...[
-              const SizedBox(width: 4),
-              Icon(
-                Icons.play_arrow_rounded,
-                color: accent,
-                size: 17,
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _HudMenuButton extends StatelessWidget {
-  final VoidCallback onBack;
-
-  const _HudMenuButton({
-    required this.onBack,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return InkWell(
-      onTap: onBack,
-      borderRadius: BorderRadius.circular(tokens.radiusSm),
-      child: Container(
-        height: 46,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.16),
-          borderRadius: BorderRadius.circular(tokens.radiusSm),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.menu_rounded, color: Colors.white, size: 22),
-            const SizedBox(width: 8),
-            Text(
-              'MENU',
-              style: TextStyle(
-                color: tokens.textSecondary,
-                fontSize: 12,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _HudSectionLabel extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  final IconData icon;
-
-  const _HudSectionLabel({
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return SizedBox(
-      width: 76,
-      child: Row(
-        children: [
-          Icon(icon, color: tokens.accentInfo, size: 16),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              '$title\n$subtitle',
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: tokens.textSecondary,
-                fontSize: 12,
-                fontWeight: FontWeight.w900,
-                height: 1.0,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _HudActionButton extends StatelessWidget {
-  final VoidCallback onPressed;
-  final IconData icon;
-  final String label;
-  final Color color;
-
-  const _HudActionButton({
-    required this.onPressed,
-    required this.icon,
-    required this.label,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return OutlinedButton.icon(
-      onPressed: onPressed,
-      icon: Icon(icon, size: 15),
-      label: Text(label),
-      style: OutlinedButton.styleFrom(
-        foregroundColor: Colors.white,
-        side: BorderSide(color: color.withValues(alpha: 0.30)),
-        backgroundColor: color.withValues(alpha: 0.05),
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 10),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(tokens.radiusSm),
-        ),
-        textStyle: const TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w900,
-        ),
-      ),
-    );
-  }
-}
-
-class _HudNextButton extends StatelessWidget {
-  final VoidCallback onPressed;
-
-  const _HudNextButton({
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return FilledButton.icon(
-      onPressed: onPressed,
-      icon: const Icon(Icons.skip_next, size: 16),
-      label: const Text('Next'),
-      style: FilledButton.styleFrom(
-        backgroundColor: tokens.accentAction,
-        foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(tokens.radiusSm),
-        ),
-        textStyle: const TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w900,
-        ),
-      ),
-    );
-  }
-}
-
-class _RoundBadge extends StatelessWidget {
-  final int round;
-
-  const _RoundBadge({
-    required this.round,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return Container(
-      width: 72,
-      height: 56,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: tokens.surface.withValues(alpha: 0.82),
-        borderRadius: BorderRadius.circular(tokens.radiusSm),
-        border: Border.all(color: tokens.accentMagic.withValues(alpha: 0.30)),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            'ROUND',
-            style: TextStyle(
-              color: tokens.textSecondary,
-              fontSize: 10,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          Text(
-            '$round',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 22,
-              fontWeight: FontWeight.w900,
-              height: 1,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _GameCombatantPanel extends StatelessWidget {
   final String title;
-  final _Combatant combatant;
-  final _CombatAccentKind accentKind;
+  final Combatant combatant;
+  final CombatAccentKind accentKind;
   final bool showEnemyHp;
-  final List<_CombatAction>? actions;
+  final List<CombatAction>? actions;
   final String? selectedTiming;
   final Set<String>? spentTimings;
   final Set<String>? pendingDamageActions;
   final Map<String, int>? resourcePool;
-  final Map<String, _CombatAction>? preparedActions;
+  final Map<String, CombatAction>? preparedActions;
   final ValueChanged<String>? onSelectTiming;
-  final void Function(_CombatAction action, _CombatActionRoll rollType)?
+  final void Function(CombatAction action, CombatActionRoll rollType)?
       onRollAction;
-  final ValueChanged<_CombatAction>? onUseAction;
-  final ValueChanged<_CombatAction>? onPrepareAction;
+  final ValueChanged<CombatAction>? onUseAction;
+  final ValueChanged<CombatAction>? onPrepareAction;
   final void Function(String combatantId, String effectName)?
       onRemoveActiveEffect;
 
@@ -19961,7 +22493,7 @@ class _GameCombatantPanel extends StatelessWidget {
     final tokens = context.stitch;
     final accent = _accentForKind(accentKind, tokens);
     final isDown = combatant.hp <= 0;
-    final showHp = _canShowHp(combatant, showEnemyHp);
+    final showHp = canShowCombatantHp(combatant, showEnemyHp);
     final statusLabels = [
       if (combatant.tempHp > 0) 'Temp HP ${combatant.tempHp}',
       ...combatant.conditions.take(7),
@@ -20021,7 +22553,7 @@ class _GameCombatantPanel extends StatelessWidget {
             const SizedBox(height: 8),
             SizedBox(
               height: 118,
-              child: _CombatantPortraitFrame(
+              child: CombatantPortraitFrame(
                 combatant: combatant,
                 color: accent,
               ),
@@ -20073,14 +22605,15 @@ class _GameCombatantPanel extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: _GameMetric(
+                  child: CombatGameMetric(
                     label: 'HP',
-                    value: _compactHpLabel(combatant, showEnemyHp),
+                    value: compactCombatantHpLabel(combatant, showEnemyHp),
                   ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: _GameMetric(label: 'AC', value: '${combatant.ac}'),
+                  child:
+                      CombatGameMetric(label: 'AC', value: '${combatant.ac}'),
                 ),
               ],
             ),
@@ -20088,14 +22621,15 @@ class _GameCombatantPanel extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: _GameMetric(
+                  child: CombatGameMetric(
                     label: 'INIT',
                     value: '${combatant.initiative}',
                   ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: _GameMetric(label: 'SPD', value: '${combatant.speed}'),
+                  child: CombatGameMetric(
+                      label: 'SPD', value: '${combatant.speed}'),
                 ),
               ],
             ),
@@ -20134,17 +22668,17 @@ class _GameCombatantPanel extends StatelessWidget {
 }
 
 class _CharacterActionAccessPanel extends StatelessWidget {
-  final List<_CombatAction> actions;
+  final List<CombatAction> actions;
   final String selectedTiming;
   final Set<String> spentTimings;
   final Set<String> pendingDamageActions;
   final Map<String, int> resourcePool;
-  final Map<String, _CombatAction> preparedActions;
+  final Map<String, CombatAction> preparedActions;
   final ValueChanged<String> onSelectTiming;
-  final void Function(_CombatAction action, _CombatActionRoll rollType)
+  final void Function(CombatAction action, CombatActionRoll rollType)
       onRollAction;
-  final ValueChanged<_CombatAction> onUseAction;
-  final ValueChanged<_CombatAction> onPrepareAction;
+  final ValueChanged<CombatAction> onUseAction;
+  final ValueChanged<CombatAction> onPrepareAction;
 
   const _CharacterActionAccessPanel({
     required this.actions,
@@ -20167,8 +22701,12 @@ class _CharacterActionAccessPanel extends StatelessWidget {
       actions,
       pendingDamageActions,
     );
+    final classIdentity = _classCombatVisualIdentityForActions(
+      actions: actions,
+      resourcePool: resourcePool,
+    );
 
-    _CombatAction? pendingDamageActionFor(String timing) {
+    CombatAction? pendingDamageActionFor(String timing) {
       for (final action in actions) {
         if (_actionVisibleInActionTiming(
               action,
@@ -20229,6 +22767,11 @@ class _CharacterActionAccessPanel extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
+          if (classIdentity != null &&
+              classIdentity.passiveTraits.isNotEmpty) ...[
+            _ClassPassiveReferencePanel(identity: classIdentity),
+            const SizedBox(height: 8),
+          ],
           _CharacterClassKitPanel(
             actions: actions,
             resourcePool: resourcePool,
@@ -20264,14 +22807,66 @@ class _CharacterActionAccessPanel extends StatelessWidget {
   }
 }
 
+class _ClassPassiveReferencePanel extends StatelessWidget {
+  final ClassCombatVisualIdentity identity;
+
+  const _ClassPassiveReferencePanel({
+    required this.identity,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final accent = _classCombatVisualAccent(identity, tokens);
+
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(color: accent.withValues(alpha: 0.22)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.info_outline_rounded, color: accent, size: 14),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'RASGOS PASIVOS',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: tokens.textSecondary,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 7),
+          _ClassPassiveTraitStrip(
+            traits: identity.passiveTraits,
+            color: accent,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _CharacterClassKitPanel extends StatelessWidget {
-  final List<_CombatAction> actions;
+  final List<CombatAction> actions;
   final Map<String, int> resourcePool;
   final Set<String> spentTimings;
   final Set<String> pendingDamageActions;
-  final void Function(_CombatAction action, _CombatActionRoll rollType)
+  final void Function(CombatAction action, CombatActionRoll rollType)
       onRollAction;
-  final ValueChanged<_CombatAction> onUseAction;
+  final ValueChanged<CombatAction> onUseAction;
 
   const _CharacterClassKitPanel({
     required this.actions,
@@ -20417,7 +23012,7 @@ class _ClassResourcePip extends StatelessWidget {
 }
 
 class _ClassKitActionChip extends StatelessWidget {
-  final _CombatAction action;
+  final CombatAction action;
   final Color color;
   final bool pendingDamage;
   final bool blocked;
@@ -20497,7 +23092,7 @@ class _ClassKitActionChip extends StatelessWidget {
 class _CharacterActionAccessRow extends StatelessWidget {
   final String timing;
   final int count;
-  final _CombatAction? action;
+  final CombatAction? action;
   final bool selected;
   final bool spent;
   final bool resolvingDamage;
@@ -20597,7 +23192,7 @@ class _CharacterActionAccessRow extends StatelessWidget {
 }
 
 class _ActiveEffectsPanel extends StatelessWidget {
-  final _Combatant combatant;
+  final Combatant combatant;
   final List<String> labels;
   final Color color;
   final ValueChanged<String>? onRemove;
@@ -20736,213 +23331,14 @@ String _effectDisplayLabel(String label) {
   return label;
 }
 
-class _CombatantPortraitFrame extends StatelessWidget {
-  final _Combatant combatant;
-  final Color color;
-
-  const _CombatantPortraitFrame({
-    required this.combatant,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return Container(
-      clipBehavior: Clip.hardEdge,
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(tokens.radiusSm),
-        border: Border.all(color: color.withValues(alpha: 0.22)),
-      ),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  colors: [
-                    color.withValues(alpha: 0.32),
-                    Colors.transparent,
-                  ],
-                ),
-              ),
-            ),
-          ),
-          Positioned.fill(
-            child: _CombatantArtwork(
-              combatant: combatant,
-              color: color,
-              iconSize: 54,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CombatantArtwork extends StatelessWidget {
-  final _Combatant combatant;
-  final Color color;
-  final double iconSize;
-
-  const _CombatantArtwork({
-    required this.combatant,
-    required this.color,
-    required this.iconSize,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final fallback = _PortraitIconFallback(
-      combatant: combatant,
-      color: color,
-      iconSize: iconSize,
-    );
-
-    return RepaintBoundary(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final pixelRatio = MediaQuery.devicePixelRatioOf(context);
-          final width = constraints.maxWidth.isFinite
-              ? constraints.maxWidth
-              : iconSize * 2.2;
-          final height = constraints.maxHeight.isFinite
-              ? constraints.maxHeight
-              : iconSize * 2.2;
-          final cacheWidth = (width * pixelRatio).clamp(96.0, 520.0).round();
-          final cacheHeight = (height * pixelRatio).clamp(96.0, 520.0).round();
-          final portraitPath = combatant.portraitAsset;
-          final hasPortrait = hasDisplayableImagePath(portraitPath);
-          final imageAlignment = combatant.team == _CombatTeam.party
-              ? const Alignment(0, -0.14)
-              : Alignment.center;
-
-          return Stack(
-            fit: StackFit.expand,
-            children: [
-              if (!hasPortrait)
-                fallback
-              else
-                Image(
-                  image: ResizeImage.resizeIfNeeded(
-                    cacheWidth,
-                    cacheHeight,
-                    imageProviderFromPath(portraitPath!),
-                  ),
-                  fit: combatant.team == _CombatTeam.party
-                      ? BoxFit.cover
-                      : BoxFit.contain,
-                  alignment: imageAlignment,
-                  filterQuality: FilterQuality.low,
-                  gaplessPlayback: true,
-                  errorBuilder: (_, __, ___) => fallback,
-                ),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.transparent,
-                      Colors.black.withValues(alpha: 0.30),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _PortraitIconFallback extends StatelessWidget {
-  final _Combatant combatant;
-  final Color color;
-  final double iconSize;
-
-  const _PortraitIconFallback({
-    required this.combatant,
-    required this.color,
-    required this.iconSize,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ColoredBox(
-      color: color.withValues(alpha: 0.10),
-      child: Center(
-        child: Icon(
-          _portraitIconForCombatant(combatant),
-          color: Colors.white.withValues(alpha: 0.92),
-          size: iconSize,
-        ),
-      ),
-    );
-  }
-}
-
-class _GameMetric extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _GameMetric({
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.20),
-        borderRadius: BorderRadius.circular(tokens.radiusSm),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-      ),
-      child: Column(
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              color: tokens.textSecondary,
-              fontSize: 10,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w900,
-              height: 1,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _GameBattleStage extends StatelessWidget {
-  final List<_Combatant> combatants;
+  final List<Combatant> combatants;
   final int activeIndex;
   final int targetIndex;
-  final _CombatRollFeedback? rollFeedback;
-  final _CombatWorkspace workspace;
+  final CombatRollFeedback? rollFeedback;
+  final CombatWorkspace workspace;
   final bool showEnemyHp;
-  final List<_CombatLogEntry> entries;
+  final List<CombatLogEntry> entries;
   final ValueChanged<int> onSelectTarget;
 
   const _GameBattleStage({
@@ -20989,15 +23385,15 @@ class _GameBattleStage extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.all(14),
               child: switch (workspace) {
-                _CombatWorkspace.overview => _EncounterOverviewStage(
+                CombatWorkspace.overview => _EncounterOverviewStage(
                     combatants: combatants,
                     activeIndex: activeIndex,
                     targetIndex: targetIndex,
                     rollFeedback: rollFeedback,
                     showEnemyHp: showEnemyHp,
                   ),
-                _CombatWorkspace.log => _TurnLogStage(entries: entries),
-                _CombatWorkspace.turn => _FocusedTurnStage(
+                CombatWorkspace.log => _TurnLogStage(entries: entries),
+                CombatWorkspace.turn => _FocusedTurnStage(
                     combatants: combatants,
                     activeIndex: activeIndex,
                     targetIndex: targetIndex,
@@ -21017,12 +23413,12 @@ class _GameBattleStage extends StatelessWidget {
 }
 
 class _FocusedTurnStage extends StatelessWidget {
-  final List<_Combatant> combatants;
+  final List<Combatant> combatants;
   final int activeIndex;
   final int targetIndex;
-  final _Combatant activeCombatant;
-  final _Combatant selectedTarget;
-  final _CombatRollFeedback? rollFeedback;
+  final Combatant activeCombatant;
+  final Combatant selectedTarget;
+  final CombatRollFeedback? rollFeedback;
   final bool showEnemyHp;
   final ValueChanged<int> onSelectTarget;
 
@@ -21068,7 +23464,7 @@ class _FocusedTurnStage extends StatelessWidget {
 }
 
 class _TurnLogStage extends StatelessWidget {
-  final List<_CombatLogEntry> entries;
+  final List<CombatLogEntry> entries;
 
   const _TurnLogStage({
     required this.entries,
@@ -21076,7 +23472,7 @@ class _TurnLogStage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _GameFeedWindow(
+    return CombatFeedWindow(
       entries: entries,
       maxEntries: 18,
     );
@@ -21084,10 +23480,10 @@ class _TurnLogStage extends StatelessWidget {
 }
 
 class _EncounterOverviewWindow extends StatelessWidget {
-  final List<_Combatant> combatants;
+  final List<Combatant> combatants;
   final int activeIndex;
   final int targetIndex;
-  final _CombatRollFeedback? rollFeedback;
+  final CombatRollFeedback? rollFeedback;
   final bool showEnemyHp;
   final VoidCallback onClose;
 
@@ -21111,8 +23507,8 @@ class _EncounterOverviewWindow extends StatelessWidget {
         maxWidth: math.min(1180.0, maxDialogWidth),
         maxHeight: math.min(760.0, maxDialogHeight),
       ),
-      child: _CinematicPanelFrame(
-        borderColor: _CinematicColors.gold,
+      child: CombatCinematicPanelFrame(
+        borderColor: CombatCinematicColors.gold,
         padding: const EdgeInsets.all(14),
         backgroundAlpha: 0.88,
         child: Column(
@@ -21121,7 +23517,7 @@ class _EncounterOverviewWindow extends StatelessWidget {
               children: [
                 const Icon(
                   Icons.groups_2_outlined,
-                  color: _CinematicColors.goldBright,
+                  color: CombatCinematicColors.goldBright,
                   size: 19,
                 ),
                 const SizedBox(width: 8),
@@ -21131,16 +23527,16 @@ class _EncounterOverviewWindow extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: _CinematicColors.paper,
+                      color: CombatCinematicColors.paper,
                       fontSize: 15,
                       fontWeight: FontWeight.w900,
                     ),
                   ),
                 ),
-                _ParchmentIconButton(
+                CombatParchmentIconButton(
                   icon: Icons.close,
                   tooltip: 'Cerrar resumen',
-                  color: _CinematicColors.gold,
+                  color: CombatCinematicColors.gold,
                   compact: true,
                   onTap: onClose,
                 ),
@@ -21164,10 +23560,10 @@ class _EncounterOverviewWindow extends StatelessWidget {
 }
 
 class _EncounterOverviewStage extends StatelessWidget {
-  final List<_Combatant> combatants;
+  final List<Combatant> combatants;
   final int activeIndex;
   final int targetIndex;
-  final _CombatRollFeedback? rollFeedback;
+  final CombatRollFeedback? rollFeedback;
   final bool showEnemyHp;
 
   const _EncounterOverviewStage({
@@ -21180,11 +23576,11 @@ class _EncounterOverviewStage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final party = <_IndexedCombatant>[];
-    final enemies = <_IndexedCombatant>[];
+    final party = <IndexedCombatant>[];
+    final enemies = <IndexedCombatant>[];
     for (var index = 0; index < combatants.length; index++) {
-      final entry = _IndexedCombatant(index, combatants[index]);
-      if (entry.combatant.team == _CombatTeam.party) {
+      final entry = IndexedCombatant(index, combatants[index]);
+      if (entry.combatant.team == CombatTeam.party) {
         party.add(entry);
       } else {
         enemies.add(entry);
@@ -21260,7 +23656,7 @@ class _EncounterOverviewStage extends StatelessWidget {
 
 class _EncounterTeamColumn extends StatelessWidget {
   final String title;
-  final List<_IndexedCombatant> entries;
+  final List<IndexedCombatant> entries;
   final int activeIndex;
   final int targetIndex;
   final bool showEnemyHp;
@@ -21340,7 +23736,7 @@ class _EncounterTeamColumn extends StatelessWidget {
 }
 
 class _OverviewCombatantCard extends StatelessWidget {
-  final _IndexedCombatant entry;
+  final IndexedCombatant entry;
   final bool isActive;
   final bool isTargeted;
   final bool showEnemyHp;
@@ -21360,8 +23756,8 @@ class _OverviewCombatantCard extends StatelessWidget {
         ? tokens.accentAction
         : isActive
             ? tokens.accentInfo
-            : _teamColor(combatant.team, tokens);
-    final showHp = _canShowHp(combatant, showEnemyHp);
+            : combatTeamColor(combatant.team, tokens);
+    final showHp = canShowCombatantHp(combatant, showEnemyHp);
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 150),
@@ -21423,7 +23819,7 @@ class _OverviewCombatantCard extends StatelessWidget {
                             Border.all(color: accent.withValues(alpha: 0.22)),
                       ),
                       child: Text(
-                        _compactHpLabel(combatant, showEnemyHp),
+                        compactCombatantHpLabel(combatant, showEnemyHp),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -21475,7 +23871,7 @@ class _OverviewCombatantCard extends StatelessWidget {
 }
 
 class _OverviewRollSummary extends StatelessWidget {
-  final _CombatRollFeedback? feedback;
+  final CombatRollFeedback? feedback;
 
   const _OverviewRollSummary({
     required this.feedback,
@@ -21552,9 +23948,9 @@ class _OverviewRollSummary extends StatelessWidget {
 }
 
 class _CombatDiceTheater extends StatelessWidget {
-  final _CombatRollFeedback? feedback;
-  final _Combatant activeCombatant;
-  final _Combatant selectedTarget;
+  final CombatRollFeedback? feedback;
+  final Combatant activeCombatant;
+  final Combatant selectedTarget;
 
   const _CombatDiceTheater({
     required this.feedback,
@@ -21568,8 +23964,8 @@ class _CombatDiceTheater extends StatelessWidget {
     final accent = feedback == null
         ? tokens.accentMagic
         : _accentForKind(feedback!.accentKind, tokens);
-    final actorColor = _teamColor(activeCombatant.team, tokens);
-    final targetColor = _teamColor(selectedTarget.team, tokens);
+    final actorColor = combatTeamColor(activeCombatant.team, tokens);
+    final targetColor = combatTeamColor(selectedTarget.team, tokens);
     final result = feedback?.result;
     final hasFeedback = feedback != null;
 
@@ -21690,9 +24086,9 @@ class _CombatDiceTheater extends StatelessWidget {
 }
 
 class _DiceTheaterScene extends StatelessWidget {
-  final _CombatRollFeedback? feedback;
-  final _Combatant activeCombatant;
-  final _Combatant selectedTarget;
+  final CombatRollFeedback? feedback;
+  final Combatant activeCombatant;
+  final Combatant selectedTarget;
   final Color accent;
   final Color actorColor;
   final Color targetColor;
@@ -21791,7 +24187,7 @@ class _DiceTheaterScene extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(height: 6),
-                          _DiceExpressionChip(
+                          CombatDiceExpressionChip(
                             label:
                                 '${activeCombatant.name} -> ${selectedTarget.name}',
                             color: accent,
@@ -21832,11 +24228,11 @@ class _DiceTheaterScene extends StatelessWidget {
                           spacing: 6,
                           runSpacing: 6,
                           children: [
-                            _DiceExpressionChip(
+                            CombatDiceExpressionChip(
                               label: result.formula,
                               color: accent,
                             ),
-                            _DiceExpressionChip(
+                            CombatDiceExpressionChip(
                               label: result.rollsText,
                               color: tokens.accentRead,
                             ),
@@ -21856,7 +24252,7 @@ class _DiceTheaterScene extends StatelessWidget {
 }
 
 class _DuelStagePortrait extends StatelessWidget {
-  final _Combatant combatant;
+  final Combatant combatant;
   final String label;
   final Color color;
   final bool alignRight;
@@ -21891,7 +24287,7 @@ class _DuelStagePortrait extends StatelessWidget {
         child: Column(
           children: [
             Expanded(
-              child: _CombatantArtwork(
+              child: CombatantArtwork(
                 combatant: combatant,
                 color: color,
                 iconSize: 36,
@@ -22395,11 +24791,11 @@ class _DiceTheaterImpactPainter extends CustomPainter {
 }
 
 class _SelectedTargetPortraitCard extends StatelessWidget {
-  final List<_Combatant> combatants;
+  final List<Combatant> combatants;
   final int activeIndex;
   final int targetIndex;
-  final _Combatant combatant;
-  final _CombatRollFeedback? rollFeedback;
+  final Combatant combatant;
+  final CombatRollFeedback? rollFeedback;
   final bool showEnemyHp;
   final ValueChanged<int> onSelectTarget;
 
@@ -22416,7 +24812,7 @@ class _SelectedTargetPortraitCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.stitch;
-    final accent = _teamColor(combatant.team, tokens);
+    final accent = combatTeamColor(combatant.team, tokens);
     final impactFeedback = rollFeedback != null &&
             _feedbackMentionsCombatant(rollFeedback!, combatant)
         ? rollFeedback
@@ -22424,7 +24820,7 @@ class _SelectedTargetPortraitCard extends StatelessWidget {
     final impactAccent = impactFeedback == null
         ? accent
         : _accentForKind(impactFeedback.accentKind, tokens);
-    final showHp = _canShowHp(combatant, showEnemyHp);
+    final showHp = canShowCombatantHp(combatant, showEnemyHp);
     final validTargets = <int>[
       for (var index = 0; index < combatants.length; index++)
         if (index != activeIndex &&
@@ -22465,7 +24861,7 @@ class _SelectedTargetPortraitCard extends StatelessWidget {
             right: -28,
             top: -22,
             child: Icon(
-              _portraitIconForCombatant(combatant),
+              combatPortraitIconForCombatant(combatant),
               color: Colors.white.withValues(alpha: 0.055),
               size: 164,
             ),
@@ -22476,7 +24872,7 @@ class _SelectedTargetPortraitCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  combatant.team == _CombatTeam.enemy
+                  combatant.team == CombatTeam.enemy
                       ? 'CURRENT TARGET'
                       : 'SELECTED ALLY',
                   style: TextStyle(
@@ -22506,7 +24902,7 @@ class _SelectedTargetPortraitCard extends StatelessWidget {
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
-                        _CombatantArtwork(
+                        CombatantArtwork(
                           combatant: combatant,
                           color: accent,
                           iconSize: 78,
@@ -22565,14 +24961,15 @@ class _SelectedTargetPortraitCard extends StatelessWidget {
                 Row(
                   children: [
                     Expanded(
-                      child: _GameMetric(
+                      child: CombatGameMetric(
                         label: 'HP',
-                        value: _compactHpLabel(combatant, showEnemyHp),
+                        value: compactCombatantHpLabel(combatant, showEnemyHp),
                       ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: _GameMetric(label: 'AC', value: '${combatant.ac}'),
+                      child: CombatGameMetric(
+                          label: 'AC', value: '${combatant.ac}'),
                     ),
                   ],
                 ),
@@ -22585,7 +24982,7 @@ class _SelectedTargetPortraitCard extends StatelessWidget {
                       itemCount: math.min(combatant.conditions.length, 5),
                       separatorBuilder: (_, __) => const SizedBox(width: 6),
                       itemBuilder: (context, index) {
-                        return _StatusChip(
+                        return CombatStatusChip(
                           label: combatant.conditions[index],
                           color: accent,
                         );
@@ -22603,8 +25000,8 @@ class _SelectedTargetPortraitCard extends StatelessWidget {
 }
 
 bool _feedbackMentionsCombatant(
-  _CombatRollFeedback feedback,
-  _Combatant combatant,
+  CombatRollFeedback feedback,
+  Combatant combatant,
 ) {
   final name = combatant.name.trim().toLowerCase();
   if (name.isEmpty) return false;
@@ -22618,7 +25015,7 @@ bool _feedbackMentionsCombatant(
 }
 
 class _TargetImpactBadge extends StatelessWidget {
-  final _CombatRollFeedback feedback;
+  final CombatRollFeedback feedback;
   final Color color;
 
   const _TargetImpactBadge({
@@ -22692,14 +25089,14 @@ class _TargetImpactBadge extends StatelessWidget {
   }
 }
 
-String _targetImpactLabel(_CombatRollFeedback feedback) {
+String _targetImpactLabel(CombatRollFeedback feedback) {
   final text = feedback.headline.trim();
   if (text.isEmpty) return 'ROLL';
   if (text.length <= 16) return text;
   return '${text.substring(0, 15)}...';
 }
 
-IconData _targetImpactIcon(_CombatRollFeedback feedback) {
+IconData _targetImpactIcon(CombatRollFeedback feedback) {
   final text = '${feedback.headline} ${feedback.action}'.toLowerCase();
   if (text.contains('crit')) return Icons.emergency_outlined;
   if (text.contains('miss') || text.contains('save success')) {
@@ -22713,7 +25110,7 @@ IconData _targetImpactIcon(_CombatRollFeedback feedback) {
 }
 
 class _TargetChoiceRail extends StatelessWidget {
-  final List<_Combatant> combatants;
+  final List<Combatant> combatants;
   final List<int> targetIndexes;
   final int selectedIndex;
   final ValueChanged<int> onSelectTarget;
@@ -22996,197 +25393,22 @@ class _GameBattleStagePainter extends CustomPainter {
   }
 }
 
-class _RollFeedbackWindow extends StatelessWidget {
-  final _CombatRollFeedback feedback;
-
-  const _RollFeedbackWindow({
-    required this.feedback,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    final accent = _accentForKind(feedback.accentKind, tokens);
-    final result = feedback.result;
-
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 180),
-      child: Container(
-        key: ValueKey(
-            '${feedback.action}-${result?.total}-${feedback.headline}'),
-        constraints: const BoxConstraints(maxWidth: 360),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              accent.withValues(alpha: 0.28),
-              tokens.surfaceRaised.withValues(alpha: 0.95),
-              tokens.surface.withValues(alpha: 0.92),
-            ],
-          ),
-          borderRadius: BorderRadius.circular(tokens.radiusSm),
-          border: Border.all(color: accent.withValues(alpha: 0.52)),
-          boxShadow: [
-            BoxShadow(
-              color: accent.withValues(alpha: 0.22),
-              blurRadius: 28,
-              offset: const Offset(0, 16),
-            ),
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.34),
-              blurRadius: 18,
-              offset: const Offset(0, 12),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 56,
-              height: 56,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.22),
-                borderRadius: BorderRadius.circular(tokens.radiusSm),
-                border: Border.all(color: accent.withValues(alpha: 0.35)),
-              ),
-              child: result == null
-                  ? Icon(
-                      Icons.auto_awesome_outlined,
-                      color: Colors.white,
-                      size: 28,
-                    )
-                  : Text(
-                      '${result.total}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.w900,
-                        height: 1,
-                      ),
-                    ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    '${feedback.actor} - ${feedback.action}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: tokens.textSecondary,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    feedback.headline,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w900,
-                      height: 1,
-                    ),
-                  ),
-                  if (feedback.subline != null &&
-                      feedback.subline!.trim().isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      feedback.subline!,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: tokens.textSecondary,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                  if (result != null) ...[
-                    const SizedBox(height: 7),
-                    Wrap(
-                      spacing: 5,
-                      runSpacing: 5,
-                      children: [
-                        _DiceExpressionChip(
-                          label: result.formula,
-                          color: accent,
-                        ),
-                        _DiceExpressionChip(
-                          label: result.rollsText,
-                          color: tokens.accentRead,
-                        ),
-                      ],
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _DiceExpressionChip extends StatelessWidget {
-  final String label;
-  final Color color;
-
-  const _DiceExpressionChip({
-    required this.label,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.13),
-        borderRadius: BorderRadius.circular(tokens.radiusPill),
-        border: Border.all(color: color.withValues(alpha: 0.28)),
-      ),
-      child: Text(
-        label,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 10,
-          fontWeight: FontWeight.w900,
-        ),
-      ),
-    );
-  }
-}
-
 class _CommandLayerDock extends StatelessWidget {
-  final _Combatant activeCombatant;
-  final List<_CombatAction> actions;
+  final Combatant activeCombatant;
+  final List<CombatAction> actions;
   final Set<String> spentTimings;
   final Set<String> pendingDamageActions;
   final Map<String, int> resourcePool;
-  final Map<String, _CombatAction> preparedActions;
+  final Map<String, CombatAction> preparedActions;
   final int queuedPreparedIndex;
   final int queuedPreparedTotal;
   final String? queuedPreparedActionName;
   final String selectedTiming;
   final ValueChanged<String> onSelectTiming;
-  final void Function(_CombatAction action, _CombatActionRoll rollType)
+  final void Function(CombatAction action, CombatActionRoll rollType)
       onRollAction;
-  final ValueChanged<_CombatAction> onUseAction;
-  final ValueChanged<_CombatAction> onPrepareAction;
+  final ValueChanged<CombatAction> onUseAction;
+  final ValueChanged<CombatAction> onPrepareAction;
   final VoidCallback onLaunchPreparedTurn;
   final VoidCallback onClearPreparedActions;
 
@@ -23263,17 +25485,17 @@ class _CommandLayerDock extends StatelessWidget {
 
 void _showActionCatalogSheet({
   required BuildContext context,
-  required List<_CombatAction> actions,
+  required List<CombatAction> actions,
   required Set<String> spentTimings,
   required Set<String> pendingDamageActions,
   required Map<String, int> resourcePool,
-  required Map<String, _CombatAction> preparedActions,
+  required Map<String, CombatAction> preparedActions,
   required String selectedTiming,
   required ValueChanged<String> onSelectTiming,
-  required void Function(_CombatAction action, _CombatActionRoll rollType)
+  required void Function(CombatAction action, CombatActionRoll rollType)
       onRollAction,
-  required ValueChanged<_CombatAction> onUseAction,
-  required ValueChanged<_CombatAction> onPrepareAction,
+  required ValueChanged<CombatAction> onUseAction,
+  required ValueChanged<CombatAction> onPrepareAction,
 }) {
   showModalBottomSheet<void>(
     context: context,
@@ -23295,17 +25517,17 @@ void _showActionCatalogSheet({
 }
 
 class _ActionCatalogSheet extends StatefulWidget {
-  final List<_CombatAction> actions;
+  final List<CombatAction> actions;
   final Set<String> spentTimings;
   final Set<String> pendingDamageActions;
   final Map<String, int> resourcePool;
-  final Map<String, _CombatAction> preparedActions;
+  final Map<String, CombatAction> preparedActions;
   final String initialTiming;
   final ValueChanged<String> onSelectTiming;
-  final void Function(_CombatAction action, _CombatActionRoll rollType)
+  final void Function(CombatAction action, CombatActionRoll rollType)
       onRollAction;
-  final ValueChanged<_CombatAction> onUseAction;
-  final ValueChanged<_CombatAction> onPrepareAction;
+  final ValueChanged<CombatAction> onUseAction;
+  final ValueChanged<CombatAction> onPrepareAction;
 
   const _ActionCatalogSheet({
     required this.actions,
@@ -23341,11 +25563,13 @@ class _ActionCatalogSheetState extends State<_ActionCatalogSheet> {
     );
     final visibleActions = widget.actions
         .where(
-          (action) => _actionVisibleInTiming(
-            action,
-            _selectedTiming,
-            hasPendingOnHitTrigger: hasPendingOnHitTrigger,
-          ),
+          (action) =>
+              _actionVisibleInTiming(
+                action,
+                _selectedTiming,
+                hasPendingOnHitTrigger: hasPendingOnHitTrigger,
+              ) &&
+              !_actionHandledByMonkCombo(action),
         )
         .where((action) => _matchesCatalogCategory(action, _selectedCategory))
         .where((action) {
@@ -23477,7 +25701,7 @@ class _ActionCatalogSheetState extends State<_ActionCatalogSheet> {
                   itemBuilder: (context, index) {
                     final category = categories[index];
                     final selected = category == _selectedCategory;
-                    return _CatalogFilterChip(
+                    return CombatCatalogFilterChip(
                       label: category,
                       selected: selected,
                       count: _catalogCategoryCount(category),
@@ -23497,7 +25721,7 @@ class _ActionCatalogSheetState extends State<_ActionCatalogSheet> {
                     final timing = timings[index];
                     return SizedBox(
                       width: 142,
-                      child: _CommandTimingButton(
+                      child: CombatCommandTimingButton(
                         label: timing,
                         selected: timing == _selectedTiming,
                         spent: widget.spentTimings.contains(timing),
@@ -23580,18 +25804,20 @@ class _ActionCatalogSheetState extends State<_ActionCatalogSheet> {
     );
     return widget.actions
         .where(
-          (action) => _actionVisibleInTiming(
-            action,
-            _selectedTiming,
-            hasPendingOnHitTrigger: hasPendingOnHitTrigger,
-          ),
+          (action) =>
+              _actionVisibleInTiming(
+                action,
+                _selectedTiming,
+                hasPendingOnHitTrigger: hasPendingOnHitTrigger,
+              ) &&
+              !_actionHandledByMonkCombo(action),
         )
         .where((action) => _matchesCatalogCategory(action, category))
         .length;
   }
 
   bool _actionVisibleInTiming(
-    _CombatAction action,
+    CombatAction action,
     String timing, {
     required bool hasPendingOnHitTrigger,
   }) {
@@ -23602,7 +25828,7 @@ class _ActionCatalogSheetState extends State<_ActionCatalogSheet> {
     );
   }
 
-  bool _matchesCatalogCategory(_CombatAction action, String category) {
+  bool _matchesCatalogCategory(CombatAction action, String category) {
     if (category == 'All') return true;
     final text =
         '${action.name} ${action.type} ${action.tags.join(' ')}'.toLowerCase();
@@ -23612,7 +25838,7 @@ class _ActionCatalogSheetState extends State<_ActionCatalogSheet> {
           text.contains('ranged'),
       'Spells' => text.contains('spell') ||
           text.contains('cantrip') ||
-          action.accentKind == _CombatAccentKind.magic,
+          action.accentKind == CombatAccentKind.magic,
       'Features' => text.contains('feature') ||
           text.contains('class') ||
           text.contains('monster'),
@@ -23625,141 +25851,17 @@ class _ActionCatalogSheetState extends State<_ActionCatalogSheet> {
   }
 }
 
-class _CatalogFilterChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final int count;
-  final VoidCallback onTap;
-
-  const _CatalogFilterChip({
-    required this.label,
-    required this.selected,
-    required this.count,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    final color = selected ? tokens.accentMagic : tokens.accentRead;
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(tokens.radiusPill),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: selected ? 0.22 : 0.09),
-          borderRadius: BorderRadius.circular(tokens.radiusPill),
-          border: Border.all(
-            color: color.withValues(alpha: selected ? 0.48 : 0.20),
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              label,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 11,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              '$count',
-              style: TextStyle(
-                color: selected ? Colors.white : tokens.textSecondary,
-                fontSize: 10,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _CommandTimingButton extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final bool spent;
-  final VoidCallback onTap;
-
-  const _CommandTimingButton({
-    required this.label,
-    required this.selected,
-    required this.spent,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    final color = spent
-        ? tokens.accentAction
-        : selected
-            ? tokens.accentMagic
-            : tokens.accentRead;
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(tokens.radiusSm),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        height: 32,
-        padding: const EdgeInsets.symmetric(horizontal: 9),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: selected ? 0.24 : 0.11),
-          borderRadius: BorderRadius.circular(tokens.radiusSm),
-          border: Border.all(
-              color: color.withValues(alpha: selected ? 0.56 : 0.24)),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              spent
-                  ? Icons.check_circle_outline
-                  : selected
-                      ? Icons.keyboard_arrow_right
-                      : Icons.circle_outlined,
-              color: Colors.white,
-              size: 15,
-            ),
-            const SizedBox(width: 7),
-            Expanded(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _CompactActionCommand extends StatelessWidget {
-  final _CombatAction action;
+  final CombatAction action;
   final bool isSpent;
   final bool canResolveDamage;
   final bool lacksResource;
   final int? resourceRemaining;
   final bool isPrepared;
-  final void Function(_CombatAction action, _CombatActionRoll rollType)
+  final void Function(CombatAction action, CombatActionRoll rollType)
       onRollAction;
-  final ValueChanged<_CombatAction> onUseAction;
-  final ValueChanged<_CombatAction> onPrepareAction;
+  final ValueChanged<CombatAction> onUseAction;
+  final ValueChanged<CombatAction> onPrepareAction;
 
   const _CompactActionCommand({
     required this.action,
@@ -23825,7 +25927,7 @@ class _CompactActionCommand extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 6),
-              _PrepareActionButton(
+              CombatPrepareActionButton(
                 selected: isPrepared,
                 disabled: !canPrepare,
                 color: effectiveAccent,
@@ -23849,7 +25951,7 @@ class _CompactActionCommand extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 5),
-          _ActionAvailabilityLine(
+          CombatActionAvailabilityLine(
             isSpent: isSpent,
             isPrepared: isPrepared,
             canResolveDamage: canResolveDamage,
@@ -23864,13 +25966,15 @@ class _CompactActionCommand extends StatelessWidget {
             runSpacing: 5,
             children: [
               for (final tag in _actionCommandTags(action).take(2))
-                _DiceExpressionChip(label: tag, color: effectiveAccent),
+                CombatDiceExpressionChip(label: tag, color: effectiveAccent),
               if (isSpent)
-                _DiceExpressionChip(label: 'Spent', color: effectiveAccent),
+                CombatDiceExpressionChip(
+                    label: 'Spent', color: effectiveAccent),
               if (lacksResource)
-                _DiceExpressionChip(label: 'No uses', color: effectiveAccent),
+                CombatDiceExpressionChip(
+                    label: 'No uses', color: effectiveAccent),
               if (canResolveDamage)
-                _DiceExpressionChip(
+                CombatDiceExpressionChip(
                     label: 'Hit confirmed', color: effectiveAccent),
             ],
           ),
@@ -23879,23 +25983,23 @@ class _CompactActionCommand extends StatelessWidget {
             children: [
               if (action.attackFormula != null)
                 Expanded(
-                  child: _TinyRollButton(
+                  child: CombatTinyRollButton(
                     label: action.attackFormula!,
                     icon: Icons.track_changes_outlined,
                     color: effectiveAccent,
                     enabled: !isBlocked && !canResolveDamage,
-                    onTap: () => onRollAction(action, _CombatActionRoll.attack),
+                    onTap: () => onRollAction(action, CombatActionRoll.attack),
                   ),
                 ),
               if (action.requiresSavingThrow)
                 Expanded(
-                  child: _TinyRollButton(
+                  child: CombatTinyRollButton(
                     label: '${action.saveAbility} DC ${action.saveDc}',
                     icon: Icons.shield_outlined,
                     color: effectiveAccent,
                     enabled: !isBlocked && !canResolveDamage,
                     onTap: () =>
-                        onRollAction(action, _CombatActionRoll.savingThrow),
+                        onRollAction(action, CombatActionRoll.savingThrow),
                   ),
                 ),
               if ((action.attackFormula != null ||
@@ -23904,26 +26008,26 @@ class _CompactActionCommand extends StatelessWidget {
                 const SizedBox(width: 5),
               if (action.damageFormula != null)
                 Expanded(
-                  child: _TinyRollButton(
+                  child: CombatTinyRollButton(
                     label: action.isHealing ? 'Heal' : action.damageFormula!,
                     icon: action.isHealing
                         ? Icons.favorite_border
                         : Icons.auto_fix_high_outlined,
                     color: effectiveAccent,
                     enabled: !isBlocked || canResolveDamage,
-                    onTap: () => onRollAction(action, _CombatActionRoll.damage),
+                    onTap: () => onRollAction(action, CombatActionRoll.damage),
                   ),
                 ),
               if (action.critFormula != null) ...[
                 const SizedBox(width: 5),
                 Expanded(
-                  child: _TinyRollButton(
+                  child: CombatTinyRollButton(
                     label: 'Crit',
                     icon: Icons.emergency_outlined,
                     color: isSpent ? effectiveAccent : tokens.accentSuccess,
                     enabled: !isBlocked || canResolveDamage,
                     onTap: () =>
-                        onRollAction(action, _CombatActionRoll.critical),
+                        onRollAction(action, CombatActionRoll.critical),
                   ),
                 ),
               ],
@@ -23932,7 +26036,7 @@ class _CompactActionCommand extends StatelessWidget {
                   action.damageFormula == null &&
                   action.critFormula == null)
                 Expanded(
-                  child: _TinyRollButton(
+                  child: CombatTinyRollButton(
                     label: 'Use',
                     icon: Icons.check_circle_outline,
                     color: effectiveAccent,
@@ -23948,193 +26052,8 @@ class _CompactActionCommand extends StatelessWidget {
   }
 }
 
-class _ActionAvailabilityLine extends StatelessWidget {
-  final bool isSpent;
-  final bool isPrepared;
-  final bool canResolveDamage;
-  final bool lacksResource;
-  final int? resourceRemaining;
-  final int resourceCost;
-  final Color color;
-
-  const _ActionAvailabilityLine({
-    required this.isSpent,
-    required this.isPrepared,
-    required this.canResolveDamage,
-    required this.lacksResource,
-    required this.resourceRemaining,
-    required this.resourceCost,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    final status = canResolveDamage
-        ? 'Damage pending'
-        : lacksResource
-            ? 'No uses left'
-            : isSpent
-                ? 'Timing spent'
-                : isPrepared
-                    ? 'Prepared'
-                    : resourceRemaining == null
-                        ? 'Available'
-                        : '$resourceRemaining left - costs $resourceCost';
-    final icon = canResolveDamage
-        ? Icons.auto_fix_high_outlined
-        : lacksResource
-            ? Icons.battery_0_bar_outlined
-            : isSpent
-                ? Icons.lock_clock_outlined
-                : isPrepared
-                    ? Icons.playlist_add_check_circle_outlined
-                    : Icons.check_circle_outline;
-
-    return Container(
-      height: 24,
-      padding: const EdgeInsets.symmetric(horizontal: 7),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.11),
-        borderRadius: BorderRadius.circular(tokens.radiusSm),
-        border: Border.all(color: color.withValues(alpha: 0.20)),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: Colors.white, size: 12),
-          const SizedBox(width: 5),
-          Expanded(
-            child: Text(
-              status,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 10,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TinyRollButton extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final Color color;
-  final bool enabled;
-  final VoidCallback onTap;
-
-  const _TinyRollButton({
-    required this.label,
-    required this.icon,
-    required this.color,
-    this.enabled = true,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return InkWell(
-      onTap: enabled ? onTap : null,
-      borderRadius: BorderRadius.circular(tokens.radiusSm),
-      child: Container(
-        height: 28,
-        alignment: Alignment.center,
-        padding: const EdgeInsets.symmetric(horizontal: 6),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.18),
-          borderRadius: BorderRadius.circular(tokens.radiusSm),
-          border: Border.all(color: color.withValues(alpha: 0.34)),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: Colors.white, size: 13),
-            const SizedBox(width: 4),
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _PrepareActionButton extends StatelessWidget {
-  final bool selected;
-  final bool disabled;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _PrepareActionButton({
-    required this.selected,
-    this.disabled = false,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return InkWell(
-      onTap: disabled ? null : onTap,
-      borderRadius: BorderRadius.circular(tokens.radiusSm),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        height: 27,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        decoration: BoxDecoration(
-          color: (selected ? color : Colors.white).withValues(
-            alpha: selected ? 0.26 : 0.07,
-          ),
-          borderRadius: BorderRadius.circular(tokens.radiusSm),
-          border: Border.all(
-            color: color.withValues(alpha: selected ? 0.58 : 0.22),
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              selected ? Icons.check_circle_outline : Icons.add_circle_outline,
-              color: Colors.white,
-              size: 13,
-            ),
-            const SizedBox(width: 4),
-            Text(
-              selected ? 'Ready' : 'Prepare',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 10,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _ActionDetailsButton extends StatelessWidget {
-  final _CombatAction action;
+  final CombatAction action;
   final Color color;
 
   const _ActionDetailsButton({
@@ -24147,7 +26066,7 @@ class _ActionDetailsButton extends StatelessWidget {
     final tokens = context.stitch;
 
     return InkWell(
-      onTap: () => _showActionDetails(context, action),
+      onTap: () => showCombatActionDetails(context, action),
       borderRadius: BorderRadius.circular(tokens.radiusSm),
       child: Container(
         width: 27,
@@ -24169,9 +26088,9 @@ class _ActionDetailsButton extends StatelessWidget {
 }
 
 class _PreparedTurnPanel extends StatelessWidget {
-  final _Combatant activeCombatant;
-  final List<_CombatAction> actions;
-  final Map<String, _CombatAction> preparedActions;
+  final Combatant activeCombatant;
+  final List<CombatAction> actions;
+  final Map<String, CombatAction> preparedActions;
   final Set<String> spentTimings;
   final Set<String> pendingDamageActions;
   final Map<String, int> resourcePool;
@@ -24180,10 +26099,10 @@ class _PreparedTurnPanel extends StatelessWidget {
   final String? queuedPreparedActionName;
   final String selectedTiming;
   final ValueChanged<String> onSelectTiming;
-  final void Function(_CombatAction action, _CombatActionRoll rollType)
+  final void Function(CombatAction action, CombatActionRoll rollType)
       onRollAction;
-  final ValueChanged<_CombatAction> onUseAction;
-  final ValueChanged<_CombatAction> onPrepareAction;
+  final ValueChanged<CombatAction> onUseAction;
+  final ValueChanged<CombatAction> onPrepareAction;
   final VoidCallback onLaunch;
   final VoidCallback onClear;
 
@@ -24356,7 +26275,7 @@ class _PreparedTurnPanel extends StatelessWidget {
 }
 
 class _PreparedTurnHeader extends StatelessWidget {
-  final _Combatant activeCombatant;
+  final Combatant activeCombatant;
 
   const _PreparedTurnHeader({
     required this.activeCombatant,
@@ -24553,7 +26472,7 @@ class _TurnFlowArrow extends StatelessWidget {
 class _PreparedTurnSlot extends StatelessWidget {
   final int index;
   final String timing;
-  final _CombatAction? action;
+  final CombatAction? action;
   final bool spent;
   final bool selected;
   final VoidCallback onOpen;
@@ -24736,7 +26655,7 @@ class _PreparedTurnSlot extends StatelessWidget {
                     runSpacing: 5,
                     children: [
                       for (final tag in action!.tags.take(2))
-                        _DiceExpressionChip(label: tag, color: color),
+                        CombatDiceExpressionChip(label: tag, color: color),
                     ],
                   ),
                 ],
@@ -24837,3452 +26756,114 @@ class _EmptyCommandLayer extends StatelessWidget {
   }
 }
 
-class _GameFeedWindow extends StatelessWidget {
-  final List<_CombatLogEntry> entries;
-  final int maxEntries;
+class _PendingSavePrompt extends StatelessWidget {
+  final PendingSavePromptData data;
+  final VoidCallback onRoll;
 
-  const _GameFeedWindow({
-    required this.entries,
-    this.maxEntries = 3,
+  const _PendingSavePrompt({
+    required this.data,
+    required this.onRoll,
   });
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    final visible = entries.take(maxEntries).toList();
-
-    return _GameSmallWindow(
-      title: 'Log',
-      icon: Icons.receipt_long_outlined,
-      accentKind: _CombatAccentKind.info,
-      child: Column(
-        children: [
-          for (final entry in visible) ...[
-            _MiniFeedEntry(entry: entry),
-            if (entry != visible.last) const SizedBox(height: 6),
-          ],
-          if (visible.isEmpty)
-            Text(
-              'No activity yet.',
-              style: TextStyle(
-                color: tokens.textSecondary,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-              ),
+    final theme = context.stitch;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 520),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: theme.surface.withValues(alpha: 0.96),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: theme.accentMagic.withValues(alpha: 0.55)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.34),
+              blurRadius: 18,
+              offset: const Offset(0, 10),
             ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MiniFeedEntry extends StatelessWidget {
-  final _CombatLogEntry entry;
-
-  const _MiniFeedEntry({
-    required this.entry,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    final color = switch (entry.type) {
-      _CombatLogEntryType.roll => tokens.accentMagic,
-      _CombatLogEntryType.turn => tokens.accentAction,
-      _CombatLogEntryType.system => tokens.accentRead,
-    };
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(entry.icon, color: color, size: 15),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(
-            entry.title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              height: 1.18,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _GameSmallWindow extends StatelessWidget {
-  final String title;
-  final IconData icon;
-  final _CombatAccentKind accentKind;
-  final Widget child;
-
-  const _GameSmallWindow({
-    required this.title,
-    required this.icon,
-    required this.accentKind,
-    required this.child,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    final accent = _accentForKind(accentKind, tokens);
-
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            tokens.panel.withValues(alpha: 0.94),
-            tokens.surface.withValues(alpha: 0.90),
           ],
         ),
-        borderRadius: BorderRadius.circular(tokens.radiusSm),
-        border: Border.all(color: accent.withValues(alpha: 0.26)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.24),
-            blurRadius: 16,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
             children: [
-              Icon(icon, color: accent, size: 16),
-              const SizedBox(width: 7),
-              Text(
-                title.toUpperCase(),
-                style: TextStyle(
-                  color: tokens.textSecondary,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Expanded(child: SingleChildScrollView(child: child)),
-        ],
-      ),
-    );
-  }
-}
-
-class _CombatArenaBackdrop extends StatelessWidget {
-  final int round;
-
-  const _CombatArenaBackdrop({
-    required this.round,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return CustomPaint(
-      painter: _CombatArenaBackdropPainter(
-        tokens: context.stitch,
-        round: round,
-      ),
-      child: const SizedBox.expand(),
-    );
-  }
-}
-
-class _CombatArenaBackdropPainter extends CustomPainter {
-  final StitchThemeTokens tokens;
-  final int round;
-
-  const _CombatArenaBackdropPainter({
-    required this.tokens,
-    required this.round,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rect = Offset.zero & size;
-    final basePaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          tokens.pageTop,
-          const Color(0xFF111A25),
-          tokens.pageBottom,
-        ],
-      ).createShader(rect);
-    canvas.drawRect(rect, basePaint);
-
-    _drawGlow(
-      canvas,
-      rect,
-      center: Offset(size.width * 0.18, size.height * 0.18),
-      radius: size.shortestSide * 0.62,
-      color: tokens.accentRead,
-      alpha: 0.16,
-    );
-    _drawGlow(
-      canvas,
-      rect,
-      center: Offset(size.width * 0.82, size.height * 0.22),
-      radius: size.shortestSide * 0.54,
-      color: tokens.accentAction,
-      alpha: 0.15,
-    );
-    _drawGlow(
-      canvas,
-      rect,
-      center: Offset(size.width * 0.52, size.height * 0.88),
-      radius: size.shortestSide * 0.48,
-      color: tokens.accentMagic,
-      alpha: 0.10,
-    );
-
-    final gridPaint = Paint()
-      ..color = tokens.accentRead.withValues(alpha: 0.055)
-      ..strokeWidth = 1;
-    const grid = 54.0;
-    for (var x = -grid; x < size.width + grid; x += grid) {
-      canvas.drawLine(Offset(x, 0), Offset(x + 80, size.height), gridPaint);
-    }
-    for (var y = 28.0; y < size.height; y += grid) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y + 20), gridPaint);
-    }
-
-    final runePaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.2
-      ..color = tokens.accentInfo.withValues(alpha: 0.10);
-    final center = Offset(size.width * 0.50, size.height * 0.42);
-    final pulse = math.sin(round * 0.7) * 4;
-    for (final radius in [96.0, 148.0, 206.0]) {
-      canvas.drawCircle(center, radius + pulse, runePaint);
-      canvas.drawArc(
-        Rect.fromCircle(center: center, radius: radius + 16 + pulse),
-        math.pi * 0.12,
-        math.pi * 0.38,
-        false,
-        runePaint..color = tokens.accentAction.withValues(alpha: 0.09),
-      );
-    }
-
-    final vignette = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          Colors.transparent,
-          Colors.black.withValues(alpha: 0.58),
-        ],
-        stops: const [0.42, 1],
-      ).createShader(rect);
-    canvas.drawRect(rect, vignette);
-  }
-
-  void _drawGlow(
-    Canvas canvas,
-    Rect rect, {
-    required Offset center,
-    required double radius,
-    required Color color,
-    required double alpha,
-  }) {
-    final glow = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          color.withValues(alpha: alpha),
-          color.withValues(alpha: 0),
-        ],
-      ).createShader(Rect.fromCircle(center: center, radius: radius));
-    canvas.drawCircle(center, radius, glow);
-  }
-
-  @override
-  bool shouldRepaint(covariant _CombatArenaBackdropPainter oldDelegate) {
-    return oldDelegate.round != round || oldDelegate.tokens != tokens;
-  }
-}
-
-class _DuelSpotlightPanel extends StatelessWidget {
-  final int round;
-  final _Combatant activeCombatant;
-  final _Combatant targetCombatant;
-
-  const _DuelSpotlightPanel({
-    required this.round,
-    required this.activeCombatant,
-    required this.targetCombatant,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            tokens.surfaceRaised.withValues(alpha: 0.96),
-            tokens.panel.withValues(alpha: 0.92),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(tokens.radiusSm),
-        border: Border.all(color: tokens.accentInfo.withValues(alpha: 0.24)),
-        boxShadow: [
-          BoxShadow(
-            color: tokens.accentMagic.withValues(alpha: 0.12),
-            blurRadius: 34,
-            offset: const Offset(0, 18),
-          ),
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.28),
-            blurRadius: 20,
-            offset: const Offset(0, 12),
-          ),
-        ],
-      ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final isWide = constraints.maxWidth >= 740;
-          if (!isWide) {
-            return Column(
-              children: [
-                _DuelCombatantPortrait(
-                  combatant: activeCombatant,
-                  label: 'Active',
-                  isTarget: false,
-                ),
-                const SizedBox(height: 10),
-                _DuelRoundCore(round: round, compact: true),
-                const SizedBox(height: 10),
-                _DuelCombatantPortrait(
-                  combatant: targetCombatant,
-                  label: 'Target',
-                  isTarget: true,
-                ),
-              ],
-            );
-          }
-
-          return Row(
-            children: [
-              Expanded(
-                child: _DuelCombatantPortrait(
-                  combatant: activeCombatant,
-                  label: 'Active',
-                  isTarget: false,
-                ),
-              ),
-              const SizedBox(width: 12),
-              _DuelRoundCore(round: round),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _DuelCombatantPortrait(
-                  combatant: targetCombatant,
-                  label: 'Target',
-                  isTarget: true,
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _DuelCombatantPortrait extends StatelessWidget {
-  final _Combatant combatant;
-  final String label;
-  final bool isTarget;
-
-  const _DuelCombatantPortrait({
-    required this.combatant,
-    required this.label,
-    required this.isTarget,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    final accent =
-        isTarget ? tokens.accentAction : _teamColor(combatant.team, tokens);
-    final isDown = combatant.hp <= 0;
-
-    return Container(
-      constraints: const BoxConstraints(minHeight: 138),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            accent.withValues(alpha: 0.18),
-            tokens.surface.withValues(alpha: 0.92),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(tokens.radiusSm),
-        border: Border.all(color: accent.withValues(alpha: 0.28)),
-      ),
-      child: Row(
-        children: [
-          Stack(
-            alignment: Alignment.center,
-            children: [
-              Container(
-                width: 92,
-                height: 92,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      accent.withValues(alpha: 0.42),
-                      accent.withValues(alpha: 0.08),
-                    ],
-                  ),
-                  border: Border.all(color: accent.withValues(alpha: 0.42)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: accent.withValues(alpha: 0.18),
-                      blurRadius: 24,
-                    ),
-                  ],
-                ),
-              ),
-              Icon(
-                combatant.team == _CombatTeam.party
-                    ? Icons.person_4_outlined
-                    : Icons.crisis_alert_outlined,
-                color: Colors.white,
-                size: 42,
-              ),
-              Positioned(
-                bottom: 2,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.52),
-                    borderRadius: BorderRadius.circular(tokens.radiusPill),
-                    border: Border.all(color: accent.withValues(alpha: 0.35)),
-                  ),
-                  child: Text(
-                    label,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  combatant.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w900,
-                    height: 1,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  combatant.role,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: tokens.textSecondary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(tokens.radiusPill),
-                  child: LinearProgressIndicator(
-                    value: combatant.hpRatio,
-                    minHeight: 10,
-                    backgroundColor: Colors.white.withValues(alpha: 0.08),
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      isDown
-                          ? tokens.textMuted
-                          : combatant.hpRatio <= 0.30
-                              ? tokens.accentAction
-                              : tokens.accentSuccess,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 9),
-                Wrap(
-                  spacing: 7,
-                  runSpacing: 7,
-                  children: [
-                    _StatusChip(
-                      label: '${combatant.hp}/${combatant.maxHp} HP',
-                      color: isDown ? tokens.textMuted : tokens.accentSuccess,
-                    ),
-                    _StatusChip(
-                      label: 'AC ${combatant.ac}',
-                      color: tokens.accentRead,
-                    ),
-                    _StatusChip(
-                      label: 'Init ${combatant.initiative}',
-                      color: tokens.accentInfo,
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DuelRoundCore extends StatelessWidget {
-  final int round;
-  final bool compact;
-
-  const _DuelRoundCore({
-    required this.round,
-    this.compact = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return Container(
-      width: compact ? double.infinity : 116,
-      height: compact ? 68 : 138,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: tokens.surface.withValues(alpha: 0.78),
-        borderRadius: BorderRadius.circular(tokens.radiusSm),
-        border: Border.all(color: tokens.accentMagic.withValues(alpha: 0.28)),
-      ),
-      child: compact
-          ? Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.bolt_outlined, color: tokens.accentMagic),
-                const SizedBox(width: 8),
-                _RoundText(round: round),
-              ],
-            )
-          : Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.bolt_outlined,
-                  color: tokens.accentMagic,
-                  size: 30,
-                ),
-                const SizedBox(height: 10),
-                _RoundText(round: round),
-                const SizedBox(height: 10),
-                Icon(
-                  Icons.arrow_forward_rounded,
-                  color: tokens.accentAction,
-                  size: 26,
-                ),
-              ],
-            ),
-    );
-  }
-}
-
-class _RoundText extends StatelessWidget {
-  final int round;
-
-  const _RoundText({
-    required this.round,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          'ROUND',
-          style: TextStyle(
-            color: tokens.textSecondary,
-            fontSize: 10,
-            fontWeight: FontWeight.w900,
-            letterSpacing: 0,
-          ),
-        ),
-        Text(
-          '$round',
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 30,
-            fontWeight: FontWeight.w900,
-            height: 1,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _CombatHeader extends StatelessWidget {
-  final int round;
-  final _Combatant activeCombatant;
-  final _Combatant selectedTarget;
-  final VoidCallback onBack;
-  final VoidCallback onRequestInitiative;
-  final VoidCallback onRollInitiative;
-  final VoidCallback onNextTurn;
-
-  const _CombatHeader({
-    required this.round,
-    required this.activeCombatant,
-    required this.selectedTarget,
-    required this.onBack,
-    required this.onRequestInitiative,
-    required this.onRollInitiative,
-    required this.onNextTurn,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return Container(
-      clipBehavior: Clip.hardEdge,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            tokens.surfaceRaised.withValues(alpha: 0.98),
-            tokens.panel.withValues(alpha: 0.94),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(tokens.radiusSm),
-        border: Border.all(color: tokens.accentAction.withValues(alpha: 0.34)),
-        boxShadow: [
-          BoxShadow(
-            color: tokens.accentAction.withValues(alpha: 0.14),
-            blurRadius: 28,
-            offset: const Offset(0, 16),
-          ),
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.28),
-            blurRadius: 18,
-            offset: const Offset(0, 12),
-          ),
-        ],
-      ),
-      child: Stack(
-        children: [
-          Positioned(
-            right: -20,
-            top: -36,
-            child: IgnorePointer(
-              child: Icon(
-                Icons.sports_martial_arts_outlined,
-                color: Colors.white.withValues(alpha: 0.045),
-                size: 148,
-              ),
-            ),
-          ),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              IconButton(
-                onPressed: onBack,
-                icon: const Icon(Icons.arrow_back),
-                color: Colors.white,
-                tooltip: 'Back',
-              ),
               Container(
                 width: 42,
                 height: 42,
                 decoration: BoxDecoration(
-                  color: tokens.accentAction.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(tokens.radiusSm),
+                  color: theme.accentMagic.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(8),
                   border: Border.all(
-                    color: tokens.accentAction.withValues(alpha: 0.28),
+                    color: theme.accentMagic.withValues(alpha: 0.38),
                   ),
                 ),
-                child: const Icon(
-                  Icons.sports_martial_arts_outlined,
-                  color: Colors.white,
+                child: Icon(
+                  Icons.shield_moon_outlined,
+                  color: theme.accentMagic,
+                  size: 23,
                 ),
               ),
-              SizedBox(
-                width: 310,
+              const SizedBox(width: 12),
+              Expanded(
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'COMBAT MODE',
-                      style: TextStyle(
-                        color: tokens.accentReadSoft.withValues(alpha: 0.90),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Round $round - ${activeCombatant.name} is active',
+                      '${data.target.name}: ${data.ability} save DC ${data.dc}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 18,
+                        fontSize: 14,
                         fontWeight: FontWeight.w900,
                       ),
                     ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '${data.action.name} - ${data.formula} - ${data.remaining} pending',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: theme.textSecondary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ],
                 ),
               ),
-              _CombatHeaderMetric(
-                label: 'Initiative',
-                value: '${activeCombatant.initiative}',
-              ),
-              _CombatHeaderMetric(
-                label: 'HP',
-                value: '${activeCombatant.hp}/${activeCombatant.maxHp}',
-              ),
-              _CombatHeaderMetric(
-                label: 'AC',
-                value: '${activeCombatant.ac}',
-              ),
-              _CombatHeaderMetric(
-                label: 'Target',
-                value: selectedTarget.name,
-                wide: true,
-              ),
-              OutlinedButton.icon(
-                onPressed: onRequestInitiative,
-                icon: const Icon(Icons.campaign_outlined),
-                label: const Text('Request Initiative'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  side: BorderSide(
-                    color: tokens.accentRead.withValues(alpha: 0.30),
-                  ),
-                ),
-              ),
-              OutlinedButton.icon(
-                onPressed: onRollInitiative,
-                icon: const Icon(Icons.casino_outlined),
-                label: const Text('Roll Demo'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  side: BorderSide(
-                    color: tokens.accentMagic.withValues(alpha: 0.30),
-                  ),
-                ),
-              ),
+              const SizedBox(width: 12),
               FilledButton.icon(
-                onPressed: onNextTurn,
-                icon: const Icon(Icons.skip_next),
-                label: const Text('Next Turn'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: tokens.accentAction,
-                  foregroundColor: Colors.white,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CombatHeaderMetric extends StatelessWidget {
-  final String label;
-  final String value;
-  final bool wide;
-
-  const _CombatHeaderMetric({
-    required this.label,
-    required this.value,
-    this.wide = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return Container(
-      constraints: BoxConstraints(minWidth: wide ? 120 : 74),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: tokens.surface,
-        borderRadius: BorderRadius.circular(tokens.radiusSm),
-        border: Border.all(color: tokens.accentRead.withValues(alpha: 0.18)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              color: tokens.textSecondary,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w900,
-              height: 1,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InitiativePanel extends StatelessWidget {
-  final List<_Combatant> combatants;
-  final int activeIndex;
-
-  const _InitiativePanel({
-    required this.combatants,
-    required this.activeIndex,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return _CombatSection(
-      title: 'Turn Order',
-      icon: Icons.format_list_numbered,
-      accentKind: _CombatAccentKind.read,
-      child: Column(
-        children: [
-          for (var index = 0; index < combatants.length; index++) ...[
-            if (index > 0) const SizedBox(height: 8),
-            _CombatantTile(
-              combatant: combatants[index],
-              isActive: index == activeIndex,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _ActiveTurnPanel extends StatelessWidget {
-  final _Combatant combatant;
-  final List<_Combatant> combatants;
-  final int activeIndex;
-  final int targetIndex;
-  final ValueChanged<int> onSelectTarget;
-  final Set<String> spentTimings;
-  final List<_CombatAction> actions;
-  final void Function(_CombatAction action, _CombatActionRoll rollType)
-      onRollAction;
-
-  const _ActiveTurnPanel({
-    required this.combatant,
-    required this.combatants,
-    required this.activeIndex,
-    required this.targetIndex,
-    required this.onSelectTarget,
-    required this.spentTimings,
-    required this.actions,
-    required this.onRollAction,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return Column(
-      children: [
-        _CombatSection(
-          title: 'Active Turn',
-          icon: Icons.play_arrow_outlined,
-          accentKind: _CombatAccentKind.action,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 58,
-                    height: 58,
-                    decoration: BoxDecoration(
-                      color: _teamColor(combatant.team, tokens)
-                          .withValues(alpha: 0.14),
-                      borderRadius: BorderRadius.circular(tokens.radiusSm),
-                      border: Border.all(
-                        color: _teamColor(combatant.team, tokens)
-                            .withValues(alpha: 0.28),
-                      ),
-                    ),
-                    child: Icon(
-                      combatant.team == _CombatTeam.party
-                          ? Icons.person_outline
-                          : Icons.warning_amber_rounded,
-                      color: Colors.white,
-                      size: 28,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          combatant.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 22,
-                            fontWeight: FontWeight.w900,
-                            height: 1,
-                          ),
-                        ),
-                        const SizedBox(height: 5),
-                        Text(
-                          combatant.role,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: tokens.textSecondary,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(tokens.radiusPill),
-                child: LinearProgressIndicator(
-                  value: combatant.hpRatio,
-                  minHeight: 9,
-                  backgroundColor: Colors.white.withValues(alpha: 0.08),
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    combatant.hpRatio <= 0.30
-                        ? tokens.accentAction
-                        : tokens.accentSuccess,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _StatusChip(
-                    label: 'HP ${combatant.hp}/${combatant.maxHp}',
-                    color: tokens.accentSuccess,
-                  ),
-                  _StatusChip(
-                    label: 'AC ${combatant.ac}',
-                    color: tokens.accentRead,
-                  ),
-                  _StatusChip(
-                    label: '${combatant.speed} ft',
-                    color: tokens.accentInfo,
-                  ),
-                  for (final condition in combatant.conditions)
-                    _StatusChip(
-                      label: condition,
-                      color: tokens.accentMagic,
-                    ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              _ActionEconomyStrip(spentTimings: spentTimings),
-              const SizedBox(height: 14),
-              _TargetSelector(
-                combatants: combatants,
-                activeIndex: activeIndex,
-                targetIndex: targetIndex,
-                onSelectTarget: onSelectTarget,
+                onPressed: onRoll,
+                icon: const Icon(Icons.casino_outlined, size: 18),
+                label: const Text('Roll save'),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 12),
-        _CombatSection(
-          title: 'Prepared Actions',
-          icon: Icons.style_outlined,
-          accentKind: _CombatAccentKind.magic,
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final columns = constraints.maxWidth >= 640 ? 2 : 1;
-              const spacing = 10.0;
-              final width = columns == 1
-                  ? constraints.maxWidth
-                  : (constraints.maxWidth - spacing) / columns;
-
-              return Wrap(
-                spacing: spacing,
-                runSpacing: spacing,
-                children: actions.map((action) {
-                  return SizedBox(
-                    width: width,
-                    child: _CombatActionCard(
-                      action: action,
-                      onRollAction: onRollAction,
-                    ),
-                  );
-                }).toList(),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _BattlefieldPanel extends StatelessWidget {
-  final List<_Combatant> combatants;
-  final int activeIndex;
-  final int targetIndex;
-  final ValueChanged<int> onSelectTarget;
-
-  const _BattlefieldPanel({
-    required this.combatants,
-    required this.activeIndex,
-    required this.targetIndex,
-    required this.onSelectTarget,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return _CombatSection(
-      title: 'Battlefield',
-      icon: Icons.grid_view_outlined,
-      accentKind: _CombatAccentKind.info,
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              tokens.surfaceRaised.withValues(alpha: 0.86),
-              tokens.surface.withValues(alpha: 0.92),
-            ],
-          ),
-          borderRadius: BorderRadius.circular(tokens.radiusSm),
-          border: Border.all(color: tokens.accentInfo.withValues(alpha: 0.14)),
-        ),
-        child: CustomPaint(
-          painter: _BattlefieldTerrainPainter(tokens: tokens),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final isWide = constraints.maxWidth >= 860;
-              final party = _indexedCombatants(_CombatTeam.party);
-              final enemies = _indexedCombatants(_CombatTeam.enemy);
-
-              if (!isWide) {
-                return Column(
-                  children: [
-                    _BattlefieldLane(
-                      title: 'Party',
-                      subtitle: 'Allies and player characters',
-                      entries: party,
-                      activeIndex: activeIndex,
-                      targetIndex: targetIndex,
-                      onSelectTarget: onSelectTarget,
-                    ),
-                    const SizedBox(height: 12),
-                    _BattlefieldLane(
-                      title: 'Threats',
-                      subtitle: 'Hostile combatants',
-                      entries: enemies,
-                      activeIndex: activeIndex,
-                      targetIndex: targetIndex,
-                      onSelectTarget: onSelectTarget,
-                    ),
-                  ],
-                );
-              }
-
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: _BattlefieldLane(
-                      title: 'Party',
-                      subtitle: 'Allies and player characters',
-                      entries: party,
-                      activeIndex: activeIndex,
-                      targetIndex: targetIndex,
-                      onSelectTarget: onSelectTarget,
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  _VersusBadge(roundText: '${party.length}v${enemies.length}'),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: _BattlefieldLane(
-                      title: 'Threats',
-                      subtitle: 'Hostile combatants',
-                      entries: enemies,
-                      activeIndex: activeIndex,
-                      targetIndex: targetIndex,
-                      onSelectTarget: onSelectTarget,
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
-      ),
-    );
-  }
-
-  List<_IndexedCombatant> _indexedCombatants(_CombatTeam team) {
-    final entries = <_IndexedCombatant>[];
-    for (var index = 0; index < combatants.length; index++) {
-      if (combatants[index].team == team) {
-        entries.add(_IndexedCombatant(index, combatants[index]));
-      }
-    }
-    return entries;
-  }
-}
-
-class _BattlefieldTerrainPainter extends CustomPainter {
-  final StitchThemeTokens tokens;
-
-  const _BattlefieldTerrainPainter({
-    required this.tokens,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rect = Offset.zero & size;
-    final center = Offset(size.width / 2, size.height / 2);
-    final lanePaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1
-      ..color = tokens.accentInfo.withValues(alpha: 0.07);
-
-    for (var x = 24.0; x < size.width; x += 42) {
-      canvas.drawLine(Offset(x, 0), Offset(x + 24, size.height), lanePaint);
-    }
-    for (var y = 24.0; y < size.height; y += 42) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), lanePaint);
-    }
-
-    final linePaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.4
-      ..color = tokens.accentAction.withValues(alpha: 0.12);
-    canvas.drawLine(
-      Offset(size.width * 0.50, 10),
-      Offset(size.width * 0.50, size.height - 10),
-      linePaint,
-    );
-
-    final circlePaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1
-      ..color = tokens.accentMagic.withValues(alpha: 0.10);
-    canvas.drawCircle(
-        center, math.min(size.width, size.height) * 0.22, circlePaint);
-    canvas.drawArc(
-      Rect.fromCircle(
-          center: center, radius: math.min(size.width, size.height) * 0.33),
-      math.pi * 1.10,
-      math.pi * 0.80,
-      false,
-      circlePaint,
-    );
-
-    final mistPaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.centerLeft,
-        end: Alignment.centerRight,
-        colors: [
-          tokens.accentRead.withValues(alpha: 0.08),
-          Colors.transparent,
-          tokens.accentAction.withValues(alpha: 0.08),
-        ],
-      ).createShader(rect);
-    canvas.drawRect(rect, mistPaint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _BattlefieldTerrainPainter oldDelegate) {
-    return oldDelegate.tokens != tokens;
-  }
-}
-
-class _BattlefieldLane extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  final List<_IndexedCombatant> entries;
-  final int activeIndex;
-  final int targetIndex;
-  final ValueChanged<int> onSelectTarget;
-
-  const _BattlefieldLane({
-    required this.title,
-    required this.subtitle,
-    required this.entries,
-    required this.activeIndex,
-    required this.targetIndex,
-    required this.onSelectTarget,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: tokens.textSecondary,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            _StatusChip(
-              label: '${entries.length} combatants',
-              color: tokens.accentRead,
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: entries.map((entry) {
-            return SizedBox(
-              width: 236,
-              child: _BattlefieldCombatantCard(
-                combatant: entry.combatant,
-                isActive: entry.index == activeIndex,
-                isTargeted: entry.index == targetIndex,
-                onTap: () => onSelectTarget(entry.index),
-              ),
-            );
-          }).toList(),
-        ),
-      ],
-    );
-  }
-}
-
-class _BattlefieldCombatantCard extends StatelessWidget {
-  final _Combatant combatant;
-  final bool isActive;
-  final bool isTargeted;
-  final VoidCallback onTap;
-
-  const _BattlefieldCombatantCard({
-    required this.combatant,
-    required this.isActive,
-    required this.isTargeted,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    final teamColor = _teamColor(combatant.team, tokens);
-    final accent = isTargeted
-        ? tokens.accentAction
-        : isActive
-            ? tokens.accentMagic
-            : teamColor;
-    final isDown = combatant.hp <= 0;
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(tokens.radiusSm),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              accent.withValues(alpha: isTargeted ? 0.22 : 0.12),
-              tokens.surfaceRaised.withValues(alpha: 0.86),
-              tokens.surface,
-            ],
-          ),
-          borderRadius: BorderRadius.circular(tokens.radiusSm),
-          border: Border.all(
-            color: accent.withValues(alpha: isTargeted ? 0.55 : 0.24),
-            width: isTargeted ? 1.4 : 1,
-          ),
-          boxShadow: [
-            if (isActive || isTargeted)
-              BoxShadow(
-                color: accent.withValues(alpha: 0.18),
-                blurRadius: 22,
-                offset: const Offset(0, 10),
-              ),
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.16),
-              blurRadius: 12,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: accent.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(tokens.radiusSm),
-                    border: Border.all(color: accent.withValues(alpha: 0.24)),
-                  ),
-                  child: Icon(
-                    combatant.team == _CombatTeam.party
-                        ? Icons.shield_outlined
-                        : Icons.crisis_alert_outlined,
-                    color: Colors.white,
-                    size: 20,
-                  ),
-                ),
-                const SizedBox(width: 9),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        combatant.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        combatant.role,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: tokens.textSecondary,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(tokens.radiusPill),
-              child: LinearProgressIndicator(
-                value: combatant.hpRatio,
-                minHeight: 7,
-                backgroundColor: Colors.white.withValues(alpha: 0.08),
-                valueColor: AlwaysStoppedAnimation<Color>(
-                  isDown
-                      ? tokens.textMuted
-                      : combatant.hpRatio <= 0.30
-                          ? tokens.accentAction
-                          : tokens.accentSuccess,
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                _StatusChip(
-                  label: '${combatant.hp}/${combatant.maxHp} HP',
-                  color: isDown ? tokens.textMuted : tokens.accentSuccess,
-                ),
-                _StatusChip(
-                  label: 'AC ${combatant.ac}',
-                  color: tokens.accentRead,
-                ),
-                _StatusChip(
-                  label: 'I ${combatant.initiative}',
-                  color: tokens.accentInfo,
-                ),
-                if (isActive)
-                  _StatusChip(label: 'Active', color: tokens.accentMagic),
-                if (isTargeted)
-                  _StatusChip(label: 'Target', color: tokens.accentAction),
-                if (isDown) _StatusChip(label: 'Down', color: tokens.textMuted),
-              ],
-            ),
-          ],
-        ),
       ),
     );
   }
 }
 
-class _VersusBadge extends StatelessWidget {
-  final String roundText;
-
-  const _VersusBadge({
-    required this.roundText,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return Container(
-      width: 66,
-      height: 104,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: tokens.surface,
-        borderRadius: BorderRadius.circular(tokens.radiusSm),
-        border: Border.all(color: tokens.accentAction.withValues(alpha: 0.24)),
+List<PendingCombatAttack> _pendingCombatAttacksForAction(
+  CombatAction action, {
+  String labelPrefix = 'Attack',
+  PendingCombatAttackSource source = PendingCombatAttackSource.multiattack,
+}) {
+  return [
+    for (var index = 0; index < action.multiAttackSteps.length; index++)
+      PendingCombatAttack(
+        stepIndex: index,
+        label: '$labelPrefix ${index + 1}',
+        source: source,
       ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            'VS',
-            style: TextStyle(
-              color: tokens.accentAction,
-              fontSize: 20,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            roundText,
-            style: TextStyle(
-              color: tokens.textSecondary,
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  ];
 }
 
-class _ActionEconomyStrip extends StatelessWidget {
-  final Set<String> spentTimings;
-
-  const _ActionEconomyStrip({
-    required this.spentTimings,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    const timings = [
-      ('Action', Icons.flash_on_outlined),
-      ('Bonus Action', Icons.bolt_outlined),
-      ('Reaction', Icons.keyboard_return_outlined),
-      ('Movement', Icons.directions_run_outlined),
-    ];
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: tokens.surface.withValues(alpha: 0.82),
-        borderRadius: BorderRadius.circular(tokens.radiusSm),
-        border: Border.all(color: tokens.accentRead.withValues(alpha: 0.18)),
-      ),
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: [
-          for (final timing in timings)
-            _TurnResourceChip(
-              label: timing.$1,
-              icon: timing.$2,
-              isSpent: spentTimings.contains(timing.$1),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TurnResourceChip extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final bool isSpent;
-
-  const _TurnResourceChip({
-    required this.label,
-    required this.icon,
-    required this.isSpent,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    final color = isSpent ? tokens.accentAction : tokens.accentSuccess;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: isSpent ? 0.16 : 0.12),
-        borderRadius: BorderRadius.circular(tokens.radiusPill),
-        border: Border.all(color: color.withValues(alpha: 0.25)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: Colors.white, size: 15),
-          const SizedBox(width: 6),
-          Text(
-            '$label ${isSpent ? 'spent' : 'ready'}',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 11,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TargetSelector extends StatelessWidget {
-  final List<_Combatant> combatants;
-  final int activeIndex;
-  final int targetIndex;
-  final ValueChanged<int> onSelectTarget;
-
-  const _TargetSelector({
-    required this.combatants,
-    required this.activeIndex,
-    required this.targetIndex,
-    required this.onSelectTarget,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    final activeTeam = combatants[activeIndex].team;
-    final targets = <_IndexedCombatant>[];
-    for (var index = 0; index < combatants.length; index++) {
-      if (index == activeIndex) continue;
-      final combatant = combatants[index];
-      if (combatant.team != activeTeam && combatant.hp > 0) {
-        targets.add(_IndexedCombatant(index, combatant));
-      }
-    }
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: tokens.surface.withValues(alpha: 0.82),
-        borderRadius: BorderRadius.circular(tokens.radiusSm),
-        border: Border.all(color: tokens.accentAction.withValues(alpha: 0.20)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                Icons.my_location_outlined,
-                color: tokens.accentAction,
-                size: 17,
-              ),
-              const SizedBox(width: 7),
-              Expanded(
-                child: Text(
-                  'Current Target',
-                  style: TextStyle(
-                    color: tokens.textSecondary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 9),
-          if (targets.isEmpty)
-            Text(
-              'No hostile targets available.',
-              style: TextStyle(
-                color: tokens.textMuted,
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
-              ),
-            )
-          else
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: targets.map((entry) {
-                final target = entry.combatant;
-                final selected = entry.index == targetIndex;
-                final color = tokens.accentAction;
-
-                return ChoiceChip(
-                  selected: selected,
-                  onSelected: (_) => onSelectTarget(entry.index),
-                  avatar: const Icon(
-                    Icons.crisis_alert_outlined,
-                    size: 15,
-                    color: Colors.white,
-                  ),
-                  label: Text(target.name),
-                  labelStyle: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                  ),
-                  backgroundColor: color.withValues(alpha: 0.12),
-                  selectedColor: color.withValues(alpha: 0.28),
-                  side: BorderSide(
-                    color: color.withValues(alpha: selected ? 0.55 : 0.22),
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(tokens.radiusPill),
-                  ),
-                );
-              }).toList(),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ActivityPanel extends StatelessWidget {
-  final List<_CombatLogEntry> entries;
-
-  const _ActivityPanel({
-    required this.entries,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return _CombatSection(
-      title: 'Encounter Feed',
-      icon: Icons.history,
-      accentKind: _CombatAccentKind.info,
-      child: Column(
-        children:
-            entries.map((entry) => _ActivityEntryTile(entry: entry)).toList(),
-      ),
-    );
-  }
-}
-
-class _CombatActionCard extends StatelessWidget {
-  final _CombatAction action;
-  final void Function(_CombatAction action, _CombatActionRoll rollType)
-      onRollAction;
-
-  const _CombatActionCard({
-    required this.action,
-    required this.onRollAction,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    final accent = _accentForKind(action.accentKind, tokens);
-
-    return Container(
-      clipBehavior: Clip.hardEdge,
-      padding: const EdgeInsets.all(13),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            accent.withValues(alpha: 0.18),
-            tokens.surfaceRaised.withValues(alpha: 0.80),
-            tokens.surface,
-          ],
-        ),
-        borderRadius: BorderRadius.circular(tokens.radiusSm),
-        border: Border.all(color: accent.withValues(alpha: 0.34)),
-        boxShadow: [
-          BoxShadow(
-            color: accent.withValues(alpha: 0.12),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.18),
-            blurRadius: 14,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Stack(
-        children: [
-          Positioned(
-            top: -13,
-            left: -13,
-            right: -13,
-            child: Container(
-              height: 4,
-              color: accent.withValues(alpha: 0.78),
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      gradient: RadialGradient(
-                        colors: [
-                          accent.withValues(alpha: 0.34),
-                          accent.withValues(alpha: 0.12),
-                        ],
-                      ),
-                      borderRadius: BorderRadius.circular(tokens.radiusSm),
-                      border: Border.all(color: accent.withValues(alpha: 0.32)),
-                    ),
-                    child: Icon(action.icon, color: Colors.white, size: 21),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          action.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${action.type} - ${action.timing}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: tokens.textSecondary,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 7,
-                runSpacing: 7,
-                children: action.tags
-                    .map((tag) => _StatusChip(label: tag, color: accent))
-                    .toList(),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  if (action.attackFormula != null)
-                    Expanded(
-                      child: _ActionRollButton(
-                        label: action.attackFormula!,
-                        icon: Icons.track_changes_outlined,
-                        color: accent,
-                        onPressed: () =>
-                            onRollAction(action, _CombatActionRoll.attack),
-                      ),
-                    ),
-                  if (action.requiresSavingThrow)
-                    Expanded(
-                      child: _ActionRollButton(
-                        label: '${action.saveAbility} DC ${action.saveDc}',
-                        icon: Icons.shield_outlined,
-                        color: accent,
-                        onPressed: () =>
-                            onRollAction(action, _CombatActionRoll.savingThrow),
-                      ),
-                    ),
-                  if ((action.attackFormula != null ||
-                          action.requiresSavingThrow) &&
-                      action.damageFormula != null)
-                    const SizedBox(width: 8),
-                  if (action.damageFormula != null)
-                    Expanded(
-                      child: _ActionRollButton(
-                        label: action.isHealing
-                            ? 'Heal ${action.damageFormula}'
-                            : action.damageFormula!,
-                        icon: action.isHealing
-                            ? Icons.favorite_border
-                            : Icons.auto_fix_high_outlined,
-                        color: accent,
-                        onPressed: () =>
-                            onRollAction(action, _CombatActionRoll.damage),
-                      ),
-                    ),
-                ],
-              ),
-              if (action.critFormula != null) ...[
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  child: _ActionRollButton(
-                    label: 'Crit ${action.critFormula}',
-                    icon: Icons.emergency_outlined,
-                    color: tokens.accentSuccess,
-                    onPressed: () =>
-                        onRollAction(action, _CombatActionRoll.critical),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ActionRollButton extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final Color color;
-  final VoidCallback onPressed;
-
-  const _ActionRollButton({
-    required this.label,
-    required this.icon,
-    required this.color,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return OutlinedButton.icon(
-      onPressed: onPressed,
-      icon: Icon(icon, size: 16),
-      label: Text(
-        label,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      style: OutlinedButton.styleFrom(
-        backgroundColor: color.withValues(alpha: 0.12),
-        foregroundColor: Colors.white,
-        side: BorderSide(color: color.withValues(alpha: 0.34)),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(tokens.radiusSm),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 10),
-        textStyle: const TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w900,
-        ),
-      ),
-    );
-  }
-}
-
-class _CombatantTile extends StatelessWidget {
-  final _Combatant combatant;
-  final bool isActive;
-
-  const _CombatantTile({
-    required this.combatant,
-    required this.isActive,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    final accent =
-        isActive ? tokens.accentAction : _teamColor(combatant.team, tokens);
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: isActive
-            ? accent.withValues(alpha: 0.12)
-            : tokens.surface.withValues(alpha: 0.90),
-        borderRadius: BorderRadius.circular(tokens.radiusSm),
-        border: Border.all(
-          color: accent.withValues(alpha: isActive ? 0.42 : 0.18),
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(tokens.radiusSm),
-            ),
-            child: Text(
-              '${combatant.initiative}',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  combatant.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  combatant.role,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: tokens.textSecondary,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (isActive)
-            Icon(
-              Icons.play_arrow_rounded,
-              color: tokens.accentAction,
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ActivityEntryTile extends StatelessWidget {
-  final _CombatLogEntry entry;
-
-  const _ActivityEntryTile({
-    required this.entry,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    final color = switch (entry.type) {
-      _CombatLogEntryType.roll => tokens.accentMagic,
-      _CombatLogEntryType.turn => tokens.accentAction,
-      _CombatLogEntryType.system => tokens.accentRead,
-    };
-
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: tokens.surface,
-        borderRadius: BorderRadius.circular(tokens.radiusSm),
-        border: Border.all(color: color.withValues(alpha: 0.18)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(entry.icon, color: color, size: 18),
-          const SizedBox(width: 9),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  entry.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                if (entry.detail != null) ...[
-                  const SizedBox(height: 3),
-                  Text(
-                    entry.detail!,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: tokens.textSecondary,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      height: 1.25,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CombatSection extends StatelessWidget {
-  final String title;
-  final IconData icon;
-  final _CombatAccentKind accentKind;
-  final Widget child;
-
-  const _CombatSection({
-    required this.title,
-    required this.icon,
-    required this.accentKind,
-    required this.child,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    final accent = _accentForKind(accentKind, tokens);
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            tokens.panel.withValues(alpha: 0.94),
-            tokens.surface.withValues(alpha: 0.90),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(tokens.radiusSm),
-        border: Border.all(color: accent.withValues(alpha: 0.28)),
-        boxShadow: [
-          BoxShadow(
-            color: accent.withValues(alpha: 0.08),
-            blurRadius: 24,
-            offset: const Offset(0, 14),
-          ),
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.20),
-            blurRadius: 16,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: accent.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(tokens.radiusSm),
-                  border: Border.all(color: accent.withValues(alpha: 0.24)),
-                ),
-                child: Icon(icon, color: Colors.white, size: 18),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  title.toUpperCase(),
-                  style: TextStyle(
-                    color: tokens.accentReadSoft.withValues(alpha: 0.88),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          child,
-        ],
-      ),
-    );
-  }
-}
-
-class _StatusChip extends StatelessWidget {
-  final String label;
-  final Color color;
-
-  const _StatusChip({
-    required this.label,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    final effectiveColor = _statusAccentForLabel(label, tokens, color);
-    final icon = _statusIconForLabel(label);
-
-    return Container(
-      constraints: const BoxConstraints(maxWidth: 176),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-      decoration: BoxDecoration(
-        color: effectiveColor.withValues(alpha: 0.13),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: effectiveColor.withValues(alpha: 0.24)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: Colors.white, size: 12),
-          const SizedBox(width: 5),
-          Flexible(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-enum _CombatTeam { party, enemy }
-
-enum _CombatActionRoll { attack, savingThrow, damage, critical }
-
-enum _CombatRollMode { normal, advantage, disadvantage }
-
-enum _CombatWorkspace { turn, log, overview }
-
-enum _CombatAccentKind { read, action, magic, support, info }
-
-enum _CombatLogEntryType { system, turn, roll }
-
-class _CombatCharacterSnapshot {
-  final String characterId;
-  final int currentHp;
-  final int tempHp;
-  final Map<String, int> resources;
-
-  const _CombatCharacterSnapshot({
-    required this.characterId,
-    required this.currentHp,
-    required this.tempHp,
-    required this.resources,
-  });
-}
-
-class _Combatant {
-  final String id;
-  final String? sourceId;
-  final String? ownerUserId;
-  final String name;
-  final String role;
-  final int initiative;
-  final int initiativeBonus;
-  final int hp;
-  final int maxHp;
-  final int tempHp;
-  final int ac;
-  final int speed;
-  final _CombatTeam team;
-  final String? portraitAsset;
-  final List<String> conditions;
-
-  const _Combatant({
-    this.id = '',
-    this.sourceId,
-    this.ownerUserId,
-    required this.name,
-    required this.role,
-    required this.initiative,
-    required this.initiativeBonus,
-    required this.hp,
-    required this.maxHp,
-    this.tempHp = 0,
-    required this.ac,
-    required this.speed,
-    required this.team,
-    this.portraitAsset,
-    required this.conditions,
-  });
-
-  double get hpRatio {
-    if (maxHp <= 0) return 0;
-    return (hp / maxHp).clamp(0.0, 1.0);
-  }
-
-  _Combatant copyWith({
-    String? id,
-    String? sourceId,
-    String? ownerUserId,
-    int? initiative,
-    int? hp,
-    int? maxHp,
-    int? tempHp,
-    int? ac,
-    int? speed,
-    String? portraitAsset,
-    List<String>? conditions,
-  }) {
-    return _Combatant(
-      id: id ?? this.id,
-      sourceId: sourceId ?? this.sourceId,
-      ownerUserId: ownerUserId ?? this.ownerUserId,
-      name: name,
-      role: role,
-      initiative: initiative ?? this.initiative,
-      initiativeBonus: initiativeBonus,
-      hp: hp ?? this.hp,
-      maxHp: maxHp ?? this.maxHp,
-      tempHp: tempHp ?? this.tempHp,
-      ac: ac ?? this.ac,
-      speed: speed ?? this.speed,
-      team: team,
-      portraitAsset: portraitAsset ?? this.portraitAsset,
-      conditions: conditions ?? this.conditions,
-    );
-  }
-}
-
-class _BattleBoardFloatingController extends StatefulWidget {
-  final String sceneId;
-  final String displayUrl;
-  final List<_Combatant> combatants;
-  final String selectedCombatantId;
-  final bool expanded;
-  final VoidCallback onToggleExpanded;
-  final VoidCallback onClose;
-  final ValueChanged<String> onSelectCombatant;
-  final Future<void> Function(String combatantId, int dx, int dy) onMove;
-  final Future<void> Function() onOpenDisplay;
-  final Future<void> Function() onSyncState;
-
-  const _BattleBoardFloatingController({
-    required this.sceneId,
-    required this.displayUrl,
-    required this.combatants,
-    required this.selectedCombatantId,
-    required this.expanded,
-    required this.onToggleExpanded,
-    required this.onClose,
-    required this.onSelectCombatant,
-    required this.onMove,
-    required this.onOpenDisplay,
-    required this.onSyncState,
-  });
-
-  @override
-  State<_BattleBoardFloatingController> createState() =>
-      _BattleBoardFloatingControllerState();
-}
-
-class _BattleBoardFloatingControllerState
-    extends State<_BattleBoardFloatingController> {
-  late String _selectedCombatantId;
-  bool _moving = false;
-  bool _openingDisplay = false;
-  bool _syncing = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _selectedCombatantId = widget.selectedCombatantId;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.stitch;
-    final boardProvider = context.watch<BattleBoardProvider>();
-    if (widget.combatants.isEmpty) {
-      return const SizedBox.shrink();
-    }
-    final selectedCombatant = widget.combatants.firstWhere(
-      (combatant) => combatant.id == _selectedCombatantId,
-      orElse: () => widget.combatants.first,
-    );
-    final sceneTokens = boardProvider.tokens
-        .where((token) => token.sceneId == widget.sceneId)
-        .toList(growable: false);
-    final selectedToken = _boardTokenByRef(sceneTokens, selectedCombatant.id);
-    final activeToken = _activeBoardToken(sceneTokens);
-    final targetToken = _targetBoardToken(sceneTokens);
-    final selectedMovement = selectedToken == null
-        ? 'Loading'
-        : '${selectedToken.remainingMovementFeet}/${selectedToken.speedFeet} ft';
-    final positionLabel = selectedToken == null
-        ? 'Loading position'
-        : 'Grid ${selectedToken.x}, ${selectedToken.y}';
-    final targetDistance = activeToken == null || targetToken == null
-        ? null
-        : _boardDistanceFeet(activeToken, targetToken);
-    final canMove = !_moving &&
-        selectedToken != null &&
-        selectedToken.remainingMovementFeet >= 5;
-
-    return Material(
-      color: Colors.transparent,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        width: widget.expanded ? 390 : 286,
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: theme.panel.withValues(alpha: 0.96),
-          borderRadius: BorderRadius.circular(theme.radiusMd),
-          border: Border.all(color: theme.border.withValues(alpha: 0.65)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.35),
-              blurRadius: 22,
-              offset: const Offset(0, 14),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.sports_esports_rounded, color: theme.accentInfo),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    widget.expanded
-                        ? 'Combat controller'
-                        : selectedCombatant.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
-                _ControllerSignalPill(
-                  icon: Icons.bolt_rounded,
-                  label: selectedMovement,
-                  color: theme.accentSuccess,
-                ),
-                const SizedBox(width: 6),
-                IconButton(
-                  tooltip: 'Open display',
-                  onPressed: _openingDisplay ? null : _openDisplay,
-                  icon: _openingDisplay
-                      ? const SizedBox.square(
-                          dimension: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.open_in_new_rounded),
-                ),
-                IconButton(
-                  tooltip: widget.expanded ? 'Minimize' : 'Expand',
-                  onPressed: widget.onToggleExpanded,
-                  icon: Icon(
-                    widget.expanded
-                        ? Icons.keyboard_arrow_up_rounded
-                        : Icons.keyboard_arrow_down_rounded,
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Hide board controls',
-                  onPressed: widget.onClose,
-                  icon: const Icon(Icons.close_rounded),
-                ),
-              ],
-            ),
-            if (!widget.expanded) ...[
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  Expanded(
-                    child: _CompactBoardReadout(
-                      activeName: activeToken?.name ?? selectedCombatant.name,
-                      targetName: targetToken?.name,
-                      positionLabel: positionLabel,
-                      distanceFeet: targetDistance,
-                    ),
-                  ),
-                  _MovementStrip(
-                    enabled: canMove,
-                    onMove: _move,
-                  ),
-                ],
-              ),
-            ] else ...[
-              const SizedBox(height: 10),
-              _BoardControllerHero(
-                combatant: selectedCombatant,
-                token: selectedToken,
-                activeToken: activeToken,
-                targetToken: targetToken,
-                distanceFeet: targetDistance,
-                positionLabel: positionLabel,
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: _ControllerSignalPill(
-                      icon: Icons.directions_run_rounded,
-                      label: selectedToken == null
-                          ? 'Speed --'
-                          : '$selectedMovement movement',
-                      color: theme.accentSuccess,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _ControllerSignalPill(
-                      icon: Icons.center_focus_strong_rounded,
-                      label: targetToken == null
-                          ? 'Target --'
-                          : targetDistance == null
-                              ? targetToken.name
-                              : '${targetToken.name} $targetDistance ft',
-                      color: targetToken?.isTargetInRange == false
-                          ? theme.accentAction
-                          : theme.accentWarning,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  color: theme.surface.withValues(alpha: 0.74),
-                  borderRadius: BorderRadius.circular(theme.radiusSm),
-                  border:
-                      Border.all(color: theme.border.withValues(alpha: 0.42)),
-                ),
-                child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.live_tv_rounded,
-                        color: theme.accentInfo,
-                        size: 18,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: SelectableText(
-                          widget.displayUrl,
-                          maxLines: 1,
-                          style: TextStyle(
-                            color: theme.textSecondary,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              DropdownButtonFormField<String>(
-                value: _selectedCombatantId,
-                decoration: const InputDecoration(
-                  labelText: 'Token',
-                  prefixIcon: Icon(Icons.adjust_rounded),
-                ),
-                items: [
-                  for (final combatant in widget.combatants)
-                    DropdownMenuItem<String>(
-                      value: combatant.id,
-                      child: Text(
-                        combatant.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                ],
-                onChanged: (combatantId) {
-                  if (combatantId == null) return;
-                  setState(() {
-                    _selectedCombatantId = combatantId;
-                  });
-                  widget.onSelectCombatant(combatantId);
-                },
-              ),
-              const SizedBox(height: 12),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          selectedCombatant.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '$positionLabel - 1 square = 5 ft',
-                          style: TextStyle(
-                            color: theme.textSecondary,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        _MovementBudgetBar(token: selectedToken),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  _MovementPad(
-                    enabled: canMove,
-                    onMove: _move,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _syncing ? null : _syncState,
-                      icon: _syncing
-                          ? const SizedBox.square(
-                              dimension: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.sync_rounded),
-                      label: const Text('Sync state'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: _openingDisplay ? null : _openDisplay,
-                      icon: const Icon(Icons.tv_rounded),
-                      label: const Text('Display'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _openDisplay() async {
-    if (_openingDisplay) return;
-    setState(() {
-      _openingDisplay = true;
-    });
-    try {
-      await widget.onOpenDisplay();
-    } finally {
-      if (mounted) {
-        setState(() {
-          _openingDisplay = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _syncState() async {
-    if (_syncing) return;
-    setState(() {
-      _syncing = true;
-    });
-    try {
-      await widget.onSyncState();
-    } finally {
-      if (mounted) {
-        setState(() {
-          _syncing = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _move(int dx, int dy) async {
-    if (_moving) return;
-    setState(() {
-      _moving = true;
-    });
-    try {
-      await widget.onMove(_selectedCombatantId, dx, dy);
-    } finally {
-      if (mounted) {
-        setState(() {
-          _moving = false;
-        });
-      }
-    }
-  }
-}
-
-class _BoardControllerHero extends StatelessWidget {
-  final _Combatant combatant;
-  final BoardToken? token;
-  final BoardToken? activeToken;
-  final BoardToken? targetToken;
-  final int? distanceFeet;
-  final String positionLabel;
-
-  const _BoardControllerHero({
-    required this.combatant,
-    required this.token,
-    required this.activeToken,
-    required this.targetToken,
-    required this.distanceFeet,
-    required this.positionLabel,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.stitch;
-    final isActive = token?.isActive ?? activeToken?.refId == combatant.id;
-    final isTarget = token?.isTargeted ?? targetToken?.refId == combatant.id;
-    final accent = isActive
-        ? theme.accentSuccess
-        : isTarget
-            ? theme.accentWarning
-            : _teamColor(combatant.team, theme);
-    final imagePath = token?.imageUrl.isNotEmpty == true
-        ? token!.imageUrl
-        : combatant.portraitAsset;
-    final activeBoardToken = activeToken;
-
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            theme.surfaceRaised.withValues(alpha: 0.96),
-            theme.surface.withValues(alpha: 0.88),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(theme.radiusSm),
-        border: Border.all(color: accent.withValues(alpha: 0.42)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            Container(
-              width: 58,
-              height: 58,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.black.withValues(alpha: 0.28),
-                border: Border.all(color: accent, width: 2),
-                boxShadow: [
-                  BoxShadow(
-                    color: accent.withValues(alpha: 0.22),
-                    blurRadius: 16,
-                  ),
-                ],
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: hasDisplayableImagePath(imagePath)
-                  ? buildImageFromPath(
-                      imagePath!,
-                      fit: BoxFit.cover,
-                      width: 58,
-                      height: 58,
-                    )
-                  : Icon(
-                      combatant.team == _CombatTeam.enemy
-                          ? Icons.crisis_alert_outlined
-                          : Icons.person_outline,
-                      color: Colors.white,
-                    ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          combatant.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 17,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-                      if (isActive)
-                        _ControllerSignalPill(
-                          icon: Icons.bolt_rounded,
-                          label: 'Active',
-                          color: theme.accentSuccess,
-                        )
-                      else if (isTarget)
-                        _ControllerSignalPill(
-                          icon: Icons.center_focus_strong_rounded,
-                          label: 'Target',
-                          color: theme.accentWarning,
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 7),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      _ControllerSignalPill(
-                        icon: Icons.favorite_rounded,
-                        label: '${combatant.hp}/${combatant.maxHp} HP',
-                        color: combatant.hp <= combatant.maxHp * 0.35
-                            ? theme.accentAction
-                            : theme.accentSuccess,
-                      ),
-                      _ControllerSignalPill(
-                        icon: Icons.shield_outlined,
-                        label: 'AC ${combatant.ac}',
-                        color: theme.accentReadSoft,
-                      ),
-                      _ControllerSignalPill(
-                        icon: Icons.place_outlined,
-                        label: positionLabel,
-                        color: theme.accentInfo,
-                      ),
-                      if (activeToken?.focusedActionName.isNotEmpty == true)
-                        _ControllerSignalPill(
-                          icon: Icons.radar_rounded,
-                          label:
-                              '${activeToken!.focusedActionName} ${activeToken!.selectedActionRangeFeet} ft',
-                          color: theme.accentInfo,
-                        ),
-                      if ((activeBoardToken?.selectedActionAreaFeet ?? 0) > 0)
-                        _ControllerSignalPill(
-                          icon: Icons.blur_circular_rounded,
-                          label:
-                              '${activeBoardToken!.selectedActionAreaShape} ${activeBoardToken.selectedActionAreaFeet} ft',
-                          color: theme.accentMagic,
-                        ),
-                      if (distanceFeet != null)
-                        _ControllerSignalPill(
-                          icon: targetToken?.isTargetInRange == false
-                              ? Icons.warning_amber_rounded
-                              : Icons.social_distance_rounded,
-                          label: '$distanceFeet ft',
-                          color: targetToken?.isTargetInRange == false
-                              ? theme.accentAction
-                              : theme.accentWarning,
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _CompactBoardReadout extends StatelessWidget {
-  final String activeName;
-  final String? targetName;
-  final String positionLabel;
-  final int? distanceFeet;
-
-  const _CompactBoardReadout({
-    required this.activeName,
-    required this.targetName,
-    required this.positionLabel,
-    required this.distanceFeet,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.stitch;
-    final targetText = targetName == null
-        ? 'No target'
-        : distanceFeet == null
-            ? targetName!
-            : '$targetName - $distanceFeet ft';
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          activeName,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 12,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          '$positionLabel · $targetText',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: theme.textSecondary,
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ControllerSignalPill extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-
-  const _ControllerSignalPill({
-    required this.icon,
-    required this.label,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.30)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: color, size: 14),
-            const SizedBox(width: 5),
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _MovementBudgetBar extends StatelessWidget {
-  final BoardToken? token;
-
-  const _MovementBudgetBar({required this.token});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.stitch;
-    final speed = token?.speedFeet ?? 0;
-    final remaining = token?.remainingMovementFeet ?? 0;
-    final used = math.max(0, speed - remaining);
-    final ratio = speed <= 0 ? 0.0 : (remaining / speed).clamp(0.0, 1.0);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(Icons.directions_run_rounded,
-                size: 15, color: theme.accentSuccess),
-            const SizedBox(width: 6),
-            Text(
-              '$remaining ft left',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const Spacer(),
-            Text(
-              '$used/$speed',
-              style: TextStyle(
-                color: theme.textSecondary,
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(999),
-          child: LinearProgressIndicator(
-            minHeight: 7,
-            value: ratio,
-            backgroundColor: Colors.white.withValues(alpha: 0.10),
-            valueColor: AlwaysStoppedAnimation<Color>(
-              remaining >= 5 ? theme.accentSuccess : theme.accentAction,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _MovementStrip extends StatelessWidget {
-  final bool enabled;
-  final void Function(int dx, int dy) onMove;
-
-  const _MovementStrip({
-    required this.enabled,
-    required this.onMove,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _MoveButton(
-          icon: Icons.keyboard_arrow_left_rounded,
-          enabled: enabled,
-          onPressed: () => onMove(-1, 0),
-        ),
-        _MoveButton(
-          icon: Icons.keyboard_arrow_up_rounded,
-          enabled: enabled,
-          onPressed: () => onMove(0, -1),
-        ),
-        _MoveButton(
-          icon: Icons.keyboard_arrow_down_rounded,
-          enabled: enabled,
-          onPressed: () => onMove(0, 1),
-        ),
-        _MoveButton(
-          icon: Icons.keyboard_arrow_right_rounded,
-          enabled: enabled,
-          onPressed: () => onMove(1, 0),
-        ),
-      ],
-    );
-  }
-}
-
-class _MovementPad extends StatelessWidget {
-  final bool enabled;
-  final void Function(int dx, int dy) onMove;
-
-  const _MovementPad({
-    required this.enabled,
-    required this.onMove,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 128,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _MoveButton(
-            icon: Icons.keyboard_arrow_up_rounded,
-            enabled: enabled,
-            onPressed: () => onMove(0, -1),
-          ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _MoveButton(
-                icon: Icons.keyboard_arrow_left_rounded,
-                enabled: enabled,
-                onPressed: () => onMove(-1, 0),
-              ),
-              const SizedBox(width: 40, height: 40),
-              _MoveButton(
-                icon: Icons.keyboard_arrow_right_rounded,
-                enabled: enabled,
-                onPressed: () => onMove(1, 0),
-              ),
-            ],
-          ),
-          _MoveButton(
-            icon: Icons.keyboard_arrow_down_rounded,
-            enabled: enabled,
-            onPressed: () => onMove(0, 1),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MoveButton extends StatelessWidget {
-  final IconData icon;
-  final bool enabled;
-  final VoidCallback onPressed;
-
-  const _MoveButton({
-    required this.icon,
-    required this.enabled,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return IconButton.filledTonal(
-      onPressed: enabled ? onPressed : null,
-      icon: Icon(icon),
-    );
-  }
-}
-
-BoardToken? _boardTokenByRef(List<BoardToken> tokens, String refId) {
-  for (final token in tokens) {
-    if (token.refId == refId) return token;
-  }
-  return null;
-}
-
-BoardToken? _activeBoardToken(List<BoardToken> tokens) {
-  for (final token in tokens) {
-    if (token.isActive) return token;
-  }
-  return tokens.isEmpty ? null : tokens.first;
-}
-
-BoardToken? _targetBoardToken(List<BoardToken> tokens) {
-  for (final token in tokens) {
-    if (token.isTargeted) return token;
-  }
-  return null;
-}
-
-int _boardDistanceFeet(BoardToken a, BoardToken b) {
-  final dx = (a.x - b.x).abs();
-  final dy = (a.y - b.y).abs();
-  return math.max(dx, dy) * 5;
-}
-
-class _BoardActionRangeSnapshot {
-  final _Combatant actor;
-  final _Combatant target;
-  final int distanceFeet;
-  final int? rangeFeet;
-  final bool isInRange;
-
-  const _BoardActionRangeSnapshot({
-    required this.actor,
-    required this.target,
-    required this.distanceFeet,
-    required this.rangeFeet,
-    required this.isInRange,
-  });
-}
-
-class _CombatAction {
-  final String id;
-  final String name;
-  final String type;
-  final String timing;
-  final String? attackFormula;
-  final String? saveAbility;
-  final int? saveDc;
-  final String? damageFormula;
-  final String? critFormula;
-  final int? rangeFeet;
-  final String areaShape;
-  final int areaFeet;
-  final int criticalThreshold;
-  final List<String> tags;
-  final IconData icon;
-  final _CombatAccentKind accentKind;
-  final String? resourceKey;
-  final int resourceCost;
-  final bool targetsSelf;
-  final String targetPolicy;
-  final bool isHealing;
-  final bool halfDamageOnSave;
-  final bool grantsAction;
-  final bool usesAttackAction;
-  final int actionAttackSlots;
-  final List<_MultiAttackStep> multiAttackSteps;
-
-  const _CombatAction({
-    this.id = '',
-    required this.name,
-    required this.type,
-    required this.timing,
-    required this.attackFormula,
-    this.saveAbility,
-    this.saveDc,
-    required this.damageFormula,
-    required this.critFormula,
-    this.rangeFeet,
-    this.areaShape = '',
-    this.areaFeet = 0,
-    this.criticalThreshold = 20,
-    required this.tags,
-    required this.icon,
-    required this.accentKind,
-    this.resourceKey,
-    this.resourceCost = 0,
-    this.targetsSelf = false,
-    this.targetPolicy = '',
-    this.isHealing = false,
-    this.halfDamageOnSave = false,
-    this.grantsAction = false,
-    this.usesAttackAction = false,
-    this.actionAttackSlots = 1,
-    this.multiAttackSteps = const [],
-  });
-
-  bool get requiresSavingThrow => saveAbility != null && saveDc != null;
-  bool get hasMultiAttack => multiAttackSteps.isNotEmpty;
-  bool get hasAreaEffect => areaFeet > 0 && areaShape.trim().isNotEmpty;
-}
-
-class _MultiAttackStep {
-  final String name;
-  final String? attackFormula;
-  final String? damageFormula;
-  final String? critFormula;
-  final List<String> tags;
-
-  const _MultiAttackStep({
-    required this.name,
-    required this.attackFormula,
-    required this.damageFormula,
-    required this.critFormula,
-    required this.tags,
-  });
-}
-
-class _MultiAttackProgress {
-  final String actionKey;
-  int stepIndex;
-  int attackCount;
-  int hitCount;
-  int critCount;
-  int totalDamage;
-  int? pendingStepIndex;
-  int? pendingTargetIndex;
-  bool pendingCritical;
-  String? lastHpLine;
-
-  _MultiAttackProgress({
-    required this.actionKey,
-    this.stepIndex = 0,
-    this.attackCount = 0,
-    this.hitCount = 0,
-    this.critCount = 0,
-    this.totalDamage = 0,
-    this.pendingStepIndex,
-    this.pendingTargetIndex,
-    this.pendingCritical = false,
-    this.lastHpLine,
-  });
-
-  bool get hasPendingDamage =>
-      pendingStepIndex != null && pendingTargetIndex != null;
-
-  void clearPendingDamage() {
-    pendingStepIndex = null;
-    pendingTargetIndex = null;
-    pendingCritical = false;
-  }
-}
-
-class _ReadiedAction {
-  final String combatantId;
-  final _CombatAction action;
-  final String trigger;
-  final int round;
-  final String? targetId;
-  final bool concentrationRequired;
-
-  const _ReadiedAction({
-    required this.combatantId,
-    required this.action,
-    required this.trigger,
-    required this.round,
-    required this.targetId,
-    required this.concentrationRequired,
-  });
-}
-
-class _ActionEconomySnapshot {
-  final bool actionSpent;
-  final bool bonusActionSpent;
-  final bool reactionSpent;
-  final int movementAvailable;
-  final String? readiedActionName;
-  final String? readiedTrigger;
-
-  const _ActionEconomySnapshot({
-    required this.actionSpent,
-    required this.bonusActionSpent,
-    required this.reactionSpent,
-    required this.movementAvailable,
-    required this.readiedActionName,
-    required this.readiedTrigger,
-  });
-}
-
-class _ReactionOption {
-  final int actorIndex;
-  final _Combatant combatant;
-  final _CombatAction action;
-  final bool spent;
-  final bool readied;
-  final String? trigger;
-
-  const _ReactionOption({
-    required this.actorIndex,
-    required this.combatant,
-    required this.action,
-    required this.spent,
-    this.readied = false,
-    this.trigger,
-  });
-}
-
-class _IndexedCombatant {
-  final int index;
-  final _Combatant combatant;
-
-  const _IndexedCombatant(this.index, this.combatant);
-}
-
-class _HpChangeResult {
-  final int hp;
-  final int tempHp;
-
-  const _HpChangeResult({
-    required this.hp,
-    required this.tempHp,
-  });
-}
-
-class _CombatRollFeedback {
-  final String actor;
-  final String action;
-  final DiceRollResult? result;
-  final String headline;
-  final String? subline;
-  final _CombatAccentKind accentKind;
-
-  const _CombatRollFeedback({
-    required this.actor,
-    required this.action,
-    required this.result,
-    required this.headline,
-    required this.subline,
-    required this.accentKind,
-  });
-
-  const _CombatRollFeedback.manual({
-    required this.actor,
-    required this.action,
-    required this.headline,
-    required this.subline,
-    required this.accentKind,
-  }) : result = null;
-}
-
-class _CombatLogEntry {
-  final String title;
-  final String? detail;
-  final IconData icon;
-  final _CombatLogEntryType type;
-
-  const _CombatLogEntry({
-    required this.title,
-    required this.detail,
-    required this.icon,
-    required this.type,
-  });
-
-  factory _CombatLogEntry.system(String title) {
-    return _CombatLogEntry(
-      title: title,
-      detail: null,
-      icon: Icons.info_outline,
-      type: _CombatLogEntryType.system,
-    );
-  }
-
-  factory _CombatLogEntry.turn(String title) {
-    return _CombatLogEntry(
-      title: title,
-      detail: null,
-      icon: Icons.play_arrow_outlined,
-      type: _CombatLogEntryType.turn,
-    );
-  }
-
-  factory _CombatLogEntry.roll({
-    required String actor,
-    required String action,
-    required DiceRollResult result,
-    String? detail,
-  }) {
-    final prefix = result.isCriticalHit
-        ? 'Critical! '
-        : result.isCriticalMiss
-            ? 'Fumble! '
-            : '';
-
-    return _CombatLogEntry(
-      title: '$prefix$actor used $action: ${result.total}',
-      detail: detail ?? '${result.formula} - ${result.rollsText}',
-      icon: result.isCriticalHit
-          ? Icons.emergency_outlined
-          : Icons.casino_outlined,
-      type: _CombatLogEntryType.roll,
-    );
-  }
-}
-
-Color _teamColor(_CombatTeam team, StitchThemeTokens tokens) {
-  return team == _CombatTeam.party ? tokens.accentRead : tokens.accentAction;
-}
-
-Color _accentForKind(_CombatAccentKind kind, StitchThemeTokens tokens) {
-  return switch (kind) {
-    _CombatAccentKind.read => tokens.accentRead,
-    _CombatAccentKind.action => tokens.accentAction,
-    _CombatAccentKind.magic => tokens.accentMagic,
-    _CombatAccentKind.support => tokens.accentSuccess,
-    _CombatAccentKind.info => tokens.accentInfo,
-  };
+Color _accentForKind(CombatAccentKind kind, StitchThemeTokens tokens) {
+  return combatAccentColorForKind(kind, tokens);
 }
 
 Color _statusAccentForLabel(
@@ -28290,43 +26871,17 @@ Color _statusAccentForLabel(
   StitchThemeTokens tokens,
   Color fallback,
 ) {
-  final text = label.toLowerCase();
-  if (text.contains('temp hp')) return tokens.accentInfo;
-  if (text.contains('rage') || text.contains('raging')) {
-    return tokens.accentAction;
-  }
-  if (text.contains('bardic') || text.contains('inspiration')) {
-    return tokens.accentMagic;
-  }
-  if (text.contains('concentrat')) return tokens.accentSuccess;
-  if (text.contains('ki') || text.contains('sorcery')) return tokens.accentRead;
-  if (text.contains('down')) return tokens.textMuted;
-  return fallback;
+  return combatStatusAccentForLabel(label, tokens, fallback);
 }
 
 IconData _statusIconForLabel(String label) {
-  final text = label.toLowerCase();
-  if (text.contains('temp hp')) return Icons.health_and_safety_outlined;
-  if (text.contains('rage') || text.contains('raging')) {
-    return Icons.local_fire_department_outlined;
-  }
-  if (text.contains('bardic') || text.contains('inspiration')) {
-    return Icons.auto_awesome_outlined;
-  }
-  if (text.contains('concentrat')) return Icons.psychology_alt_outlined;
-  if (text.contains('ki')) return Icons.bolt_outlined;
-  if (text.contains('sorcery')) return Icons.blur_on_outlined;
-  if (text.contains('spell')) return Icons.menu_book_outlined;
-  if (text.contains('resist')) return Icons.shield_outlined;
-  if (text.contains('immune')) return Icons.verified_user_outlined;
-  if (text.contains('speed')) return Icons.directions_run_outlined;
-  return Icons.adjust_outlined;
+  return combatStatusIconForLabel(label);
 }
 
 String? _combatantPortraitAsset({
   required String name,
   required String role,
-  required _CombatTeam team,
+  required CombatTeam team,
 }) {
   final text = '$name $role'.toLowerCase();
 
@@ -28381,7 +26936,7 @@ String? _combatantPortraitAsset({
   final race = match(races);
   if (race != null) return 'assets/images/races/$race.png';
 
-  if (team == _CombatTeam.party) {
+  if (team == CombatTeam.party) {
     final characterClass = match(classes);
     if (characterClass != null) {
       return 'assets/images/classes/$characterClass.png';
@@ -28391,44 +26946,7 @@ String? _combatantPortraitAsset({
   return null;
 }
 
-IconData _portraitIconForCombatant(_Combatant combatant) {
-  final text = '${combatant.name} ${combatant.role}'.toLowerCase();
-  if (combatant.team == _CombatTeam.party) {
-    if (text.contains('wizard') ||
-        text.contains('warlock') ||
-        text.contains('sorcerer')) {
-      return Icons.auto_awesome_outlined;
-    }
-    if (text.contains('monk')) return Icons.sports_martial_arts_outlined;
-    if (text.contains('paladin') || text.contains('fighter')) {
-      return Icons.shield_outlined;
-    }
-    return Icons.person_4_outlined;
-  }
-  if (text.contains('dragon')) return Icons.local_fire_department_outlined;
-  if (text.contains('archer') || text.contains('bow')) {
-    return Icons.ads_click_outlined;
-  }
-  if (text.contains('goblin')) return Icons.crisis_alert_outlined;
-  if (text.contains('undead') || text.contains('shadow')) {
-    return Icons.nights_stay_outlined;
-  }
-  return Icons.flare_outlined;
-}
-
-bool _canShowHp(_Combatant combatant, bool showEnemyHp) {
-  return combatant.team == _CombatTeam.party || showEnemyHp;
-}
-
-String _compactHpLabel(_Combatant combatant, bool showEnemyHp) {
-  if (!_canShowHp(combatant, showEnemyHp)) return 'Hidden';
-  if (combatant.tempHp > 0) {
-    return '${combatant.hp}/${combatant.maxHp} +${combatant.tempHp}';
-  }
-  return '${combatant.hp}/${combatant.maxHp}';
-}
-
-String _preparedActionFormula(_CombatAction? action) {
+String _preparedActionFormula(CombatAction? action) {
   if (action == null) return 'Open';
   if (action.grantsAction) return '+1 Action';
   if (action.hasMultiAttack) return '${action.multiAttackSteps.length} attacks';
@@ -28439,7 +26957,7 @@ String _preparedActionFormula(_CombatAction? action) {
 }
 
 int _compactActionCountForTiming(
-  List<_CombatAction> actions,
+  List<CombatAction> actions,
   String timing, {
   Set<String> pendingDamageActions = const {},
 }) {
@@ -28449,11 +26967,13 @@ int _compactActionCountForTiming(
   );
   return actions
       .where(
-        (action) => _actionVisibleInActionTiming(
-          action,
-          timing,
-          hasPendingOnHitTrigger: hasPendingOnHitTrigger,
-        ),
+        (action) =>
+            _actionVisibleInActionTiming(
+              action,
+              timing,
+              hasPendingOnHitTrigger: hasPendingOnHitTrigger,
+            ) &&
+            !_actionHandledByMonkCombo(action),
       )
       .length;
 }
@@ -28476,14 +26996,14 @@ IconData _timingIcon(String timing) {
   };
 }
 
-List<_IndexedCombatant> _indexedTeam(
-  List<_Combatant> combatants,
-  _CombatTeam team,
+List<IndexedCombatant> _indexedTeam(
+  List<Combatant> combatants,
+  CombatTeam team,
 ) {
-  final entries = <_IndexedCombatant>[];
+  final entries = <IndexedCombatant>[];
   for (var index = 0; index < combatants.length; index++) {
     if (combatants[index].team == team) {
-      entries.add(_IndexedCombatant(index, combatants[index]));
+      entries.add(IndexedCombatant(index, combatants[index]));
     }
   }
   return entries;
@@ -28497,39 +27017,45 @@ T? _firstOrNull<T>(Iterable<T> items) {
 }
 
 void _rollPrimaryAction(
-  _CombatAction action,
-  void Function(_CombatAction action, _CombatActionRoll rollType) onRollAction,
-  ValueChanged<_CombatAction> onUseAction, {
+  CombatAction action,
+  void Function(CombatAction action, CombatActionRoll rollType) onRollAction,
+  ValueChanged<CombatAction> onUseAction, {
   bool pendingDamage = false,
 }) {
+  if (_isDeathSavingThrowAction(action)) {
+    onRollAction(action, CombatActionRoll.savingThrow);
+    return;
+  }
   if (action.hasMultiAttack) {
     onRollAction(
       action,
-      pendingDamage ? _CombatActionRoll.damage : _CombatActionRoll.attack,
+      pendingDamage ? CombatActionRoll.damage : CombatActionRoll.attack,
     );
     return;
   }
   if (pendingDamage && action.damageFormula != null) {
-    onRollAction(action, _CombatActionRoll.damage);
+    onRollAction(action, CombatActionRoll.damage);
     return;
   }
   if (action.attackFormula != null) {
-    onRollAction(action, _CombatActionRoll.attack);
+    onRollAction(action, CombatActionRoll.attack);
     return;
   }
   if (action.requiresSavingThrow) {
-    onRollAction(action, _CombatActionRoll.savingThrow);
+    onRollAction(action, CombatActionRoll.savingThrow);
     return;
   }
   if (action.damageFormula != null) {
-    onRollAction(action, _CombatActionRoll.damage);
+    onRollAction(action, CombatActionRoll.damage);
     return;
   }
   onUseAction(action);
 }
 
-String _primaryActionLabel(_CombatAction action, bool pendingDamage) {
+String _primaryActionLabel(CombatAction action, bool pendingDamage) {
+  if (_isDeathSavingThrowAction(action)) return 'Death Save';
   if (action.hasMultiAttack) return pendingDamage ? 'Dano' : 'Ataque';
+  if (pendingDamage && action.requiresSavingThrow) return 'Resolver';
   if (pendingDamage && action.damageFormula != null) return 'Dano';
   if (action.attackFormula != null) return 'Tirar';
   if (action.requiresSavingThrow) return 'TS objetivo';
@@ -28537,7 +27063,11 @@ String _primaryActionLabel(_CombatAction action, bool pendingDamage) {
   return 'Usar';
 }
 
-String _primaryActionTooltip(_CombatAction action, bool pendingDamage) {
+bool _isDeathSavingThrowAction(CombatAction action) {
+  return action.id == 'system:death_saving_throw';
+}
+
+String _primaryActionTooltip(CombatAction action, bool pendingDamage) {
   final label = _primaryActionLabel(action, pendingDamage).toLowerCase();
   return '$label ${action.name}';
 }
@@ -28555,7 +27085,7 @@ String? _actionStateLabel({
   return null;
 }
 
-String _actionCommandSubtitle(_CombatAction action) {
+String _actionCommandSubtitle(CombatAction action) {
   final text = _rulesLabelText('${action.name} ${action.type}');
   if (text.contains('flurry') ||
       text.contains('patient defense') ||
@@ -28574,7 +27104,7 @@ String _actionCommandSubtitle(_CombatAction action) {
   return action.type;
 }
 
-List<String> _actionCommandTags(_CombatAction action) {
+List<String> _actionCommandTags(CombatAction action) {
   final seen = <String>{};
   final result = <String>[];
   for (final tag in action.tags) {
@@ -28609,16 +27139,16 @@ Color _actionStateColor({
   required Color fallback,
 }) {
   if (pendingDamage) return const Color(0xFF246B3A);
-  if (blocked) return _CinematicColors.blood;
-  if (prepared) return _CinematicColors.goldBright;
-  if (spent) return _CinematicColors.gold;
+  if (blocked) return CombatCinematicColors.blood;
+  if (prepared) return CombatCinematicColors.goldBright;
+  if (spent) return CombatCinematicColors.gold;
   return fallback;
 }
 
 String _cinematicActionDescription(
-  _CombatAction action,
-  _Combatant activeCombatant,
-  _Combatant selectedTarget,
+  CombatAction action,
+  Combatant activeCombatant,
+  Combatant selectedTarget,
 ) {
   if (action.hasMultiAttack) {
     return '${activeCombatant.name} ejecuta ${action.multiAttackSteps.length} ataques contra ${selectedTarget.name}.';
@@ -28630,7 +27160,7 @@ String _cinematicActionDescription(
     return '${activeCombatant.name} ataca a ${selectedTarget.name}; si impacta, resuelve ${action.damageFormula}.';
   }
   if (action.requiresSavingThrow) {
-    final areaText = _actionAreaText(action);
+    final areaText = combatActionAreaText(action);
     final areaSuffix = areaText == null ? '' : ' en $areaText';
     return '${selectedTarget.name} debe superar una salvacion ${action.saveAbility} contra DC ${action.saveDc}$areaSuffix.';
   }
@@ -28646,325 +27176,16 @@ String _cinematicActionDescription(
   return tags.isEmpty ? action.type : tags;
 }
 
-void _showActionDetails(BuildContext context, _CombatAction action) {
-  final tokens = context.stitch;
-  final accent = _accentForKind(action.accentKind, tokens);
-
-  showDialog<void>(
-    context: context,
-    builder: (context) {
-      return AlertDialog(
-        backgroundColor: tokens.surfaceRaised,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(tokens.radiusSm),
-          side: BorderSide(color: accent.withValues(alpha: 0.34)),
-        ),
-        title: Row(
-          children: [
-            Icon(action.icon, color: accent),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                action.name,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _ActionDetailLine(label: 'Type', value: action.type),
-            _ActionDetailLine(label: 'Timing', value: action.timing),
-            if (action.hasMultiAttack)
-              _ActionDetailLine(
-                label: 'Sequence',
-                value:
-                    '${action.multiAttackSteps.length} attacks in one action',
-              ),
-            if (action.attackFormula != null)
-              _ActionDetailLine(label: 'Attack', value: action.attackFormula!),
-            if (action.damageFormula != null)
-              _ActionDetailLine(
-                  label: action.isHealing ? 'Healing' : 'Damage',
-                  value: action.damageFormula!),
-            if (_actionAreaText(action) != null)
-              _ActionDetailLine(label: 'Area', value: _actionAreaText(action)!),
-            if (action.criticalThreshold < 20)
-              _ActionDetailLine(
-                label: 'Crit Range',
-                value: '${action.criticalThreshold}-20',
-              ),
-            if (action.critFormula != null)
-              _ActionDetailLine(label: 'Critical', value: action.critFormula!),
-            if (action.hasMultiAttack) ...[
-              const SizedBox(height: 4),
-              for (var index = 0;
-                  index < action.multiAttackSteps.length;
-                  index++)
-                _ActionDetailLine(
-                  label: 'Hit ${index + 1}',
-                  value: [
-                    action.multiAttackSteps[index].name,
-                    if (action.multiAttackSteps[index].attackFormula != null)
-                      action.multiAttackSteps[index].attackFormula!,
-                    if (action.multiAttackSteps[index].damageFormula != null)
-                      action.multiAttackSteps[index].damageFormula!,
-                  ].join(' - '),
-                ),
-            ],
-            if (action.tags.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: [
-                  for (final tag in action.tags)
-                    _DiceExpressionChip(label: tag, color: accent),
-                ],
-              ),
-            ],
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Close'),
-          ),
-        ],
-      );
-    },
-  );
-}
-
-void _showSavingThrowSheet({
-  required BuildContext context,
-  required _Combatant target,
-  required List<_CombatAction> actions,
-  required ValueChanged<String> onRollSavingThrow,
-  required void Function(_CombatAction action, _CombatActionRoll rollType)
-      onRollAction,
-}) {
-  final tokens = context.stitch;
-  final saveActions =
-      actions.where((action) => action.requiresSavingThrow).toList();
-  const abilities = [
-    ('STR', 'Fuerza'),
-    ('DEX', 'Destreza'),
-    ('CON', 'Constitucion'),
-    ('INT', 'Inteligencia'),
-    ('WIS', 'Sabiduria'),
-    ('CHA', 'Carisma'),
-  ];
-
-  showModalBottomSheet<void>(
-    context: context,
-    backgroundColor: Colors.transparent,
-    builder: (context) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-        child: _CinematicPanelFrame(
-          borderColor: _CinematicColors.goldBright,
-          backgroundAlpha: 0.94,
-          padding: const EdgeInsets.all(14),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 430),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.shield_outlined,
-                      color: _CinematicColors.goldBright,
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Tiradas de salvacion: ${target.name}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: _CinematicColors.paper,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final ability in abilities)
-                      SizedBox(
-                        width: 150,
-                        child: _CinematicFooterButton(
-                          icon: Icons.casino_outlined,
-                          label: '${ability.$1} ${ability.$2}',
-                          color: tokens.accentRead,
-                          compact: true,
-                          onTap: () {
-                            Navigator.of(context).pop();
-                            onRollSavingThrow(ability.$1);
-                          },
-                        ),
-                      ),
-                  ],
-                ),
-                if (saveActions.isNotEmpty) ...[
-                  const SizedBox(height: 14),
-                  Text(
-                    'Acciones que solicitan TS',
-                    style: TextStyle(
-                      color: tokens.textSecondary,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Flexible(
-                    child: ListView.separated(
-                      shrinkWrap: true,
-                      itemCount: saveActions.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 8),
-                      itemBuilder: (context, index) {
-                        final action = saveActions[index];
-                        final accent =
-                            _accentForKind(action.accentKind, tokens);
-                        return InkWell(
-                          onTap: () {
-                            Navigator.of(context).pop();
-                            onRollAction(
-                              action,
-                              _CombatActionRoll.savingThrow,
-                            );
-                          },
-                          borderRadius: BorderRadius.circular(8),
-                          child: Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: accent.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: accent.withValues(alpha: 0.28),
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(action.icon, color: accent, size: 20),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        action.name,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          color: _CinematicColors.paper,
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w900,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 3),
-                                      Text(
-                                        [
-                                          '${action.saveAbility} DC ${action.saveDc}',
-                                          if (_actionAreaText(action) != null)
-                                            _actionAreaText(action)!,
-                                          if (action.damageFormula != null)
-                                            action.damageFormula!,
-                                        ].join(' - '),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          color: tokens.textSecondary,
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                const Icon(
-                                  Icons.keyboard_arrow_right_rounded,
-                                  color: _CinematicColors.paper,
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-      );
-    },
-  );
-}
-
-class _ActionDetailLine extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _ActionDetailLine({
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.stitch;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 7),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 76,
-            child: Text(
-              label.toUpperCase(),
-              style: TextStyle(
-                color: tokens.textSecondary,
-                fontSize: 10,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 String _formatRollFormula(String dice, int modifier) {
   if (modifier == 0) return dice;
   return modifier > 0 ? '$dice+$modifier' : '$dice$modifier';
+}
+
+String _monkMartialArtsDie(int monkLevel) {
+  if (monkLevel >= 17) return '1d12';
+  if (monkLevel >= 11) return '1d10';
+  if (monkLevel >= 5) return '1d8';
+  return '1d6';
 }
 
 String? _criticalFormulaForDamage(String formula) {

@@ -841,8 +841,13 @@ class CharacterProvider extends ChangeNotifier {
     required Map<String, int> resources,
   }) {
     final maxHp = (character.maxHp ?? 0) > 0 ? character.maxHp! : currentHp;
-    character.currentHp = currentHp.clamp(0, maxHp).toInt();
+    final nextCurrentHp = currentHp.clamp(0, maxHp).toInt();
+    character.currentHp = nextCurrentHp;
     character.tempHp = tempHp.clamp(0, 999).toInt();
+    if (nextCurrentHp > 0) {
+      character.deathSaveSuccesses = 0;
+      character.deathSaveFailures = 0;
+    }
 
     for (final entry in resources.entries) {
       final key = entry.key.trim();

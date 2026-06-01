@@ -76,6 +76,89 @@ class BattleBoardRepository {
     ).doc(token.id).set(token.toJson());
   }
 
+  Future<bool> claimDiceRollEvent({
+    required String campaignId,
+    required BoardToken token,
+    required String ownerId,
+    Duration lockDuration = const Duration(seconds: 12),
+  }) async {
+    if (token.lastEventId.isEmpty || ownerId.isEmpty) return false;
+
+    final docRef = _tokensCollection(
+      campaignId: campaignId,
+      sceneId: token.sceneId,
+    ).doc(token.id);
+
+    return _firestore.runTransaction<bool>((transaction) async {
+      final snapshot = await transaction.get(docRef);
+      final data = snapshot.data();
+      if (data == null) return false;
+      if (data['lastEventId']?.toString() != token.lastEventId) return false;
+      if (_intList(data['lastEventRollValues']).isNotEmpty) return false;
+
+      final now = DateTime.now();
+      final currentOwner = data['lastEventRollClaimOwnerId']?.toString() ?? '';
+      final claimedAt = _dateFromJson(data['lastEventRollClaimedAt']);
+      final claimExpired =
+          claimedAt == null || now.difference(claimedAt) > lockDuration;
+
+      if (currentOwner.isNotEmpty && currentOwner != ownerId && !claimExpired) {
+        return false;
+      }
+
+      transaction.update(docRef, {
+        'lastEventRollClaimOwnerId': ownerId,
+        'lastEventRollClaimedAt': now.toIso8601String(),
+        'updatedAt': now.toIso8601String(),
+      });
+      return true;
+    });
+  }
+
+  Future<bool> saveDiceRollOutcomeIfClaimed({
+    required String campaignId,
+    required BoardToken token,
+    required String ownerId,
+    required int total,
+    required int diceTotal,
+    required List<int> values,
+    required String label,
+    required String detail,
+  }) async {
+    if (token.lastEventId.isEmpty || ownerId.isEmpty || values.isEmpty) {
+      return false;
+    }
+
+    final docRef = _tokensCollection(
+      campaignId: campaignId,
+      sceneId: token.sceneId,
+    ).doc(token.id);
+
+    return _firestore.runTransaction<bool>((transaction) async {
+      final snapshot = await transaction.get(docRef);
+      final data = snapshot.data();
+      if (data == null) return false;
+      if (data['lastEventId']?.toString() != token.lastEventId) return false;
+      if (_intList(data['lastEventRollValues']).isNotEmpty) return false;
+
+      final currentOwner = data['lastEventRollClaimOwnerId']?.toString() ?? '';
+      if (currentOwner.isNotEmpty && currentOwner != ownerId) return false;
+
+      final now = DateTime.now();
+      transaction.update(docRef, {
+        'lastEventResultLabel': label,
+        'lastEventResultDetail': detail,
+        'lastEventRollTotal': total,
+        'lastEventRollDiceTotal': diceTotal,
+        'lastEventRollValues': values,
+        'lastEventRollClaimOwnerId': '',
+        'lastEventRollClaimedAt': '',
+        'updatedAt': now.toIso8601String(),
+      });
+      return true;
+    });
+  }
+
   Future<void> deleteToken({
     required String campaignId,
     required String sceneId,
@@ -86,4 +169,18 @@ class BattleBoardRepository {
       sceneId: sceneId,
     ).doc(tokenId).delete();
   }
+}
+
+List<int> _intList(dynamic value) {
+  if (value is! List) return const [];
+  return value
+      .map((item) => item is num ? item.toInt() : int.tryParse('$item'))
+      .whereType<int>()
+      .toList(growable: false);
+}
+
+DateTime? _dateFromJson(dynamic value) {
+  if (value == null) return null;
+  if (value is Timestamp) return value.toDate();
+  return DateTime.tryParse(value.toString());
 }
