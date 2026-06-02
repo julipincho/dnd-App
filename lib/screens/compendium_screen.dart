@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import '../models/compendium_entry.dart';
 import '../providers/campaign_provider.dart';
 import '../providers/compendium_provider.dart';
+import '../utils/image_path_utils.dart';
 import 'compendium_entry_detail_screen.dart';
 
 class CompendiumScreen extends StatefulWidget {
@@ -146,17 +147,16 @@ class _CompendiumScreenState extends State<CompendiumScreen> {
                     separatorBuilder: (_, __) => const SizedBox(height: 8),
                     itemBuilder: (context, index) {
                       final entry = filteredEntries[index];
+                      final hasImage = hasDisplayableImagePath(entry.imagePath);
 
                       return Card(
                         child: ListTile(
                           contentPadding: const EdgeInsets.all(16),
-                          leading: (entry.imagePath != null &&
-                                  entry.imagePath!.isNotEmpty &&
-                                  File(entry.imagePath!).existsSync())
+                          leading: hasImage
                               ? ClipRRect(
                                   borderRadius: BorderRadius.circular(8),
-                                  child: Image.file(
-                                    File(entry.imagePath!),
+                                  child: buildImageFromPath(
+                                    entry.imagePath!,
                                     width: 48,
                                     height: 48,
                                     fit: BoxFit.cover,

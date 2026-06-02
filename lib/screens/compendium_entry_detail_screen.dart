@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 
 import '../widgets/stitch_navigation.dart';
@@ -14,6 +12,7 @@ import '../providers/campaign_event_provider.dart';
 import '../providers/journal_entry_provider.dart';
 import '../providers/session_provider.dart';
 import '../utils/compendium_linking.dart';
+import '../utils/image_path_utils.dart';
 import 'session_detail_screen.dart';
 
 class CompendiumEntryDetailScreen extends StatelessWidget {
@@ -72,9 +71,7 @@ class CompendiumEntryDetailScreen extends StatelessWidget {
       return true;
     }).toList();
 
-    final hasImage = entry.imagePath != null &&
-        entry.imagePath!.isNotEmpty &&
-        File(entry.imagePath!).existsSync();
+    final hasImage = hasDisplayableImagePath(entry.imagePath);
 
     return Scaffold(
       appBar: StitchAppBar(
@@ -93,8 +90,8 @@ class CompendiumEntryDetailScreen extends StatelessWidget {
                     if (hasImage) ...[
                       ClipRRect(
                         borderRadius: BorderRadius.circular(14),
-                        child: Image.file(
-                          File(entry.imagePath!),
+                        child: buildImageFromPath(
+                          entry.imagePath!,
                           width: double.infinity,
                           height: 220,
                           fit: BoxFit.cover,

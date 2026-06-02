@@ -155,7 +155,7 @@ class _CompendiumAwareTextFieldState extends State<CompendiumAwareTextField> {
       end++;
     }
 
-    final replacement = entry.title;
+    final replacement = '[[${entry.type}:${entry.title}]]';
     final newText = text.replaceRange(start, end, replacement);
     final newCursor = start + replacement.length;
 

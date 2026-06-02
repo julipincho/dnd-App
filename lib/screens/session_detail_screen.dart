@@ -22,8 +22,10 @@ import '../services/supabase_storage_service.dart';
 import '../utils/image_path_utils.dart';
 import '../widgets/campaign_event_composer_sheet.dart';
 import '../widgets/compendium_aware_text_field.dart';
+import '../widgets/compendium_mention_chips.dart';
 import '../widgets/journal_entry_composer_dialog.dart';
 import '../widgets/linked_compendium_text.dart';
+import '../utils/compendium_linking.dart';
 
 class SessionDetailScreen extends StatefulWidget {
   final Session session;
@@ -220,6 +222,9 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     final journalProvider = context.watch<JournalEntryProvider>();
     final characterProvider = context.watch<CharacterProvider>();
     final campaignProvider = context.watch<CampaignProvider>();
+    final compendiumEntries = context
+        .watch<CompendiumProvider>()
+        .getEntriesByCampaign(_currentSession.campaignId);
     final currentUserId = context.watch<AuthProvider>().userId;
     final activeCampaign = campaignProvider.activeCampaign;
     final isDm = currentUserId != null &&
@@ -252,6 +257,17 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
             .toList();
 
     final hasSessionImage = hasDisplayableImagePath(_currentSession.imagePath);
+    final mentionText = _buildSessionMentionText(
+      session: _currentSession,
+      events: sessionEvents,
+      entries: journalEntries,
+      isDm: isDm,
+    );
+    final hasImportantMentions = _hasImportantMentions(
+      text: mentionText,
+      compendiumEntries: compendiumEntries,
+      isDm: isDm,
+    );
 
     return Scaffold(
       backgroundColor: const Color(0xFF0C0916),
@@ -343,6 +359,14 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                             hasSessionImage: hasSessionImage,
                             currentUserId: currentUserId,
                             playerCharacters: playerCharacters,
+                          ),
+                        ],
+                        if (hasImportantMentions) ...[
+                          const SizedBox(height: 18),
+                          _buildImportantMentionsPanel(
+                            context,
+                            text: mentionText,
+                            isDm: isDm,
                           ),
                         ],
                         const SizedBox(height: 22),
@@ -637,7 +661,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
             children: [
               _buildPanelHeader(
                 icon: Icons.menu_book_outlined,
-                title: 'DM Notes',
+                title: isDm ? 'DM Draft' : 'Chapter Record',
                 subtitle: isDm
                     ? 'Private editorial control for the session record.'
                     : 'The canonical record available to the party.',
@@ -675,6 +699,66 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  String _buildSessionMentionText({
+    required Session session,
+    required List<CampaignEvent> events,
+    required List<JournalEntry> entries,
+    required bool isDm,
+  }) {
+    return [
+      session.title,
+      session.summary ?? '',
+      if (isDm) session.dmNarrativeRecap ?? '',
+      session.playerNarrativeRecap ?? '',
+      session.rawNotes,
+      ...events.map((event) => '${event.title}\n${event.description}'),
+      ...entries.map((entry) => entry.content),
+    ].where((part) => part.trim().isNotEmpty).join('\n\n');
+  }
+
+  bool _hasImportantMentions({
+    required String text,
+    required List<CompendiumEntry> compendiumEntries,
+    required bool isDm,
+  }) {
+    final linkedMentions = CompendiumLinking.mentionedEntries(
+      text: text,
+      entries: compendiumEntries,
+    );
+    if (linkedMentions.isNotEmpty) return true;
+
+    return isDm &&
+        CompendiumLinking.findUnresolvedWikiLinks(
+          text: text,
+          entries: compendiumEntries,
+        ).isNotEmpty;
+  }
+
+  Widget _buildImportantMentionsPanel(
+    BuildContext context, {
+    required String text,
+    required bool isDm,
+  }) {
+    return _buildSurface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildPanelHeader(
+            icon: Icons.travel_explore_outlined,
+            title: 'Important Mentions',
+            subtitle: 'People, places, relics and factions in this chapter.',
+          ),
+          const SizedBox(height: 14),
+          CompendiumMentionChips(
+            text: text,
+            campaignId: _currentSession.campaignId,
+            showUnresolved: isDm,
+          ),
+        ],
+      ),
     );
   }
 

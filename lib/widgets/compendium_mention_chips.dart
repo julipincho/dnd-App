@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/compendium_entry.dart';
 import '../providers/compendium_provider.dart';
 import '../screens/compendium_entry_detail_screen.dart';
 import '../utils/compendium_linking.dart';
@@ -10,6 +11,8 @@ class CompendiumMentionChips extends StatelessWidget {
   final String campaignId;
   final int? maxItems;
   final TextStyle? labelStyle;
+  final bool showUnresolved;
+  final ValueChanged<CompendiumEntry>? onEntryPressed;
 
   const CompendiumMentionChips({
     super.key,
@@ -17,6 +20,8 @@ class CompendiumMentionChips extends StatelessWidget {
     required this.campaignId,
     this.maxItems,
     this.labelStyle,
+    this.showUnresolved = false,
+    this.onEntryPressed,
   });
 
   @override
@@ -29,7 +34,16 @@ class CompendiumMentionChips extends StatelessWidget {
       entries: entries,
     );
 
-    if (mentionedEntries.isEmpty) return const SizedBox.shrink();
+    final unresolvedMentions = showUnresolved
+        ? CompendiumLinking.findUnresolvedWikiLinks(
+            text: text,
+            entries: entries,
+          )
+        : const <UnresolvedCompendiumTextMatch>[];
+
+    if (mentionedEntries.isEmpty && unresolvedMentions.isEmpty) {
+      return const SizedBox.shrink();
+    }
 
     final visibleEntries = maxItems == null
         ? mentionedEntries
@@ -46,6 +60,11 @@ class CompendiumMentionChips extends StatelessWidget {
             label: Text(entry.title, style: labelStyle),
             visualDensity: VisualDensity.compact,
             onPressed: () {
+              if (onEntryPressed != null) {
+                onEntryPressed!(entry);
+                return;
+              }
+
               Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) => CompendiumEntryDetailScreen(entry: entry),
@@ -59,6 +78,13 @@ class CompendiumMentionChips extends StatelessWidget {
             label: Text('+$hiddenCount more'),
             visualDensity: VisualDensity.compact,
           ),
+        ...unresolvedMentions.map(
+          (mention) => Chip(
+            avatar: const Icon(Icons.link_off_outlined, size: 16),
+            label: Text('Unlinked: ${mention.displayText}'),
+            visualDensity: VisualDensity.compact,
+          ),
+        ),
       ],
     );
   }

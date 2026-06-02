@@ -10,10 +10,13 @@ import 'package:go_router/go_router.dart';
 import '../providers/auth_provider.dart';
 import '../providers/app_role_provider.dart';
 import '../providers/campaign_provider.dart';
+import '../providers/compendium_provider.dart';
 import '../providers/session_provider.dart';
 import '../models/session.dart';
 import '../services/supabase_storage_service.dart';
+import '../utils/compendium_linking.dart';
 import '../utils/image_path_utils.dart';
+import '../widgets/compendium_mention_chips.dart';
 import '../widgets/session_composer_sheet.dart';
 
 class SessionListScreen extends StatefulWidget {
@@ -37,12 +40,14 @@ class _SessionListScreenState extends State<SessionListScreen> {
     if (activeCampaign == null) return;
 
     context.read<SessionProvider>().loadSessions(activeCampaign.id);
+    context.read<CompendiumProvider>().loadEntries();
   }
 
   @override
   Widget build(BuildContext context) {
     final campaignProvider = context.watch<CampaignProvider>();
     final sessionProvider = context.watch<SessionProvider>();
+    final compendiumProvider = context.watch<CompendiumProvider>();
     final roleProvider = context.watch<AppRoleProvider>();
     final currentUserId = context.watch<AuthProvider>().userId;
     final activeCampaign = campaignProvider.activeCampaign;
@@ -61,7 +66,9 @@ class _SessionListScreenState extends State<SessionListScreen> {
     final sessions = sessionProvider
         .getSessionsByCampaign(activeCampaign.id)
         .toList()
-      ..sort((a, b) => b.date.compareTo(a.date));
+      ..sort((a, b) => a.date.compareTo(b.date));
+    final compendiumEntries =
+        compendiumProvider.getEntriesByCampaign(activeCampaign.id);
     final isOwner =
         currentUserId != null && activeCampaign.ownerUserId == currentUserId;
     final canManageSessions = isOwner || roleProvider.isDm;
@@ -100,6 +107,11 @@ class _SessionListScreenState extends State<SessionListScreen> {
                 final session = sessions[index];
 
                 final hasImage = hasDisplayableImagePath(session.imagePath);
+                final mentionText = _buildMentionText(session);
+                final mentionCount = CompendiumLinking.mentionedEntries(
+                  text: mentionText,
+                  entries: compendiumEntries,
+                ).length;
 
                 return Card(
                   clipBehavior: Clip.antiAlias,
@@ -136,6 +148,32 @@ class _SessionListScreenState extends State<SessionListScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    Chip(
+                                      avatar: const Icon(
+                                        Icons.auto_stories_outlined,
+                                        size: 16,
+                                      ),
+                                      label: Text('Chapter ${index + 1}'),
+                                      visualDensity: VisualDensity.compact,
+                                    ),
+                                    if (mentionCount > 0)
+                                      Chip(
+                                        avatar: const Icon(
+                                          Icons.link,
+                                          size: 16,
+                                        ),
+                                        label: Text(
+                                          '$mentionCount linked mention${mentionCount == 1 ? '' : 's'}',
+                                        ),
+                                        visualDensity: VisualDensity.compact,
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
                                 Text(
                                   _formatDate(session.date),
                                   style: Theme.of(context).textTheme.bodySmall,
@@ -146,6 +184,15 @@ class _SessionListScreenState extends State<SessionListScreen> {
                                   maxLines: 3,
                                   overflow: TextOverflow.ellipsis,
                                 ),
+                                if (mentionCount > 0) ...[
+                                  const SizedBox(height: 10),
+                                  CompendiumMentionChips(
+                                    text: mentionText,
+                                    campaignId: activeCampaign.id,
+                                    maxItems: 4,
+                                    showUnresolved: canManageSessions,
+                                  ),
+                                ],
                               ],
                             ),
                           ),
@@ -201,6 +248,16 @@ class _SessionListScreenState extends State<SessionListScreen> {
     }
 
     return 'No notes yet';
+  }
+
+  String _buildMentionText(Session session) {
+    return [
+      session.title,
+      session.summary ?? '',
+      session.playerNarrativeRecap ?? '',
+      session.dmNarrativeRecap ?? '',
+      session.rawNotes,
+    ].where((part) => part.trim().isNotEmpty).join('\n\n');
   }
 
   Future<String?> _pickSessionImage() async {

@@ -16,6 +16,7 @@ import '../providers/journal_entry_provider.dart';
 import '../providers/session_provider.dart';
 import '../services/campaign_story_timeline_service.dart';
 import '../services/demo_campaign_story_seed_service.dart';
+import '../widgets/campaign_interactive_timeline.dart';
 import '../widgets/campaign_story_timeline.dart';
 import '../widgets/campaign_event_composer_sheet.dart';
 import '../widgets/linked_compendium_text.dart';
@@ -81,7 +82,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
     final sessions = sessionProvider
         .getSessionsByCampaign(activeCampaign.id)
         .toList()
-      ..sort((a, b) => b.date.compareTo(a.date));
+      ..sort((a, b) => a.date.compareTo(b.date));
 
     final campaignEvents =
         eventProvider.getEventsByCampaign(activeCampaign.id).toList();
@@ -378,6 +379,25 @@ class _TimelineScreenState extends State<TimelineScreen> {
                     ? ListView(
                         padding: const EdgeInsets.all(12),
                         children: [
+                          if (filteredStoryItems.isNotEmpty) ...[
+                            CampaignInteractiveTimeline(
+                              items: filteredStoryItems,
+                              compendiumEntries: compendiumEntries,
+                              onOpenDay: (date) {
+                                _openStoryDay(
+                                  context,
+                                  campaignName: activeCampaign.name,
+                                  itemDate: date,
+                                  storyItems: storyItems,
+                                  compendiumEntries: compendiumEntries,
+                                );
+                              },
+                              onOpenSession: (session) {
+                                _openSession(context, session);
+                              },
+                            ),
+                            const SizedBox(height: 12),
+                          ],
                           CampaignStoryOverviewCard(
                             stats: storyStats,
                           ),

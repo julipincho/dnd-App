@@ -32,6 +32,8 @@ class DemoCampaignStorySeedService {
     required JournalEntryProvider journalProvider,
     required CompendiumProvider compendiumProvider,
   }) async {
+    await compendiumProvider.loadEntries();
+
     final sessions = _sessions(campaignId);
     final events = _events(campaignId);
     final entries = _journalEntries(campaignId);
@@ -115,8 +117,9 @@ class DemoCampaignStorySeedService {
         campaignId: campaignId,
         title: 'Mira Valen',
         description:
-            'A careful archivist who tracks old seals, false prophecies and the movements of the Ashen Concord.',
+            'A careful archivist who tracks old seals, false prophecies and the movements of the Ashen Concord. Mira knows the Broken Gate answers to names spoken with intent.',
         type: 'npc',
+        imagePath: 'assets/images/classes/wizard.png',
         createdAt: DateTime(2026, 3, 1, 10),
       ),
       CompendiumEntry(
@@ -126,6 +129,7 @@ class DemoCampaignStorySeedService {
         description:
             'A collapsed elven city where the Broken Gate still hums beneath moonlit stone.',
         type: 'location',
+        imagePath: 'assets/images/combat/dungeon_battlefield.png',
         createdAt: DateTime(2026, 3, 1, 10, 5),
       ),
       CompendiumEntry(
@@ -135,6 +139,7 @@ class DemoCampaignStorySeedService {
         description:
             'A brass compass that points toward unfinished promises instead of north.',
         type: 'item',
+        imagePath: 'assets/images/classes/artificer.png',
         createdAt: DateTime(2026, 3, 1, 10, 10),
       ),
       CompendiumEntry(
@@ -144,6 +149,7 @@ class DemoCampaignStorySeedService {
         description:
             'A faction of oathbreakers trying to reopen the Broken Gate for reasons they call mercy.',
         type: 'faction',
+        imagePath: 'assets/images/classes/warlock.png',
         createdAt: DateTime(2026, 3, 1, 10, 15),
       ),
       CompendiumEntry(
@@ -153,7 +159,48 @@ class DemoCampaignStorySeedService {
         description:
             'An ancient threshold under the Ruins of Thalanor. It reacts to memory, grief and spoken names.',
         type: 'lore',
+        imagePath: 'assets/images/classes/sorcerer.png',
         createdAt: DateTime(2026, 3, 1, 10, 20),
+      ),
+      CompendiumEntry(
+        id: '$idPrefix-compendium-ilyra',
+        campaignId: campaignId,
+        title: 'Ilyra of the Moonwell',
+        description:
+            'An elven scout who guards the Moonwell Vault and distrusts anyone carrying Ashen Concord marks.',
+        type: 'npc',
+        imagePath: 'assets/images/races/elf.png',
+        createdAt: DateTime(2026, 3, 1, 10, 25),
+      ),
+      CompendiumEntry(
+        id: '$idPrefix-compendium-moonwell-vault',
+        campaignId: campaignId,
+        title: 'Moonwell Vault',
+        description:
+            'A submerged sanctuary below Thalanor where vows are preserved as silver light.',
+        type: 'location',
+        imagePath: 'assets/images/classes/druid.png',
+        createdAt: DateTime(2026, 3, 1, 10, 30),
+      ),
+      CompendiumEntry(
+        id: '$idPrefix-compendium-verdant-seal',
+        campaignId: campaignId,
+        title: 'Verdant Seal',
+        description:
+            'A living sigil that can quiet the Broken Gate if carried by someone who has broken an oath and repaired it.',
+        type: 'item',
+        imagePath: 'assets/images/classes/cleric.png',
+        createdAt: DateTime(2026, 3, 1, 10, 35),
+      ),
+      CompendiumEntry(
+        id: '$idPrefix-compendium-starless-prince',
+        campaignId: campaignId,
+        title: 'Starless Prince',
+        description:
+            'A name preserved in Moonwell warnings. The Ashen Concord treats him as a lost heir, while Ilyra calls him the first broken promise.',
+        type: 'npc',
+        imagePath: 'assets/images/classes/warlock.png',
+        createdAt: DateTime(2026, 3, 1, 10, 40),
       ),
     ];
   }
@@ -166,11 +213,14 @@ class DemoCampaignStorySeedService {
         title: 'Session 1 - The Broken Gate',
         date: DateTime(2026, 3, 4, 20),
         rawNotes:
-            'The party reached the Ruins of Thalanor and found Mira Valen hiding records about the Broken Gate.',
+            'The party reached [[location:Ruins of Thalanor]] and found [[npc:Mira Valen]] hiding records about the [[lore:Broken Gate]]. Mira claimed the [[faction:Ashen Concord]] had already translated part of the seal-song.',
         summary:
-            'The group arrived at the Ruins of Thalanor and learned that the Broken Gate is no longer dormant.',
+            'The group arrived at [[location:Ruins of Thalanor]] and learned that the [[lore:Broken Gate]] is no longer dormant.',
+        imagePath: 'assets/images/combat/dungeon_battlefield.png',
         playerNarrativeRecap:
-            'The first thread began with Mira Valen, the Ruins of Thalanor and a warning about the Ashen Concord.',
+            'The first thread began with [[npc:Mira Valen]], the [[location:Ruins of Thalanor]] and a warning about the [[faction:Ashen Concord]].',
+        dmNarrativeRecap:
+            'Mira is withholding the name of the person who first woke the Broken Gate.',
       ),
       Session(
         id: '$idPrefix-session-02',
@@ -178,11 +228,44 @@ class DemoCampaignStorySeedService {
         title: 'Session 2 - Compass at Dawn',
         date: DateTime(2026, 3, 11, 20),
         rawNotes:
-            'The Dawn Compass moved when each character spoke a secret. The Ashen Concord watched from the old aqueduct.',
+            'The [[item:Dawn Compass]] moved when each character spoke a secret. The [[faction:Ashen Concord]] watched from the old aqueduct and fled toward the [[location:Moonwell Vault]].',
         summary:
-            'The Dawn Compass revealed a path through memory, and the Ashen Concord made its first open move.',
+            'The [[item:Dawn Compass]] revealed a path through memory, and the [[faction:Ashen Concord]] made its first open move.',
+        imagePath: 'assets/images/classes/artificer.png',
         playerNarrativeRecap:
-            'The party discovered that the Dawn Compass responds to unfinished promises.',
+            'The party discovered that the [[item:Dawn Compass]] responds to unfinished promises.',
+        dmNarrativeRecap:
+            'The compass also points toward whoever regrets the promise most, which will matter later.',
+      ),
+      Session(
+        id: '$idPrefix-session-03',
+        campaignId: campaignId,
+        title: 'Session 3 - The Moonwell Oath',
+        date: DateTime(2026, 3, 18, 20),
+        rawNotes:
+            'At the [[location:Moonwell Vault]], [[npc:Ilyra of the Moonwell]] demanded an oath before opening the drowned archive. The [[item:Verdant Seal]] pulsed when the party mentioned the [[npc:Starless Prince]].',
+        summary:
+            'The party entered the [[location:Moonwell Vault]], earned [[npc:Ilyra of the Moonwell]] as a wary ally and recovered the [[item:Verdant Seal]].',
+        imagePath: 'assets/images/classes/druid.png',
+        playerNarrativeRecap:
+            'A new path opened below Thalanor: [[npc:Ilyra of the Moonwell]], the [[location:Moonwell Vault]] and the [[item:Verdant Seal]] are now tied to the fate of the [[lore:Broken Gate]].',
+        dmNarrativeRecap:
+            'The Starless Prince is tied to the first oath that damaged the Broken Gate.',
+      ),
+      Session(
+        id: '$idPrefix-session-04',
+        campaignId: campaignId,
+        title: 'Session 4 - Ashes Below Thalanor',
+        date: DateTime(2026, 3, 25, 20),
+        rawNotes:
+            'The [[faction:Ashen Concord]] returned beneath the [[location:Ruins of Thalanor]] and tried to bind the [[item:Verdant Seal]] to the [[lore:Broken Gate]]. [[npc:Mira Valen]] chose to reveal her old oath.',
+        summary:
+            'Beneath the [[location:Ruins of Thalanor]], the party stopped the [[faction:Ashen Concord]] from binding the [[item:Verdant Seal]] to the [[lore:Broken Gate]].',
+        imagePath: 'assets/images/classes/rogue.png',
+        playerNarrativeRecap:
+            'The first arc ended with the [[item:Verdant Seal]] intact, [[npc:Mira Valen]] exposed and the [[lore:Broken Gate]] quieter but not silent.',
+        dmNarrativeRecap:
+            'The Concord failed, but their leader escaped with one phrase from the seal-song.',
       ),
     ];
   }
@@ -195,7 +278,7 @@ class DemoCampaignStorySeedService {
         sessionId: '$idPrefix-session-01',
         title: 'Mira warns the party',
         description:
-            'Mira Valen explains that the Broken Gate is tied to the Ruins of Thalanor and asks the group not to trust the Ashen Concord.',
+            '[[npc:Mira Valen]] explains that the [[lore:Broken Gate]] is tied to the [[location:Ruins of Thalanor]] and asks the group not to trust the [[faction:Ashen Concord]].',
         date: DateTime(2026, 3, 4, 20, 35),
         type: 'dialogue',
       ),
@@ -205,7 +288,7 @@ class DemoCampaignStorySeedService {
         sessionId: '$idPrefix-session-01',
         title: 'The seal answers',
         description:
-            'The Broken Gate flashes when the Dawn Compass is brought near the central seal.',
+            'The [[lore:Broken Gate]] flashes when the [[item:Dawn Compass]] is brought near the central seal.',
         date: DateTime(2026, 3, 4, 21, 25),
         type: 'discovery',
       ),
@@ -215,9 +298,59 @@ class DemoCampaignStorySeedService {
         sessionId: '$idPrefix-session-02',
         title: 'Ambush at the aqueduct',
         description:
-            'Agents of the Ashen Concord attack near the Ruins of Thalanor and try to steal the Dawn Compass.',
+            'Agents of the [[faction:Ashen Concord]] attack near the [[location:Ruins of Thalanor]] and try to steal the [[item:Dawn Compass]].',
         date: DateTime(2026, 3, 11, 21, 10),
         type: 'combat',
+      ),
+      CampaignEvent(
+        id: '$idPrefix-event-04',
+        campaignId: campaignId,
+        sessionId: '$idPrefix-session-02',
+        title: 'The compass chooses a path',
+        description:
+            'The [[item:Dawn Compass]] points away from the road and toward the hidden entrance of the [[location:Moonwell Vault]].',
+        date: DateTime(2026, 3, 11, 21, 45),
+        type: 'travel',
+      ),
+      CampaignEvent(
+        id: '$idPrefix-event-05',
+        campaignId: campaignId,
+        sessionId: '$idPrefix-session-03',
+        title: 'Ilyra names the oath-price',
+        description:
+            '[[npc:Ilyra of the Moonwell]] refuses to open the [[location:Moonwell Vault]] until each hero names one promise they intend to keep.',
+        date: DateTime(2026, 3, 18, 20, 40),
+        type: 'dialogue',
+      ),
+      CampaignEvent(
+        id: '$idPrefix-event-06',
+        campaignId: campaignId,
+        sessionId: '$idPrefix-session-03',
+        title: 'The Verdant Seal wakes',
+        description:
+            'The [[item:Verdant Seal]] blooms with silver-green light and shows a reflection of the [[npc:Starless Prince]].',
+        date: DateTime(2026, 3, 18, 21, 35),
+        type: 'discovery',
+      ),
+      CampaignEvent(
+        id: '$idPrefix-event-07',
+        campaignId: campaignId,
+        sessionId: '$idPrefix-session-04',
+        title: 'Concord ritual interrupted',
+        description:
+            'The party breaks the [[faction:Ashen Concord]] circle before the [[item:Verdant Seal]] can be locked into the [[lore:Broken Gate]].',
+        date: DateTime(2026, 3, 25, 21, 5),
+        type: 'quest',
+      ),
+      CampaignEvent(
+        id: '$idPrefix-event-08',
+        campaignId: campaignId,
+        sessionId: null,
+        title: 'Rumor reaches the coast',
+        description:
+            'Travelers claim the [[faction:Ashen Concord]] is buying maps that mark every road into the [[location:Ruins of Thalanor]].',
+        date: DateTime(2026, 3, 28, 12),
+        type: 'rumor',
       ),
     ];
   }
@@ -234,7 +367,8 @@ class DemoCampaignStorySeedService {
         authorCharacterId: '$idPrefix-character-kael',
         authorUserId: '$idPrefix-user-kael',
         content:
-            'Kael does not trust Mira Valen yet, but the Broken Gate felt alive when the Dawn Compass moved.',
+            'Kael does not trust [[npc:Mira Valen]] yet, but the [[lore:Broken Gate]] felt alive when the [[item:Dawn Compass]] moved.',
+        imagePath: 'assets/images/classes/fighter.png',
         createdAt: DateTime(2026, 3, 4, 22),
       ),
       JournalEntry(
@@ -247,7 +381,8 @@ class DemoCampaignStorySeedService {
         authorCharacterId: '$idPrefix-character-nim',
         authorUserId: '$idPrefix-user-nim',
         content:
-            'Nim thinks the Ruins of Thalanor are listening. The Ashen Concord knew exactly when Mira Valen would speak.',
+            'Nim thinks the [[location:Ruins of Thalanor]] are listening. The [[faction:Ashen Concord]] knew exactly when [[npc:Mira Valen]] would speak.',
+        imagePath: 'assets/images/classes/rogue.png',
         createdAt: DateTime(2026, 3, 4, 22, 7),
       ),
       JournalEntry(
@@ -260,8 +395,48 @@ class DemoCampaignStorySeedService {
         authorCharacterId: '$idPrefix-character-seren',
         authorUserId: '$idPrefix-user-seren',
         content:
-            'Seren promised to keep the Dawn Compass away from the Ashen Concord, even if the Broken Gate calls again.',
+            'Seren promised to keep the [[item:Dawn Compass]] away from the [[faction:Ashen Concord]], even if the [[lore:Broken Gate]] calls again.',
+        imagePath: 'assets/images/classes/paladin.png',
         createdAt: DateTime(2026, 3, 11, 22, 15),
+      ),
+      JournalEntry(
+        id: '$idPrefix-note-04',
+        campaignId: campaignId,
+        sessionId: '$idPrefix-session-03',
+        authorRole: 'player',
+        authorName: 'Liora',
+        authorCharacterName: 'Liora',
+        authorCharacterId: '$idPrefix-character-liora',
+        authorUserId: '$idPrefix-user-liora',
+        content:
+            'Liora believes [[npc:Ilyra of the Moonwell]] is protecting someone, not just the [[location:Moonwell Vault]]. The [[item:Verdant Seal]] reacted to guilt.',
+        imagePath: 'assets/images/classes/bard.png',
+        createdAt: DateTime(2026, 3, 18, 22, 5),
+      ),
+      JournalEntry(
+        id: '$idPrefix-note-05',
+        campaignId: campaignId,
+        sessionId: '$idPrefix-session-04',
+        authorRole: 'player',
+        authorName: 'Nim',
+        authorCharacterName: 'Nim',
+        authorCharacterId: '$idPrefix-character-nim',
+        authorUserId: '$idPrefix-user-nim',
+        content:
+            'Nim stole a burned token from the [[faction:Ashen Concord]] ritual. It smells like the [[location:Moonwell Vault]] after rain.',
+        imagePath: 'assets/images/classes/rogue.png',
+        createdAt: DateTime(2026, 3, 25, 22, 18),
+      ),
+      JournalEntry(
+        id: '$idPrefix-note-06',
+        campaignId: campaignId,
+        sessionId: null,
+        authorRole: 'dm',
+        authorName: 'DM',
+        authorUserId: '$idPrefix-user-dm',
+        content:
+            'Private thread: the [[npc:Starless Prince]] knows why the [[lore:Broken Gate]] answers to promises broken beneath the [[location:Ruins of Thalanor]].',
+        createdAt: DateTime(2026, 3, 28, 12, 30),
       ),
     ];
   }
