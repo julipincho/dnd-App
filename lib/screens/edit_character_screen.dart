@@ -17,7 +17,9 @@ import '../models/feat_data.dart';
 import '../services/feat_data_service.dart';
 import '../services/feat_validation_service.dart';
 import '../services/supabase_storage_service.dart';
+import '../theme.dart';
 import '../utils/image_path_utils.dart';
+import '../widgets/stitch_codex_ui.dart';
 
 class EditCharacterScreen extends StatefulWidget {
   final String characterId;
@@ -1789,29 +1791,9 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
   }
 
   InputDecoration _inputDecoration(String label, {String? hint}) {
-    return InputDecoration(
+    return stitchCodexInputDecoration(
       labelText: label,
       hintText: hint,
-      labelStyle: const TextStyle(color: Colors.white70),
-      hintStyle: const TextStyle(color: Colors.white38),
-      filled: true,
-      fillColor: const Color(0xFF202028),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide(
-          color: Colors.deepPurpleAccent.withOpacity(0.45),
-        ),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(
-          color: Colors.deepPurpleAccent,
-          width: 1.4,
-        ),
-      ),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-      ),
     );
   }
 
@@ -1819,17 +1801,57 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
     required Widget child,
     EdgeInsets? padding,
   }) {
-    return Container(
-      width: double.infinity,
-      padding: padding ?? const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF17181F),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.25),
-        ),
-      ),
+    return StitchCodexPanel(
+      padding: padding ?? const EdgeInsets.all(18),
       child: child,
+    );
+  }
+
+  TextStyle get _sectionTitleStyle {
+    return const TextStyle(
+      color: StitchCodexPalette.textPrimary,
+      fontFamily: StitchTypography.display,
+      fontSize: 18,
+      fontWeight: FontWeight.w600,
+    );
+  }
+
+  TextStyle get _sectionDescriptionStyle {
+    return const TextStyle(
+      color: StitchCodexPalette.textMuted,
+      fontFamily: StitchTypography.body,
+      fontSize: 15,
+      height: 1.4,
+    );
+  }
+
+  Widget _portraitEditor(double radius) {
+    return GestureDetector(
+      onTap: _pickImage,
+      child: Container(
+        width: radius * 2,
+        height: radius * 2.25,
+        decoration: BoxDecoration(
+          color: StitchCodexPalette.surfaceRaised,
+          border: Border.all(
+            color: StitchCodexPalette.bronze.withValues(alpha: 0.44),
+          ),
+          image: hasDisplayableImagePath(_portraitPath)
+              ? DecorationImage(
+                  image: imageProviderFromPath(_portraitPath!),
+                  fit: BoxFit.cover,
+                  alignment: Alignment.topCenter,
+                )
+              : null,
+        ),
+        child: !hasDisplayableImagePath(_portraitPath)
+            ? const Icon(
+                Icons.add_a_photo_outlined,
+                size: 32,
+                color: StitchCodexPalette.bronze,
+              )
+            : null,
+      ),
     );
   }
 
@@ -1847,10 +1869,10 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
     }
 
     return DropdownButtonFormField<DndBackground>(
-      value:
+      initialValue:
           backgrounds.contains(selectedBackground) ? selectedBackground : null,
-      dropdownColor: const Color(0xFF1E1E22),
-      style: const TextStyle(color: Colors.white),
+      dropdownColor: StitchCodexPalette.surfaceRaised,
+      style: stitchCodexFieldTextStyle,
       decoration: _inputDecoration('Background'),
       items: backgrounds
           .map(
@@ -1858,7 +1880,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
               value: bg,
               child: Text(
                 bg.name,
-                style: const TextStyle(color: Colors.white),
+                style: stitchCodexFieldTextStyle,
               ),
             ),
           )
@@ -1871,9 +1893,10 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
 
   Widget _buildAlignmentField() {
     return DropdownButtonFormField<String>(
-      value: alignments.contains(selectedAlignment) ? selectedAlignment : null,
-      dropdownColor: const Color(0xFF1E1E22),
-      style: const TextStyle(color: Colors.white),
+      initialValue:
+          alignments.contains(selectedAlignment) ? selectedAlignment : null,
+      dropdownColor: StitchCodexPalette.surfaceRaised,
+      style: stitchCodexFieldTextStyle,
       decoration: _inputDecoration('Alignment'),
       items: alignments
           .map(
@@ -1881,7 +1904,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
               value: alignment,
               child: Text(
                 alignment,
-                style: const TextStyle(color: Colors.white),
+                style: stitchCodexFieldTextStyle,
               ),
             ),
           )
@@ -2362,11 +2385,16 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
   Widget build(BuildContext context) {
     if (character == null) {
       return const Scaffold(
-        backgroundColor: Color(0xFF1E1E22),
-        body: Center(
-          child: Text(
-            "Character not found",
-            style: TextStyle(color: Colors.white),
+        backgroundColor: StitchCodexPalette.ground,
+        body: StitchCodexBackground(
+          child: Center(
+            child: Text(
+              'Character not found',
+              style: TextStyle(
+                color: StitchCodexPalette.textMuted,
+                fontFamily: StitchTypography.body,
+              ),
+            ),
           ),
         ),
       );
@@ -2382,15 +2410,29 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
     final titleSize = isLarge ? 28.0 : (isTablet ? 24.0 : 21.0);
 
     return Scaffold(
-      backgroundColor: const Color(0xFF1E1E22),
+      backgroundColor: StitchCodexPalette.ground,
       appBar: StitchAppBar(
-        title: const Text("Edit Character"),
-        backgroundColor: const Color(0xFF121214),
-        elevation: 2,
+        showBrand: false,
+        title: const Text(
+          'EDIT CHARACTER',
+          style: TextStyle(
+            color: StitchCodexPalette.textPrimary,
+            fontFamily: StitchTypography.display,
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 1.2,
+          ),
+        ),
+        backgroundColor: StitchCodexPalette.ground,
       ),
-      body: !_backgroundsLoaded
-          ? const Center(child: CircularProgressIndicator())
-          : SafeArea(
+      body: StitchCodexBackground(
+        child: !_backgroundsLoaded
+            ? const Center(
+                child: CircularProgressIndicator(
+                  color: StitchCodexPalette.bronze,
+                ),
+              )
+            : SafeArea(
               child: SingleChildScrollView(
                 padding: EdgeInsets.fromLTRB(
                   horizontalPadding,
@@ -2410,31 +2452,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                               ? Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    GestureDetector(
-                                      onTap: _pickImage,
-                                      child: CircleAvatar(
-                                        radius: avatarRadius,
-                                        backgroundImage:
-                                            hasDisplayableImagePath(
-                                          _portraitPath,
-                                        )
-                                                ? imageProviderFromPath(
-                                                    _portraitPath!,
-                                                  )
-                                                : null,
-                                        backgroundColor:
-                                            Colors.deepPurpleAccent,
-                                        child: !hasDisplayableImagePath(
-                                          _portraitPath,
-                                        )
-                                            ? const Icon(
-                                                Icons.camera_alt,
-                                                size: 34,
-                                                color: Colors.white,
-                                              )
-                                            : null,
-                                      ),
-                                    ),
+                                    _portraitEditor(avatarRadius),
                                     const SizedBox(width: 20),
                                     Expanded(
                                       child: Column(
@@ -2442,25 +2460,21 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                                             CrossAxisAlignment.start,
                                         children: [
                                           Text(
-                                            "Identity",
-                                            style: TextStyle(
-                                              color: Colors.white,
+                                            'Identity',
+                                            style: _sectionTitleStyle.copyWith(
                                               fontSize: titleSize,
-                                              fontWeight: FontWeight.bold,
                                             ),
                                           ),
                                           const SizedBox(height: 8),
                                           Text(
-                                            "Edit the core information of your character. Portrait, name, background, alignment and narrative details live here.",
-                                            style: TextStyle(
-                                              color: Colors.white
-                                                  .withOpacity(0.72),
-                                              height: 1.4,
-                                            ),
+                                            'Edit the core information of your character. Portrait, name, background, alignment and narrative details live here.',
+                                            style: _sectionDescriptionStyle,
                                           ),
                                           const SizedBox(height: 14),
                                           OutlinedButton.icon(
                                             onPressed: _pickImage,
+                                            style:
+                                                stitchCodexOutlineButtonStyle(),
                                             icon: const Icon(
                                               Icons.image_outlined,
                                             ),
@@ -2475,52 +2489,24 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                                 )
                               : Column(
                                   children: [
-                                    GestureDetector(
-                                      onTap: _pickImage,
-                                      child: CircleAvatar(
-                                        radius: avatarRadius,
-                                        backgroundImage:
-                                            hasDisplayableImagePath(
-                                          _portraitPath,
-                                        )
-                                                ? imageProviderFromPath(
-                                                    _portraitPath!,
-                                                  )
-                                                : null,
-                                        backgroundColor:
-                                            Colors.deepPurpleAccent,
-                                        child: !hasDisplayableImagePath(
-                                          _portraitPath,
-                                        )
-                                            ? const Icon(
-                                                Icons.camera_alt,
-                                                size: 32,
-                                                color: Colors.white,
-                                              )
-                                            : null,
-                                      ),
-                                    ),
+                                    _portraitEditor(avatarRadius),
                                     const SizedBox(height: 16),
                                     Text(
-                                      "Identity",
-                                      style: TextStyle(
-                                        color: Colors.white,
+                                      'Identity',
+                                      style: _sectionTitleStyle.copyWith(
                                         fontSize: titleSize,
-                                        fontWeight: FontWeight.bold,
                                       ),
                                     ),
                                     const SizedBox(height: 8),
                                     Text(
-                                      "Edit the core information of your character.",
+                                      'Edit the core information of your character.',
                                       textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        color: Colors.white.withOpacity(0.72),
-                                        height: 1.4,
-                                      ),
+                                      style: _sectionDescriptionStyle,
                                     ),
                                     const SizedBox(height: 14),
                                     OutlinedButton.icon(
                                       onPressed: _pickImage,
+                                      style: stitchCodexOutlineButtonStyle(),
                                       icon: const Icon(Icons.image_outlined),
                                       label: const Text("Change portrait"),
                                     ),
@@ -2532,18 +2518,14 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
-                                "Basic info",
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
-                                ),
+                              Text(
+                                'Basic Info',
+                                style: _sectionTitleStyle,
                               ),
                               const SizedBox(height: 14),
                               TextField(
                                 controller: _nameController,
-                                style: const TextStyle(color: Colors.white),
+                                style: stitchCodexFieldTextStyle,
                                 decoration: _inputDecoration(
                                   "Name",
                                   hint: "Character name",
@@ -2582,25 +2564,19 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
-                                "Narrative",
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
-                                ),
+                              Text(
+                                'Narrative',
+                                style: _sectionTitleStyle,
                               ),
                               const SizedBox(height: 8),
                               Text(
-                                "This is the part that makes the sheet feel alive.",
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.70),
-                                ),
+                                'This is the part that makes the sheet feel alive.',
+                                style: _sectionDescriptionStyle,
                               ),
                               const SizedBox(height: 14),
                               TextField(
                                 controller: _backstoryController,
-                                style: const TextStyle(color: Colors.white),
+                                style: stitchCodexFieldTextStyle,
                                 maxLines: 7,
                                 decoration: _inputDecoration(
                                   "Backstory",
@@ -2611,7 +2587,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                               const SizedBox(height: 16),
                               TextField(
                                 controller: _notesController,
-                                style: const TextStyle(color: Colors.white),
+                                style: stitchCodexFieldTextStyle,
                                 maxLines: 7,
                                 decoration: _inputDecoration(
                                   "Notes",
@@ -2627,20 +2603,14 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
-                                "Combat Stats",
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
-                                ),
+                              Text(
+                                'Combat Stats',
+                                style: _sectionTitleStyle,
                               ),
                               const SizedBox(height: 8),
                               Text(
-                                "Core combat values of your character.",
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.70),
-                                ),
+                                'Core combat values of your character.',
+                                style: _sectionDescriptionStyle,
                               ),
                               const SizedBox(height: 14),
                               Row(
@@ -2649,8 +2619,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                                     child: TextField(
                                       controller: _maxHpController,
                                       keyboardType: TextInputType.number,
-                                      style:
-                                          const TextStyle(color: Colors.white),
+                                      style: stitchCodexFieldTextStyle,
                                       decoration: _inputDecoration("Max HP"),
                                     ),
                                   ),
@@ -2659,8 +2628,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                                     child: TextField(
                                       controller: _currentHpController,
                                       keyboardType: TextInputType.number,
-                                      style:
-                                          const TextStyle(color: Colors.white),
+                                      style: stitchCodexFieldTextStyle,
                                       decoration:
                                           _inputDecoration("Current HP"),
                                     ),
@@ -2674,8 +2642,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                                     child: TextField(
                                       controller: _acController,
                                       keyboardType: TextInputType.number,
-                                      style:
-                                          const TextStyle(color: Colors.white),
+                                      style: stitchCodexFieldTextStyle,
                                       decoration:
                                           _inputDecoration("Armor Class"),
                                     ),
@@ -2685,8 +2652,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                                     child: TextField(
                                       controller: _speedController,
                                       keyboardType: TextInputType.number,
-                                      style:
-                                          const TextStyle(color: Colors.white),
+                                      style: stitchCodexFieldTextStyle,
                                       decoration: _inputDecoration("Speed"),
                                     ),
                                   ),
@@ -2698,24 +2664,12 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                         const SizedBox(height: 26),
                         SizedBox(
                           width: double.infinity,
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.deepPurpleAccent,
-                              padding: EdgeInsets.symmetric(
-                                vertical: isTablet ? 18 : 16,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                            ),
+                          child: FilledButton.icon(
+                            style: stitchCodexPrimaryButtonStyle(),
                             onPressed: _saveChanges,
-                            child: Text(
-                              "Save Changes",
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: isTablet ? 16 : 15,
-                                fontWeight: FontWeight.w600,
-                              ),
+                            icon: const Icon(Icons.save_outlined),
+                            label: const Text(
+                              'Save Changes',
                             ),
                           ),
                         ),
@@ -2725,6 +2679,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                 ),
               ),
             ),
+      ),
     );
   }
 }

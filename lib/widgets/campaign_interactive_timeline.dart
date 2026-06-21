@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import '../models/compendium_entry.dart';
 import '../models/session.dart';
 import '../models/story_timeline_item.dart';
+import '../theme.dart';
 import '../utils/compendium_linking.dart';
+import 'campaign_codex_ui.dart';
 import 'compendium_mention_chips.dart';
 import 'linked_compendium_text.dart';
 
@@ -80,17 +82,14 @@ class _CampaignInteractiveTimelineState
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isWide = constraints.maxWidth >= 860;
-        final railHeight = isWide ? 352.0 : 324.0;
+        final tokens = context.stitch;
+        final isWide = constraints.maxWidth >= 980;
+        final railHeight = isWide ? 344.0 : 324.0;
 
-        return Container(
-          width: double.infinity,
+        return CampaignCodexFrame(
+          accentColor: tokens.accentRead,
           padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Theme.of(context).dividerColor),
-          ),
+          backgroundColor: tokens.panel,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -225,10 +224,10 @@ class _CampaignInteractiveTimelineState
     final axisY = height / 2;
 
     return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(context.stitch.radiusMd),
       child: Container(
         height: height,
-        color: Theme.of(context).colorScheme.surface,
+        color: context.stitch.surface,
         child: Scrollbar(
           controller: _scrollController,
           thumbVisibility: true,
@@ -438,45 +437,86 @@ class _TimelineHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 42,
-          height: 42,
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primaryContainer,
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: const Icon(Icons.timeline_outlined),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
+    final tokens = context.stitch;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 360;
+        final titleRow = Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: tokens.accentRead.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(tokens.radiusSm),
+                border: Border.all(
+                  color: tokens.accentRead.withValues(alpha: 0.34),
+                ),
+              ),
+              child: Icon(
+                Icons.timeline_outlined,
+                color: tokens.accentReadSoft,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Storyline',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  Text(
+                    '${selectedIndex + 1} / $count',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: tokens.textMuted,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+
+        final actions = Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton.filledTonal(
+              onPressed: onPrevious,
+              icon: const Icon(Icons.chevron_left),
+              tooltip: 'Previous',
+            ),
+            const SizedBox(width: 8),
+            IconButton.filledTonal(
+              onPressed: onNext,
+              icon: const Icon(Icons.chevron_right),
+              tooltip: 'Next',
+            ),
+          ],
+        );
+
+        if (compact) {
+          return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Storyline',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              Text(
-                '${selectedIndex + 1} / $count',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
+              titleRow,
+              const SizedBox(height: 10),
+              actions,
             ],
-          ),
-        ),
-        IconButton.filledTonal(
-          onPressed: onPrevious,
-          icon: const Icon(Icons.chevron_left),
-          tooltip: 'Previous',
-        ),
-        const SizedBox(width: 8),
-        IconButton.filledTonal(
-          onPressed: onNext,
-          icon: const Icon(Icons.chevron_right),
-          tooltip: 'Next',
-        ),
-      ],
+          );
+        }
+
+        return Row(
+          children: [
+            Expanded(child: titleRow),
+            actions,
+          ],
+        );
+      },
     );
   }
 }
@@ -547,29 +587,34 @@ class _ZoomControl extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 260,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Theme.of(context).dividerColor),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.zoom_out, size: 18),
-          Expanded(
-            child: Slider(
-              value: zoom,
-              min: 0.92,
-              max: 1.36,
-              divisions: 4,
-              label: '${(zoom * 100).round()}%',
-              onChanged: onChanged,
+    final tokens = context.stitch;
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 280),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: tokens.surface,
+          borderRadius: BorderRadius.circular(tokens.radiusSm),
+          border: Border.all(color: tokens.border.withValues(alpha: 0.18)),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.zoom_out, size: 18, color: tokens.textMuted),
+            Expanded(
+              child: Slider(
+                value: zoom,
+                min: 0.92,
+                max: 1.36,
+                divisions: 4,
+                label: '${(zoom * 100).round()}%',
+                onChanged: onChanged,
+              ),
             ),
-          ),
-          const Icon(Icons.zoom_in, size: 18),
-        ],
+            Icon(Icons.zoom_in, size: 18, color: tokens.textMuted),
+          ],
+        ),
       ),
     );
   }
@@ -667,45 +712,77 @@ class _FocusedEntryBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primaryContainer,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.28),
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(_iconForEntryType(entry.type), size: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              '${entry.title} appears in $matchCount beat${matchCount == 1 ? '' : 's'}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.labelLarge,
+    final tokens = context.stitch;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 440;
+        final label = Row(
+          children: [
+            Icon(
+              _iconForEntryType(entry.type),
+              size: 20,
+              color: tokens.accentReadSoft,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                '${entry.title} appears in $matchCount beat${matchCount == 1 ? '' : 's'}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelLarge,
+              ),
+            ),
+          ],
+        );
+        final actions = Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              onPressed: onPrevious,
+              icon: const Icon(Icons.chevron_left),
+              tooltip: 'Previous mention',
+            ),
+            IconButton(
+              onPressed: onNext,
+              icon: const Icon(Icons.chevron_right),
+              tooltip: 'Next mention',
+            ),
+            IconButton(
+              onPressed: onClear,
+              icon: const Icon(Icons.close),
+              tooltip: 'Clear focus',
+            ),
+          ],
+        );
+
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: tokens.accentRead.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(tokens.radiusSm),
+            border: Border.all(
+              color: tokens.accentRead.withValues(alpha: 0.30),
             ),
           ),
-          IconButton(
-            onPressed: onPrevious,
-            icon: const Icon(Icons.chevron_left),
-            tooltip: 'Previous mention',
-          ),
-          IconButton(
-            onPressed: onNext,
-            icon: const Icon(Icons.chevron_right),
-            tooltip: 'Next mention',
-          ),
-          IconButton(
-            onPressed: onClear,
-            icon: const Icon(Icons.close),
-            tooltip: 'Clear focus',
-          ),
-        ],
-      ),
+          child: compact
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    label,
+                    const SizedBox(height: 8),
+                    actions,
+                  ],
+                )
+              : Row(
+                  children: [
+                    Expanded(child: label),
+                    actions,
+                  ],
+                ),
+        );
+      },
     );
   }
 }
@@ -786,8 +863,7 @@ class _PositionedTimelineNode extends StatelessWidget {
                     ? [
                         BoxShadow(
                           color: color.withValues(alpha: 0.28),
-                          blurRadius: 18,
-                          spreadRadius: 2,
+                          blurRadius: 8,
                         ),
                       ]
                     : null,
@@ -847,7 +923,7 @@ class _TimelineNodeCard extends StatelessWidget {
     ).length;
 
     return InkWell(
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(context.stitch.radiusSm),
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
@@ -857,12 +933,12 @@ class _TimelineNodeCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: isSelected || isFocusedMatch
               ? color.withValues(alpha: 0.12)
-              : Theme.of(context).colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(14),
+              : context.stitch.surfaceRaised,
+          borderRadius: BorderRadius.circular(context.stitch.radiusSm),
           border: Border.all(
             color: isSelected || isFocusedMatch
                 ? color
-                : Theme.of(context).dividerColor,
+                : context.stitch.border.withValues(alpha: 0.20),
             width: isSelected || isFocusedMatch ? 2 : 1,
           ),
         ),
@@ -952,8 +1028,8 @@ class _TimelineInspector extends StatelessWidget {
       constraints: const BoxConstraints(minHeight: 324),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
+        color: context.stitch.surface,
+        borderRadius: BorderRadius.circular(context.stitch.radiusMd),
         border: Border.all(color: color.withValues(alpha: 0.38)),
       ),
       child: Column(
@@ -968,7 +1044,7 @@ class _TimelineInspector extends StatelessWidget {
                 height: 38,
                 decoration: BoxDecoration(
                   color: color.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(context.stitch.radiusSm),
                 ),
                 child: Icon(_iconForItem(item), color: color, size: 20),
               ),
@@ -1016,7 +1092,7 @@ class _TimelineInspector extends StatelessWidget {
                     .colorScheme
                     .surfaceContainerHighest
                     .withValues(alpha: 0.6),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(context.stitch.radiusSm),
               ),
               child: LinkedCompendiumText(
                 text: item.body,
@@ -1084,23 +1160,24 @@ class _AxisCap extends StatelessWidget {
 }
 
 Color _colorForItem(BuildContext context, StoryTimelineItem item) {
-  if (item.kind == 'session') return Theme.of(context).colorScheme.primary;
-  if (item.kind == 'note') return Theme.of(context).colorScheme.tertiary;
+  final tokens = context.stitch;
+  if (item.kind == 'session') return tokens.accentRead;
+  if (item.kind == 'note') return tokens.accentMagic;
 
   switch (item.type) {
     case 'combat':
-      return Colors.redAccent;
+      return tokens.accentAction;
     case 'dialogue':
-      return Colors.teal;
+      return tokens.accentInfo;
     case 'travel':
-      return Colors.green;
+      return tokens.accentReadSoft;
     case 'quest':
-      return Colors.amber.shade800;
+      return tokens.accentWarning;
     case 'rumor':
-      return Colors.deepPurpleAccent;
+      return tokens.accentMagic;
     case 'discovery':
     default:
-      return Colors.blueAccent;
+      return tokens.accentRead;
   }
 }
 

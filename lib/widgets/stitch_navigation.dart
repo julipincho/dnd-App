@@ -43,7 +43,6 @@ class StitchAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.stitch;
     final currentPath = _currentPath(context);
     final isHome = currentPath == '/' || currentPath == '/home';
     final canLeave = _canPop(context) || !isHome;
@@ -52,15 +51,25 @@ class StitchAppBar extends StatelessWidget implements PreferredSizeWidget {
       if (showHomeAction && !isHome)
         IconButton(
           tooltip: 'Ir a inicio',
-          icon: const Icon(Icons.home_rounded),
+          icon: const Icon(
+            Icons.home_outlined,
+            color: StitchCodexPalette.textSecondary,
+          ),
           onPressed: () => _goHome(context),
         ),
     ];
 
     return AppBar(
-      backgroundColor: backgroundColor ?? tokens.pageTop,
-      foregroundColor: foregroundColor ?? tokens.textPrimary,
+      backgroundColor: backgroundColor ?? StitchCodexPalette.ground,
+      foregroundColor: foregroundColor ?? StitchCodexPalette.textPrimary,
       elevation: elevation ?? 0,
+      surfaceTintColor: Colors.transparent,
+      shadowColor: Colors.transparent,
+      shape: Border(
+        bottom: BorderSide(
+          color: StitchCodexPalette.bronze.withValues(alpha: 0.18),
+        ),
+      ),
       centerTitle: centerTitle ?? false,
       toolbarHeight: toolbarHeight,
       automaticallyImplyLeading: automaticallyImplyLeading,
@@ -68,7 +77,10 @@ class StitchAppBar extends StatelessWidget implements PreferredSizeWidget {
           (showBackButton && canLeave
               ? IconButton(
                   tooltip: _canPop(context) ? 'Volver' : 'Ir a inicio',
-                  icon: const Icon(Icons.arrow_back_rounded),
+                  icon: const Icon(
+                    Icons.arrow_back_rounded,
+                    color: StitchCodexPalette.textSecondary,
+                  ),
                   onPressed: () => _goBackOrHome(context),
                 )
               : null),
@@ -103,7 +115,17 @@ class StitchBrandLockup extends StatelessWidget {
         StitchBrandMark(size: markSize),
         if (!compact) ...[
           const SizedBox(width: 10),
-          Flexible(child: title),
+          Flexible(
+            child: DefaultTextStyle.merge(
+              style: const TextStyle(
+                color: StitchCodexPalette.textPrimary,
+                fontFamily: StitchTypography.display,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.6,
+              ),
+              child: title,
+            ),
+          ),
         ],
       ],
     );
@@ -122,22 +144,19 @@ class StitchBrandMark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.stitch;
-    const logoBackground = Color(0xFF172121);
-
     return Container(
       width: size,
       height: size,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: logoBackground,
-        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        color: StitchCodexPalette.surface,
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(
-          color: tokens.accentReadSoft.withValues(alpha: 0.42),
+          color: StitchCodexPalette.bronze.withValues(alpha: 0.46),
         ),
         boxShadow: [
           BoxShadow(
-            color: tokens.accentRead.withValues(alpha: 0.18),
+            color: StitchCodexPalette.crimson.withValues(alpha: 0.12),
             blurRadius: 14,
             spreadRadius: 1,
           ),
@@ -153,7 +172,7 @@ class StitchBrandMark extends StatelessWidget {
           filterQuality: FilterQuality.high,
           errorBuilder: (_, __, ___) => Icon(
             Icons.shield_outlined,
-            color: tokens.textPrimary,
+            color: StitchCodexPalette.bronze,
             size: size * 0.52,
           ),
         ),
@@ -175,15 +194,33 @@ class StitchHomeButton extends StatelessWidget {
     if (compact) {
       return IconButton(
         tooltip: 'Ir a inicio',
-        icon: const Icon(Icons.home_rounded),
+        icon: const Icon(
+          Icons.home_outlined,
+          color: StitchCodexPalette.textSecondary,
+        ),
         onPressed: () => _goHome(context),
       );
     }
 
     return OutlinedButton.icon(
       onPressed: () => _goHome(context),
-      icon: const Icon(Icons.home_rounded, size: 18),
+      icon: const Icon(Icons.home_outlined, size: 17),
       label: const Text('Inicio'),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: StitchCodexPalette.textSecondary,
+        side: BorderSide(
+          color: StitchCodexPalette.bronze.withValues(alpha: 0.42),
+        ),
+        textStyle: const TextStyle(
+          fontFamily: StitchTypography.data,
+          fontSize: 9,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.8,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(2),
+        ),
+      ),
     );
   }
 }

@@ -5,15 +5,16 @@ import '../widgets/stitch_navigation.dart';
 import '../models/dnd_class.dart';
 import '../models/dnd_class_level.dart';
 import '../services/class_level_service.dart';
+import '../theme.dart';
+import '../widgets/stitch_codex_ui.dart';
 
-const Color _progressBg = Color(0xFF1E1E22);
-const Color _progressAppBar = Color(0xFF121214);
-const Color _progressSurface = Color(0xFF17181F);
-const Color _progressSurfaceAlt = Color(0xFF202434);
-const Color _progressHeader = Color(0xFF283149);
-const Color _progressBorder = Color(0xFF4D4F72);
-const Color _progressBlue = Color(0xFF4DA8FF);
-const Color _progressAccent = Color(0xFF7C4DFF);
+const Color _progressBg = StitchCodexPalette.ground;
+const Color _progressAppBar = StitchCodexPalette.ground;
+const Color _progressSurface = StitchCodexPalette.surfaceMuted;
+const Color _progressSurfaceAlt = StitchCodexPalette.card;
+const Color _progressHeader = StitchCodexPalette.surfaceRaised;
+const Color _progressBorder = StitchCodexPalette.bronzeMuted;
+const Color _progressBlue = StitchCodexPalette.bronze;
 
 class ClassProgressionScreen extends StatefulWidget {
   final DndClass cls;
@@ -55,16 +56,19 @@ class _ClassProgressionScreenState extends State<ClassProgressionScreen> {
     return Scaffold(
       backgroundColor: _progressBg,
       appBar: StitchAppBar(
+        showBrand: false,
         backgroundColor: _progressAppBar,
         elevation: 0,
         title: Text(
-          '${widget.cls.name} Progression',
+          '${widget.cls.name.toUpperCase()} PROGRESSION',
           style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w800,
+            color: StitchCodexPalette.textPrimary,
+            fontFamily: StitchTypography.display,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 1.2,
           ),
         ),
-        centerTitle: true,
       ),
       bottomNavigationBar: SafeArea(
         minimum: const EdgeInsets.fromLTRB(18, 8, 18, 18),
@@ -74,29 +78,22 @@ class _ClassProgressionScreenState extends State<ClassProgressionScreen> {
             onPressed: () => Navigator.pop(context, widget.cls.index),
             icon: const Icon(Icons.arrow_forward_rounded),
             label: const Text('Continue'),
-            style: FilledButton.styleFrom(
-              backgroundColor: _progressAccent,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              textStyle: const TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: 16,
-              ),
-            ),
+            style: stitchCodexPrimaryButtonStyle(),
           ),
         ),
       ),
-      body: loading
-          ? const Center(child: CircularProgressIndicator(color: _progressBlue))
-          : hasLevels
-              ? _ProgressionTableView(
-                  cls: widget.cls,
-                  levels: levels!,
-                )
-              : _NoLevelsMessage(className: widget.cls.name),
+      body: StitchCodexBackground(
+        child: loading
+            ? const Center(
+                child: CircularProgressIndicator(color: _progressBlue),
+              )
+            : hasLevels
+                ? _ProgressionTableView(
+                    cls: widget.cls,
+                    levels: levels!,
+                  )
+                : _NoLevelsMessage(className: widget.cls.name),
+      ),
     );
   }
 }
@@ -182,8 +179,10 @@ class _ClassTableHeader extends StatelessWidget {
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: _progressSurface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: _progressBorder.withOpacity(0.55)),
+        borderRadius: BorderRadius.circular(2),
+        border: Border.all(
+          color: _progressBorder.withValues(alpha: 0.55),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -191,9 +190,10 @@ class _ClassTableHeader extends StatelessWidget {
           Text(
             'The ${cls.name}',
             style: const TextStyle(
-              color: Colors.white,
+              color: StitchCodexPalette.textPrimary,
+              fontFamily: StitchTypography.display,
               fontSize: 28,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w600,
               height: 1.05,
             ),
           ),
@@ -202,8 +202,10 @@ class _ClassTableHeader extends StatelessWidget {
             hasSpellcasting
                 ? 'Class features, proficiency growth, and spellcasting in one table.'
                 : 'Class features and proficiency growth in one table.',
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.68),
+            style: const TextStyle(
+              color: StitchCodexPalette.textMuted,
+              fontFamily: StitchTypography.body,
+              fontSize: 15,
               height: 1.4,
             ),
           ),
@@ -241,16 +243,19 @@ class _InfoPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: _progressBlue.withOpacity(0.10),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: _progressBlue.withOpacity(0.18)),
+        color: _progressBlue.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(2),
+        border: Border.all(
+          color: _progressBlue.withValues(alpha: 0.28),
+        ),
       ),
       child: Text(
         '$label: $value',
         style: const TextStyle(
-          color: Color(0xFFBBDFFF),
-          fontSize: 12,
-          fontWeight: FontWeight.w800,
+          color: StitchCodexPalette.bronze,
+          fontFamily: StitchTypography.data,
+          fontSize: 9,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
@@ -267,18 +272,20 @@ class _TableShell extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: _progressSurface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: _progressBorder.withOpacity(0.60)),
+        borderRadius: BorderRadius.circular(2),
+        border: Border.all(
+          color: _progressBorder.withValues(alpha: 0.60),
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.18),
+            color: Colors.black.withValues(alpha: 0.18),
             blurRadius: 20,
             offset: const Offset(0, 10),
           ),
         ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(2),
         child: child,
       ),
     );
@@ -407,9 +414,10 @@ class _ProgressionTable extends StatelessWidget {
           child: const Text(
             'Spell Slots per Spell Level',
             style: TextStyle(
-              color: Colors.white,
+              color: StitchCodexPalette.textPrimary,
+              fontFamily: StitchTypography.data,
               fontSize: 13,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ),
@@ -431,9 +439,10 @@ class _ProgressionTable extends StatelessWidget {
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
-              color: Colors.white,
+              color: StitchCodexPalette.textPrimary,
+              fontFamily: StitchTypography.data,
               fontSize: 12,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w700,
               height: 1.08,
             ),
           ),
@@ -458,7 +467,7 @@ class _ProgressionTable extends StatelessWidget {
           width: column.width,
           height: rowHeight,
           color: color,
-          borderColor: _progressBorder.withOpacity(0.42),
+          borderColor: _progressBorder.withValues(alpha: 0.42),
           alignment: isFeatures ? Alignment.centerLeft : Alignment.center,
           child: Text(
             column.value(level),
@@ -466,9 +475,14 @@ class _ProgressionTable extends StatelessWidget {
             maxLines: isFeatures ? 2 : 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: Colors.white.withOpacity(isFeatures ? 0.88 : 0.82),
+              color: isFeatures
+                  ? StitchCodexPalette.textSecondary
+                  : StitchCodexPalette.textPrimary,
+              fontFamily: isFeatures
+                  ? StitchTypography.body
+                  : StitchTypography.data,
               fontSize: isFeatures ? 13 : 14,
-              fontWeight: isFeatures ? FontWeight.w600 : FontWeight.w700,
+              fontWeight: isFeatures ? FontWeight.w400 : FontWeight.w700,
               height: 1.25,
             ),
           ),
@@ -586,8 +600,10 @@ class _NoLevelsMessage extends StatelessWidget {
           padding: const EdgeInsets.all(22),
           decoration: BoxDecoration(
             color: _progressSurface,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: _progressBorder.withOpacity(0.55)),
+            borderRadius: BorderRadius.circular(2),
+            border: Border.all(
+              color: _progressBorder.withValues(alpha: 0.55),
+            ),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -596,12 +612,14 @@ class _NoLevelsMessage extends StatelessWidget {
                 width: 64,
                 height: 64,
                 decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: _progressBlue.withOpacity(0.10),
+                  color: _progressBlue.withValues(alpha: 0.10),
+                  border: Border.all(
+                    color: _progressBlue.withValues(alpha: 0.30),
+                  ),
                 ),
                 child: const Icon(
                   Icons.info_outline_rounded,
-                  color: Color(0xFF8FD2FF),
+                  color: StitchCodexPalette.bronze,
                   size: 34,
                 ),
               ),
@@ -610,17 +628,20 @@ class _NoLevelsMessage extends StatelessWidget {
                 'No progression table for $className',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                  color: Colors.white,
+                  color: StitchCodexPalette.textPrimary,
+                  fontFamily: StitchTypography.display,
                   fontSize: 20,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               const SizedBox(height: 10),
               Text(
                 'You can continue normally. This class does not have level progression data in the current dataset.',
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.66),
+                style: const TextStyle(
+                  color: StitchCodexPalette.textMuted,
+                  fontFamily: StitchTypography.body,
+                  fontSize: 15,
                   height: 1.4,
                 ),
               ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:stitch_app/theme.dart';
 
 class CharacterSheetMetaChip extends StatelessWidget {
   final String label;
@@ -13,18 +14,19 @@ class CharacterSheetMetaChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.deepPurpleAccent.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(999),
+        color: StitchCodexPalette.bronze.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(
-          color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
+          color: StitchCodexPalette.bronze.withValues(alpha: 0.30),
         ),
       ),
       child: Text(
         label,
         style: const TextStyle(
-          color: Colors.white,
+          color: StitchCodexPalette.textSecondary,
+          fontFamily: StitchTypography.data,
           fontSize: 11,
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:stitch_app/theme.dart';
+import 'package:stitch_app/widgets/stitch_codex_ui.dart';
 
 class CharacterHpPanel extends StatelessWidget {
   final int currentHp;
@@ -33,24 +35,13 @@ class CharacterHpPanel extends StatelessWidget {
       currentHp: safeCurrentHp,
     );
 
-    return Container(
+    return ConstrainedBox(
       constraints: const BoxConstraints(minHeight: 156),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: status.color.withValues(alpha: 0.38),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: status.color.withValues(alpha: 0.08),
-            blurRadius: 16,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Column(
+      child: StitchCodexPanel(
+        emphasized: true,
+        accent: status.color,
+        padding: const EdgeInsets.all(12),
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
@@ -68,9 +59,10 @@ class CharacterHpPanel extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: status.color,
+                        fontFamily: StitchTypography.data,
                         fontSize: 11,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.6,
                       ),
                     ),
                     const SizedBox(height: 3),
@@ -79,9 +71,10 @@ class CharacterHpPanel extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: Colors.white70,
+                        color: StitchCodexPalette.textMuted,
+                        fontFamily: StitchTypography.body,
                         fontSize: 12,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
@@ -91,9 +84,10 @@ class CharacterHpPanel extends StatelessWidget {
               Text(
                 '$safeCurrentHp / $safeMaxHp',
                 style: TextStyle(
-                  color: Colors.white,
+                  color: StitchCodexPalette.textPrimary,
+                  fontFamily: StitchTypography.data,
                   fontSize: isLargeTablet ? 24 : 22,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                   height: 1,
                 ),
               ),
@@ -101,11 +95,12 @@ class CharacterHpPanel extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           ClipRRect(
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: BorderRadius.circular(2),
             child: LinearProgressIndicator(
               value: hpPercent.clamp(0.0, 1.0),
               minHeight: 10,
-              backgroundColor: Colors.white.withValues(alpha: 0.08),
+              backgroundColor:
+                  StitchCodexPalette.textFaint.withValues(alpha: 0.42),
               valueColor: AlwaysStoppedAnimation<Color>(status.color),
             ),
           ),
@@ -123,7 +118,8 @@ class CharacterHpPanel extends StatelessWidget {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.68),
+                    color: StitchCodexPalette.textMuted,
+                    fontFamily: StitchTypography.body,
                     fontSize: 11,
                     height: 1.25,
                     fontWeight: FontWeight.w600,
@@ -149,20 +145,21 @@ class CharacterHpPanel extends StatelessWidget {
               icon: const Icon(Icons.hotel_outlined, size: 15),
               label: const Text('Long Rest'),
               style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.white,
+                foregroundColor: StitchCodexPalette.textSecondary,
                 side: BorderSide(
-                  color: Colors.deepPurpleAccent.withValues(alpha: 0.28),
+                  color: StitchCodexPalette.bronze.withValues(alpha: 0.32),
                 ),
                 padding: const EdgeInsets.symmetric(horizontal: 10),
                 minimumSize: const Size(0, 32),
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(2),
                 ),
               ),
             ),
           ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -184,26 +181,28 @@ class _TempHpStrip extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(2),
         onTap: onSetTempHp,
         child: Ink(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: BoxDecoration(
             color: hasTempHp
-                ? Colors.lightBlueAccent.withValues(alpha: 0.12)
-                : Colors.white.withValues(alpha: 0.04),
-            borderRadius: BorderRadius.circular(8),
+                ? StitchCodexPalette.bronze.withValues(alpha: 0.10)
+                : StitchCodexPalette.surface.withValues(alpha: 0.68),
+            borderRadius: BorderRadius.circular(2),
             border: Border.all(
               color: hasTempHp
-                  ? Colors.lightBlueAccent.withValues(alpha: 0.30)
-                  : Colors.white.withValues(alpha: 0.08),
+                  ? StitchCodexPalette.bronze.withValues(alpha: 0.30)
+                  : StitchCodexPalette.bronze.withValues(alpha: 0.12),
             ),
           ),
           child: Row(
             children: [
               Icon(
                 Icons.add_moderator_outlined,
-                color: hasTempHp ? Colors.lightBlueAccent : Colors.white54,
+                color: hasTempHp
+                    ? StitchCodexPalette.bronze
+                    : StitchCodexPalette.textMuted,
                 size: 17,
               ),
               const SizedBox(width: 8),
@@ -211,7 +210,8 @@ class _TempHpStrip extends StatelessWidget {
                 child: Text(
                   'Temporary HP',
                   style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.78),
+                    color: StitchCodexPalette.textSecondary,
+                    fontFamily: StitchTypography.body,
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                   ),
@@ -220,16 +220,19 @@ class _TempHpStrip extends StatelessWidget {
               Text(
                 '$tempHp',
                 style: TextStyle(
-                  color: hasTempHp ? Colors.lightBlueAccent : Colors.white70,
+                  color: hasTempHp
+                      ? StitchCodexPalette.bronze
+                      : StitchCodexPalette.textMuted,
+                  fontFamily: StitchTypography.data,
                   fontSize: 15,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                   height: 1,
                 ),
               ),
               const SizedBox(width: 6),
               const Icon(
                 Icons.edit_outlined,
-                color: Colors.white38,
+                color: StitchCodexPalette.textFaint,
                 size: 14,
               ),
             ],

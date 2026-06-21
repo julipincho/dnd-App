@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../utils/image_path_utils.dart';
+import '../theme.dart';
+import 'campaign_codex_ui.dart';
 import 'compendium_aware_text_field.dart';
 
 class SessionDraft {
@@ -138,6 +139,7 @@ class _SessionComposerSheetState extends State<SessionComposerSheet> {
   @override
   Widget build(BuildContext context) {
     final canSubmit = _titleController.text.trim().isNotEmpty && !_isSaving;
+    final tokens = context.stitch;
 
     return SafeArea(
       child: Padding(
@@ -151,133 +153,101 @@ class _SessionComposerSheetState extends State<SessionComposerSheet> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 680),
             child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      CircleAvatar(
-                        backgroundColor:
-                            Theme.of(context).colorScheme.primaryContainer,
-                        child: const Icon(Icons.auto_stories_outlined),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          widget.title,
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                      ),
-                      IconButton(
+              child: CampaignCodexFrame(
+                accentColor: tokens.accentRead,
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    CampaignCodexHeader(
+                      icon: Icons.auto_stories_outlined,
+                      title: widget.title,
+                      subtitle: _formatDate(_selectedDate),
+                      accentColor: tokens.accentRead,
+                      trailing: IconButton(
                         onPressed: _isSaving
                             ? null
                             : () => Navigator.of(context).pop(),
                         icon: const Icon(Icons.close),
                         tooltip: 'Close',
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: _titleController,
-                    textInputAction: TextInputAction.next,
-                    decoration: InputDecoration(
-                      labelText: 'Session title',
-                      hintText: 'Session 1 - The Broken Gate',
-                      border: const OutlineInputBorder(),
-                      errorText:
-                          _showTitleError ? 'Give this session a title.' : null,
                     ),
-                    onChanged: (_) => setState(() {}),
-                  ),
-                  const SizedBox(height: 12),
-                  OutlinedButton.icon(
-                    onPressed: _isSaving ? null : _pickDate,
-                    icon: const Icon(Icons.calendar_month_outlined),
-                    label: Text(_formatDate(_selectedDate)),
-                  ),
-                  const SizedBox(height: 12),
-                  CompendiumAwareTextField(
-                    controller: _notesController,
-                    campaignId: widget.campaignId,
-                    decoration: const InputDecoration(
-                      labelText: 'Initial notes',
-                      hintText: 'What happened at the table?',
-                      border: OutlineInputBorder(),
-                    ),
-                    minLines: 8,
-                    maxLines: 14,
-                    keyboardType: TextInputType.multiline,
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: _isSaving ? null : _pickImage,
-                          icon: const Icon(Icons.image_outlined),
-                          label: Text(
-                            _selectedImagePath == null
-                                ? 'Attach cover'
-                                : 'Change cover',
-                          ),
-                        ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _titleController,
+                      textInputAction: TextInputAction.next,
+                      decoration: campaignCodexInputDecoration(
+                        context,
+                        labelText: 'Session title',
+                        hintText: 'Session 1 - The Broken Gate',
+                        errorText: _showTitleError
+                            ? 'Give this session a title.'
+                            : null,
                       ),
-                      if (_selectedImagePath != null) ...[
-                        const SizedBox(width: 8),
-                        IconButton(
+                      onChanged: (_) => setState(() {}),
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: _isSaving ? null : _pickDate,
+                      icon: const Icon(Icons.calendar_month_outlined),
+                      label: Text(_formatDate(_selectedDate)),
+                    ),
+                    const SizedBox(height: 12),
+                    CompendiumAwareTextField(
+                      controller: _notesController,
+                      campaignId: widget.campaignId,
+                      decoration: campaignCodexInputDecoration(
+                        context,
+                        labelText: 'Initial notes',
+                        hintText: 'What happened at the table?',
+                      ),
+                      minLines: 8,
+                      maxLines: 14,
+                      keyboardType: TextInputType.multiline,
+                    ),
+                    const SizedBox(height: 16),
+                    CampaignCodexImageAttachment(
+                      imagePath: _selectedImagePath,
+                      emptyLabel: 'Attach cover',
+                      filledLabel: 'Change cover',
+                      enabled: !_isSaving,
+                      previewHeight: 190,
+                      onPickImage: _pickImage,
+                      onRemoveImage: () {
+                        setState(() {
+                          _selectedImagePath = null;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
                           onPressed: _isSaving
                               ? null
-                              : () {
-                                  setState(() {
-                                    _selectedImagePath = null;
-                                  });
-                                },
-                          icon: const Icon(Icons.close),
-                          tooltip: 'Remove cover',
+                              : () => Navigator.of(context).pop(),
+                          child: const Text('Cancel'),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton.icon(
+                          onPressed: canSubmit ? _submit : null,
+                          icon: _isSaving
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.add),
+                          label:
+                              Text(_isSaving ? 'Saving' : widget.actionLabel),
                         ),
                       ],
-                    ],
-                  ),
-                  if (_selectedImagePath != null) ...[
-                    const SizedBox(height: 12),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: buildImageFromPath(
-                        _selectedImagePath!,
-                        width: double.infinity,
-                        height: 190,
-                        fit: BoxFit.cover,
-                      ),
                     ),
                   ],
-                  const SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      TextButton(
-                        onPressed: _isSaving
-                            ? null
-                            : () => Navigator.of(context).pop(),
-                        child: const Text('Cancel'),
-                      ),
-                      const SizedBox(width: 8),
-                      FilledButton.icon(
-                        onPressed: canSubmit ? _submit : null,
-                        icon: _isSaving
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Icon(Icons.add),
-                        label: Text(_isSaving ? 'Saving' : widget.actionLabel),
-                      ),
-                    ],
-                  ),
-                ],
+                ),
               ),
             ),
           ),

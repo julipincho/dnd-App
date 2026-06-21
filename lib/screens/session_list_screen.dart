@@ -12,10 +12,12 @@ import '../providers/app_role_provider.dart';
 import '../providers/campaign_provider.dart';
 import '../providers/compendium_provider.dart';
 import '../providers/session_provider.dart';
+import '../theme.dart';
 import '../models/session.dart';
 import '../services/supabase_storage_service.dart';
 import '../utils/compendium_linking.dart';
 import '../utils/image_path_utils.dart';
+import '../widgets/campaign_codex_ui.dart';
 import '../widgets/compendium_mention_chips.dart';
 import '../widgets/session_composer_sheet.dart';
 
@@ -106,118 +108,29 @@ class _SessionListScreenState extends State<SessionListScreen> {
               itemBuilder: (context, index) {
                 final session = sessions[index];
 
-                final hasImage = hasDisplayableImagePath(session.imagePath);
                 final mentionText = _buildMentionText(session);
                 final mentionCount = CompendiumLinking.mentionedEntries(
                   text: mentionText,
                   entries: compendiumEntries,
                 ).length;
 
-                return Card(
-                  clipBehavior: Clip.antiAlias,
-                  child: InkWell(
-                    onTap: () {
-                      context.push(
-                        '/session-detail',
-                        extra: session,
-                      );
-                    },
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (hasImage)
-                          buildImageFromPath(
-                            session.imagePath!,
-                            width: double.infinity,
-                            height: 160,
-                            fit: BoxFit.cover,
-                          ),
-                        ListTile(
-                          contentPadding: const EdgeInsets.all(16),
-                          leading: !hasImage
-                              ? const CircleAvatar(
-                                  child: Icon(Icons.auto_stories_outlined),
-                                )
-                              : null,
-                          title: Text(
-                            session.title,
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          subtitle: Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  children: [
-                                    Chip(
-                                      avatar: const Icon(
-                                        Icons.auto_stories_outlined,
-                                        size: 16,
-                                      ),
-                                      label: Text('Chapter ${index + 1}'),
-                                      visualDensity: VisualDensity.compact,
-                                    ),
-                                    if (mentionCount > 0)
-                                      Chip(
-                                        avatar: const Icon(
-                                          Icons.link,
-                                          size: 16,
-                                        ),
-                                        label: Text(
-                                          '$mentionCount linked mention${mentionCount == 1 ? '' : 's'}',
-                                        ),
-                                        visualDensity: VisualDensity.compact,
-                                      ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  _formatDate(session.date),
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  _buildPreviewText(session),
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                if (mentionCount > 0) ...[
-                                  const SizedBox(height: 10),
-                                  CompendiumMentionChips(
-                                    text: mentionText,
-                                    campaignId: activeCampaign.id,
-                                    maxItems: 4,
-                                    showUnresolved: canManageSessions,
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                          trailing: canManageSessions
-                              ? PopupMenuButton<String>(
-                                  onSelected: (value) async {
-                                    if (value == 'delete') {
-                                      await _confirmDeleteSession(
-                                        context,
-                                        session,
-                                      );
-                                    }
-                                  },
-                                  itemBuilder: (context) => const [
-                                    PopupMenuItem(
-                                      value: 'delete',
-                                      child: Text('Delete'),
-                                    ),
-                                  ],
-                                )
-                              : null,
-                        ),
-                      ],
-                    ),
-                  ),
+                return _SessionChronicleCard(
+                  session: session,
+                  chapterNumber: index + 1,
+                  campaignId: activeCampaign.id,
+                  mentionText: mentionText,
+                  mentionCount: mentionCount,
+                  canManageSessions: canManageSessions,
+                  showUnresolvedMentions: canManageSessions,
+                  previewText: _buildPreviewText(session),
+                  formattedDate: _formatDate(session.date),
+                  onOpen: () {
+                    context.push(
+                      '/session-detail',
+                      extra: session,
+                    );
+                  },
+                  onDelete: () => _confirmDeleteSession(context, session),
                 );
               },
             ),
@@ -417,36 +330,199 @@ class _EmptySessionsState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.auto_stories_outlined,
-              size: 48,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'No sessions yet',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Sessions are the anchor points for notes, events and the shared timeline.',
-              textAlign: TextAlign.center,
-            ),
-            if (canManageSessions) ...[
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: onCreateSession,
-                icon: const Icon(Icons.add),
-                label: const Text('Create first session'),
+        child: CampaignCodexFrame(
+          accentColor: tokens.accentRead,
+          padding: const EdgeInsets.all(18),
+          backgroundColor: tokens.panel,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CampaignCodexIconBadge(
+                icon: Icons.auto_stories_outlined,
+                accentColor: tokens.accentReadSoft,
+                size: 46,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'No sessions yet',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Sessions are the anchor points for notes, events and the shared timeline.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: tokens.textSecondary,
+                    ),
+              ),
+              if (canManageSessions) ...[
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: onCreateSession,
+                  icon: const Icon(Icons.add),
+                  label: const Text('Create first session'),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SessionChronicleCard extends StatelessWidget {
+  final Session session;
+  final int chapterNumber;
+  final String campaignId;
+  final String mentionText;
+  final int mentionCount;
+  final bool canManageSessions;
+  final bool showUnresolvedMentions;
+  final String previewText;
+  final String formattedDate;
+  final VoidCallback onOpen;
+  final Future<void> Function() onDelete;
+
+  const _SessionChronicleCard({
+    required this.session,
+    required this.chapterNumber,
+    required this.campaignId,
+    required this.mentionText,
+    required this.mentionCount,
+    required this.canManageSessions,
+    required this.showUnresolvedMentions,
+    required this.previewText,
+    required this.formattedDate,
+    required this.onOpen,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final hasImage = hasDisplayableImagePath(session.imagePath);
+    final title = session.title.isEmpty ? 'Untitled session' : session.title;
+
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(tokens.radiusMd),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onOpen,
+        child: CampaignCodexFrame(
+          accentColor: tokens.accentRead,
+          padding: EdgeInsets.zero,
+          backgroundColor: tokens.panel,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (hasImage)
+                buildImageFromPath(
+                  session.imagePath!,
+                  width: double.infinity,
+                  height: 148,
+                  fit: BoxFit.cover,
+                ),
+              Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (!hasImage) ...[
+                          CampaignCodexIconBadge(
+                            icon: Icons.auto_stories_outlined,
+                            accentColor: tokens.accentReadSoft,
+                          ),
+                          const SizedBox(width: 10),
+                        ],
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleMedium
+                                    ?.copyWith(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                              ),
+                              const SizedBox(height: 7),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  CampaignCodexBadge(
+                                    icon: Icons.flag_outlined,
+                                    label: 'Chapter $chapterNumber',
+                                  ),
+                                  CampaignCodexBadge(
+                                    icon: Icons.calendar_today_outlined,
+                                    label: formattedDate,
+                                  ),
+                                  if (mentionCount > 0)
+                                    CampaignCodexBadge(
+                                      icon: Icons.link,
+                                      label: '$mentionCount link'
+                                          '${mentionCount == 1 ? '' : 's'}',
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (canManageSessions)
+                          PopupMenuButton<String>(
+                            tooltip: 'Session actions',
+                            onSelected: (value) async {
+                              if (value == 'delete') {
+                                await onDelete();
+                              }
+                            },
+                            itemBuilder: (context) => const [
+                              PopupMenuItem(
+                                value: 'delete',
+                                child: Text('Delete'),
+                              ),
+                            ],
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      previewText,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: tokens.textSecondary,
+                          ),
+                    ),
+                    if (mentionCount > 0) ...[
+                      const SizedBox(height: 12),
+                      CompendiumMentionChips(
+                        text: mentionText,
+                        campaignId: campaignId,
+                        maxItems: 4,
+                        showUnresolved: showUnresolvedMentions,
+                      ),
+                    ],
+                  ],
+                ),
               ),
             ],
-          ],
+          ),
         ),
       ),
     );

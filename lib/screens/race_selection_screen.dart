@@ -6,15 +6,17 @@ import 'package:go_router/go_router.dart';
 
 import '../models/dnd_race.dart';
 import '../services/dnd_data_service.dart';
+import '../theme.dart';
+import '../widgets/stitch_codex_ui.dart';
 
-const Color _raceBg = Color(0xFF1E1E22);
-const Color _raceAppBar = Color(0xFF121214);
-const Color _raceSurface = Color(0xFF17181F);
-const Color _raceSurfaceAlt = Color(0xFF24243A);
-const Color _raceImageBg = Color(0xFF101116);
-const Color _raceBorder = Color(0xFF4D4F72);
-const Color _raceAccent = Color(0xFF7C4DFF);
-const Color _raceBlue = Color(0xFF4DA8FF);
+const Color _raceBg = StitchCodexPalette.ground;
+const Color _raceAppBar = StitchCodexPalette.ground;
+const Color _raceSurface = StitchCodexPalette.surfaceMuted;
+const Color _raceSurfaceAlt = StitchCodexPalette.surfaceRaised;
+const Color _raceImageBg = StitchCodexPalette.surface;
+const Color _raceBorder = StitchCodexPalette.bronzeMuted;
+const Color _raceAccent = StitchCodexPalette.crimson;
+const Color _raceBlue = StitchCodexPalette.bronze;
 
 class RaceSelectionScreen extends StatefulWidget {
   const RaceSelectionScreen({super.key});
@@ -38,125 +40,129 @@ class _RaceSelectionScreenState extends State<RaceSelectionScreen> {
     return Scaffold(
       backgroundColor: _raceBg,
       appBar: StitchAppBar(
+        showBrand: false,
         backgroundColor: _raceAppBar,
         elevation: 0,
         title: const Text(
-          'Choose Race',
+          'CHOOSE RACE',
           style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w800,
+            color: StitchCodexPalette.textPrimary,
+            fontFamily: StitchTypography.display,
+            fontWeight: FontWeight.w600,
+            fontSize: 16,
+            letterSpacing: 1.4,
           ),
         ),
-        centerTitle: true,
       ),
-      body: SafeArea(
-        child: FutureBuilder<List<DndRace>>(
-          future: _futureRaces,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(
-                child: CircularProgressIndicator(color: _raceAccent),
-              );
-            }
+      body: StitchCodexBackground(
+        child: SafeArea(
+          child: FutureBuilder<List<DndRace>>(
+            future: _futureRaces,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(
+                  child: CircularProgressIndicator(color: _raceAccent),
+                );
+              }
 
-            if (snapshot.hasError) {
-              return const Center(
-                child: Text(
-                  'Error loading races',
-                  style: TextStyle(color: Colors.redAccent),
-                ),
-              );
-            }
-
-            final races = snapshot.data ?? [];
-            final filtered = races.where((race) {
-              final query = _search.trim().toLowerCase();
-              if (query.isEmpty) return true;
-              return race.name.toLowerCase().contains(query) ||
-                  race.subraces.any(
-                    (subrace) => subrace.name.toLowerCase().contains(query),
-                  );
-            }).toList();
-
-            return CustomScrollView(
-              slivers: [
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 12),
-                  sliver: SliverToBoxAdapter(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Pick your ancestry',
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.70),
-                            fontSize: 14,
-                            height: 1.35,
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        _RaceSearchField(
-                          onChanged: (value) {
-                            setState(() => _search = value);
-                          },
-                        ),
-                      ],
-                    ),
+              if (snapshot.hasError) {
+                return const Center(
+                  child: Text(
+                    'Error loading races',
+                    style: TextStyle(color: Colors.redAccent),
                   ),
-                ),
-                if (filtered.isEmpty)
-                  SliverFillRemaining(
-                    hasScrollBody: false,
-                    child: Center(
-                      child: Text(
-                        'No races found.',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.70),
-                          fontSize: 15,
-                        ),
+                );
+              }
+
+              final races = snapshot.data ?? [];
+              final filtered = races.where((race) {
+                final query = _search.trim().toLowerCase();
+                if (query.isEmpty) return true;
+                return race.name.toLowerCase().contains(query) ||
+                    race.subraces.any(
+                      (subrace) => subrace.name.toLowerCase().contains(query),
+                    );
+              }).toList();
+
+              return CustomScrollView(
+                slivers: [
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(18, 18, 18, 12),
+                    sliver: SliverToBoxAdapter(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const StitchCodexPageHeader(
+                            eyebrow: 'STEP 01 · LINEAGE',
+                            title: 'Pick your ancestry',
+                            subtitle:
+                                'Choose the people, heritage, and traits that shaped your hero.',
+                          ),
+                          const SizedBox(height: 18),
+                          _RaceSearchField(
+                            onChanged: (value) {
+                              setState(() => _search = value);
+                            },
+                          ),
+                        ],
                       ),
                     ),
-                  )
-                else
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
-                    sliver: SliverLayoutBuilder(
-                      builder: (context, constraints) {
-                        final width = constraints.crossAxisExtent;
-                        final columns = width >= 920
-                            ? 4
-                            : width >= 660
-                                ? 3
-                                : 2;
-
-                        return SliverGrid(
-                          delegate: SliverChildBuilderDelegate(
-                            (context, index) {
-                              final race = filtered[index];
-                              return _RaceCard(
-                                race: race,
-                                imageLoader: () => _raceImage(race),
-                                onTap: () {
-                                  context.push('/race-detail', extra: race);
-                                },
-                              );
-                            },
-                            childCount: filtered.length,
-                          ),
-                          gridDelegate:
-                              SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: columns,
-                            mainAxisSpacing: 16,
-                            crossAxisSpacing: 16,
-                            childAspectRatio: columns == 2 ? 0.68 : 0.72,
-                          ),
-                        );
-                      },
-                    ),
                   ),
-              ],
-            );
-          },
+                  if (filtered.isEmpty)
+                    SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: Center(
+                        child: Text(
+                          'No races found.',
+                          style: const TextStyle(
+                            color: StitchCodexPalette.textMuted,
+                            fontFamily: StitchTypography.body,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
+                      sliver: SliverLayoutBuilder(
+                        builder: (context, constraints) {
+                          final width = constraints.crossAxisExtent;
+                          final columns = width >= 920
+                              ? 4
+                              : width >= 660
+                                  ? 3
+                                  : 2;
+
+                          return SliverGrid(
+                            delegate: SliverChildBuilderDelegate(
+                              (context, index) {
+                                final race = filtered[index];
+                                return _RaceCard(
+                                  race: race,
+                                  imageLoader: () => _raceImage(race),
+                                  onTap: () {
+                                    context.push('/race-detail', extra: race);
+                                  },
+                                );
+                              },
+                              childCount: filtered.length,
+                            ),
+                            gridDelegate:
+                                SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: columns,
+                              mainAxisSpacing: 16,
+                              crossAxisSpacing: 16,
+                              childAspectRatio: columns == 2 ? 0.68 : 0.72,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
         ),
       ),
     );
@@ -191,29 +197,12 @@ class _RaceSearchField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return TextField(
-      style: const TextStyle(color: Colors.white),
-      cursorColor: _raceBlue,
-      decoration: InputDecoration(
-        hintText: 'Search race or subrace...',
-        hintStyle: TextStyle(color: Colors.white.withOpacity(0.54)),
-        prefixIcon: Icon(
-          Icons.search_rounded,
-          color: Colors.white.withOpacity(0.72),
-        ),
-        filled: true,
-        fillColor: _raceSurface,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 18,
-          vertical: 15,
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(18),
-          borderSide: BorderSide(color: Colors.white.withOpacity(0.08)),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(18),
-          borderSide: const BorderSide(color: _raceBlue),
-        ),
+      style: stitchCodexFieldTextStyle,
+      cursorColor: StitchCodexPalette.bronze,
+      decoration: stitchCodexInputDecoration(
+        labelText: 'Search lineage',
+        hintText: 'Race or subrace...',
+        prefixIcon: Icons.search_rounded,
       ),
       onChanged: onChanged,
     );
@@ -236,23 +225,25 @@ class _RaceCard extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(2),
         onTap: onTap,
         child: Ink(
           decoration: BoxDecoration(
             color: _raceSurface,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: _raceBorder.withOpacity(0.70)),
+            borderRadius: BorderRadius.circular(2),
+            border: Border.all(
+              color: _raceBorder.withValues(alpha: 0.42),
+            ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.18),
+                color: Colors.black.withValues(alpha: 0.24),
                 blurRadius: 16,
                 offset: const Offset(0, 8),
               ),
             ],
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(2),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -278,9 +269,10 @@ class _RaceCard extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
+                          color: StitchCodexPalette.textPrimary,
+                          fontFamily: StitchTypography.display,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
                           height: 1.1,
                         ),
                       ),
@@ -332,8 +324,8 @@ class _RaceImageFrame extends StatelessWidget {
                 end: Alignment.bottomCenter,
                 colors: [
                   Colors.transparent,
-                  Colors.black.withOpacity(0.18),
-                  Colors.black.withOpacity(0.54),
+                  Colors.black.withValues(alpha: 0.18),
+                  Colors.black.withValues(alpha: 0.62),
                 ],
                 stops: const [0.45, 0.72, 1],
               ),
@@ -369,12 +361,12 @@ class _RacePlaceholder extends StatelessWidget {
           height: 68,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: _raceBlue.withOpacity(0.10),
-            border: Border.all(color: _raceBlue.withOpacity(0.18)),
+            color: _raceBlue.withValues(alpha: 0.10),
+            border: Border.all(color: _raceBlue.withValues(alpha: 0.24)),
           ),
           child: Icon(
             _iconForRace(raceName),
-            color: const Color(0xFF8FD2FF),
+            color: StitchCodexPalette.bronze,
             size: 34,
           ),
         ),
@@ -409,10 +401,12 @@ class _SubraceTags extends StatelessWidget {
         'No subraces',
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          color: Colors.white.withOpacity(0.52),
-          fontSize: 12,
+        style: const TextStyle(
+          color: StitchCodexPalette.textFaint,
+          fontFamily: StitchTypography.data,
+          fontSize: 9,
           fontWeight: FontWeight.w600,
+          letterSpacing: 0.6,
         ),
       );
     }
@@ -455,18 +449,20 @@ class _RaceTag extends StatelessWidget {
       constraints: const BoxConstraints(maxWidth: 112),
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
-        color: _raceBlue.withOpacity(0.10),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: _raceBlue.withOpacity(0.18)),
+        color: _raceBlue.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(2),
+        border: Border.all(color: _raceBlue.withValues(alpha: 0.28)),
       ),
       child: Text(
         label,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: const TextStyle(
-          color: Color(0xFFBBDFFF),
-          fontSize: 11,
+          color: StitchCodexPalette.bronze,
+          fontFamily: StitchTypography.data,
+          fontSize: 8,
           fontWeight: FontWeight.w700,
+          letterSpacing: 0.5,
         ),
       ),
     );

@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
-
-import '../widgets/stitch_navigation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../models/character.dart';
 import '../providers/auth_provider.dart';
 import '../providers/character_provider.dart';
+import '../theme.dart';
 import '../utils/image_path_utils.dart';
+import '../widgets/stitch_codex_ui.dart';
+import '../widgets/stitch_navigation.dart';
 
 class MainHomeScreen extends StatefulWidget {
   const MainHomeScreen({super.key});
@@ -21,40 +22,44 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final userId = context.read<AuthProvider>().userId;
-      if (userId == null) return;
-
-      context.read<CharacterProvider>().loadCharacters(userId);
+      if (!mounted) return;
+      _reloadCharacters();
     });
   }
 
-  Future<bool> _confirmDelete(BuildContext context, Character c) async {
+  Future<void> _reloadCharacters() async {
+    final userId = context.read<AuthProvider>().userId;
+    if (userId == null) return;
+    await context.read<CharacterProvider>().loadCharacters(userId);
+  }
+
+  Future<bool> _confirmDelete(Character character) async {
     return await showDialog<bool>(
           context: context,
-          builder: (context) => AlertDialog(
-            backgroundColor: const Color(0xFF1E1E22),
+          builder: (dialogContext) => AlertDialog(
+            backgroundColor: StitchCodexPalette.surface,
+            shape: stitchCodexDialogShape(),
             title: const Text(
-              "Delete Character",
-              style: TextStyle(color: Colors.white),
+              'Delete Character',
+              style: stitchCodexDialogTitleStyle,
             ),
             content: Text(
-              "Are you sure you want to delete '${c.name}'?",
-              style: const TextStyle(color: Colors.white70),
+              'Remove “${character.name}” from the archive? This cannot be undone.',
+              style: const TextStyle(
+                color: StitchCodexPalette.textMuted,
+                fontFamily: StitchTypography.body,
+                fontSize: 15,
+              ),
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text(
-                  "Cancel",
-                  style: TextStyle(color: Colors.grey),
-                ),
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel'),
               ),
-              TextButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text(
-                  "Delete",
-                  style: TextStyle(color: Colors.red),
-                ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                style: stitchCodexPrimaryButtonStyle(),
+                child: const Text('Delete'),
               ),
             ],
           ),
@@ -68,148 +73,213 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
     final characters = provider.characters;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF1E1E22),
+      backgroundColor: StitchCodexPalette.ground,
       appBar: StitchAppBar(
-        backgroundColor: const Color(0xFF121214),
-        elevation: 4,
+        showBrand: false,
+        backgroundColor: StitchCodexPalette.ground,
         title: const Text(
-          "My Characters & Campaigns",
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          'CHARACTER ARCHIVE',
+          style: TextStyle(
+            color: StitchCodexPalette.textPrimary,
+            fontFamily: StitchTypography.display,
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 1.25,
+          ),
         ),
-        centerTitle: true,
       ),
-      body: RefreshIndicator(
-        onRefresh: () async {
-          final userId = context.read<AuthProvider>().userId;
-          if (userId == null) return;
-
-          await provider.loadCharacters(userId);
-        },
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.deepPurpleAccent,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
+      body: StitchCodexBackground(
+        child: RefreshIndicator(
+          color: StitchCodexPalette.bronze,
+          backgroundColor: StitchCodexPalette.surfaceRaised,
+          onRefresh: _reloadCharacters,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: [
+              StitchCodexContentWidth(
+                maxWidth: 920,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    StitchCodexPageHeader(
+                      eyebrow: 'LIVING HEROES',
+                      title: 'Your characters',
+                      subtitle:
+                          'Open a character sheet or begin a new adventurer.',
+                      trailing: StitchCodexTag(
+                        label:
+                            '${characters.length} ${characters.length == 1 ? 'CHARACTER' : 'CHARACTERS'}',
+                      ),
+                    ),
+                    const SizedBox(height: 22),
+                    FilledButton.icon(
+                      onPressed: () {
+                        provider.startNewCharacter(
+                          campaignId: null,
+                          source: CharacterCreationSource.home,
+                        );
+                        context.go('/welcome');
+                      },
+                      style: stitchCodexPrimaryButtonStyle(),
+                      icon: const Icon(Icons.person_add_alt_1_outlined),
+                      label: const Text('Create New Character'),
+                    ),
+                    const SizedBox(height: 22),
+                    if (characters.isEmpty)
+                      const StitchCodexEmptyState(
+                        icon: Icons.person_search_outlined,
+                        title: 'No heroes recorded',
+                        message:
+                            'Create your first character to begin filling this archive.',
+                      )
+                    else
+                      for (final character in characters)
+                        _CharacterArchiveEntry(
+                          character: character,
+                          onOpen: () =>
+                              context.push('/character/${character.id}'),
+                          onDelete: () async {
+                            final confirmed =
+                                await _confirmDelete(character);
+                            if (!confirmed || !mounted) return;
+                            await provider.deleteCharacterById(character.id);
+                          },
+                        ),
+                  ],
                 ),
-                icon: const Icon(Icons.add, color: Colors.white),
-                label: const Text(
-                  "Create New Character",
-                  style: TextStyle(fontSize: 18, color: Colors.white),
-                ),
-                onPressed: () {
-                  provider.startNewCharacter(
-                    campaignId: null,
-                    source: CharacterCreationSource.home,
-                  );
-                  context.go('/welcome');
-                },
               ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              "Your Characters",
-              style: TextStyle(
-                fontSize: 20,
-                color: Colors.white.withOpacity(0.9),
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 12),
-            if (characters.isEmpty)
-              const Text(
-                "No characters yet. Create one!",
-                style: TextStyle(color: Colors.white70),
-              ),
-            ...characters.map(
-              (character) => _characterCard(context, provider, character),
-            ),
-            const SizedBox(height: 40),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
+}
 
-  Widget _characterCard(
-    BuildContext context,
-    CharacterProvider provider,
-    Character c,
-  ) {
-    return Dismissible(
-      key: ValueKey(c.id),
-      direction: DismissDirection.endToStart,
-      background: Container(
-        padding: const EdgeInsets.only(right: 20),
-        alignment: Alignment.centerRight,
-        decoration: BoxDecoration(
-          color: Colors.redAccent.withOpacity(0.8),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: const Icon(Icons.delete, color: Colors.white, size: 28),
-      ),
-      confirmDismiss: (_) => _confirmDelete(context, c),
-      onDismissed: (_) async {
-        await provider.deleteCharacterById(c.id);
-      },
-      child: GestureDetector(
-        onTap: () {
-          context.push('/character/${c.id}');
+class _CharacterArchiveEntry extends StatelessWidget {
+  final Character character;
+  final VoidCallback onOpen;
+  final Future<void> Function() onDelete;
+
+  const _CharacterArchiveEntry({
+    required this.character,
+    required this.onOpen,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasPortrait = hasDisplayableImagePath(character.portraitPath);
+    final race = character.subrace == null || character.subrace!.trim().isEmpty
+        ? character.race
+        : '${character.race} · ${character.subrace}';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 11),
+      child: Dismissible(
+        key: ValueKey(character.id),
+        direction: DismissDirection.endToStart,
+        confirmDismiss: (_) async {
+          await onDelete();
+          return false;
         },
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: const Color(0xFF2A2A31),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: Colors.deepPurpleAccent.withOpacity(0.5),
-            ),
+        background: Container(
+          alignment: Alignment.centerRight,
+          padding: const EdgeInsets.only(right: 22),
+          color: StitchCodexPalette.crimson,
+          child: const Icon(
+            Icons.delete_outline_rounded,
+            color: StitchCodexPalette.textPrimary,
           ),
-          child: Row(
-            children: [
-              CircleAvatar(
-                radius: 30,
-                backgroundColor: Colors.deepPurpleAccent,
-                backgroundImage: hasDisplayableImagePath(c.portraitPath)
-                    ? imageProviderFromPath(c.portraitPath!)
-                    : null,
-                child: !hasDisplayableImagePath(c.portraitPath)
-                    ? const Icon(Icons.person, size: 32, color: Colors.white)
-                    : null,
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      c.name.isEmpty ? 'Unnamed Character' : c.name,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onOpen,
+            child: StitchCodexPanel(
+              child: Row(
+                children: [
+                  Container(
+                    width: 64,
+                    height: 76,
+                    decoration: BoxDecoration(
+                      color: StitchCodexPalette.surfaceRaised,
+                      border: Border.all(
+                        color: StitchCodexPalette.bronze
+                            .withValues(alpha: 0.34),
                       ),
+                      image: hasPortrait
+                          ? DecorationImage(
+                              image: imageProviderFromPath(
+                                character.portraitPath!,
+                              ),
+                              fit: BoxFit.cover,
+                              alignment: Alignment.topCenter,
+                            )
+                          : null,
                     ),
-                    Text(
-                      "${c.race} ${c.charClass} - Level ${c.level}",
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.white.withOpacity(0.7),
-                      ),
+                    child: hasPortrait
+                        ? null
+                        : const Icon(
+                            Icons.person_outline,
+                            color: StitchCodexPalette.bronze,
+                            size: 28,
+                          ),
+                  ),
+                  const SizedBox(width: 15),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          character.name.isEmpty
+                              ? 'Unnamed Character'
+                              : character.name,
+                          style: const TextStyle(
+                            color: StitchCodexPalette.textPrimary,
+                            fontFamily: StitchTypography.display,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          '$race · ${character.charClass}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: StitchCodexPalette.textMuted,
+                            fontFamily: StitchTypography.body,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 9),
+                        Wrap(
+                          spacing: 7,
+                          runSpacing: 7,
+                          children: [
+                            StitchCodexTag(
+                              label: 'LEVEL ${character.level}',
+                            ),
+                            if ((character.campaignId ?? '').isNotEmpty)
+                              const StitchCodexTag(
+                                label: 'CAMPAIGN',
+                                color: StitchCodexPalette.crimsonBright,
+                              ),
+                          ],
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Icon(
+                    Icons.arrow_forward_rounded,
+                    color: StitchCodexPalette.textMuted,
+                    size: 19,
+                  ),
+                ],
               ),
-              const Icon(
-                Icons.arrow_forward_ios,
-                color: Colors.white70,
-                size: 18,
-              ),
-            ],
+            ),
           ),
         ),
       ),

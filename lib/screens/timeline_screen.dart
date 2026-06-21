@@ -14,8 +14,10 @@ import '../providers/campaign_provider.dart';
 import '../providers/compendium_provider.dart';
 import '../providers/journal_entry_provider.dart';
 import '../providers/session_provider.dart';
+import '../theme.dart';
 import '../services/campaign_story_timeline_service.dart';
 import '../services/demo_campaign_story_seed_service.dart';
+import '../widgets/campaign_codex_ui.dart';
 import '../widgets/campaign_interactive_timeline.dart';
 import '../widgets/campaign_story_timeline.dart';
 import '../widgets/campaign_event_composer_sheet.dart';
@@ -225,143 +227,11 @@ class _TimelineScreenState extends State<TimelineScreen> {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-            child: TextField(
-              decoration: const InputDecoration(
-                labelText: 'Search timeline',
-                hintText: 'Search sessions, events or notes',
-                prefixIcon: Icon(Icons.search),
-                border: OutlineInputBorder(),
-              ),
-              onChanged: (value) {
-                setState(() {
-                  _searchQuery = value;
-                });
-              },
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-            child: SizedBox(
-              width: double.infinity,
-              child: SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(
-                    value: 'story',
-                    label: Text('Story'),
-                    icon: Icon(Icons.route_outlined),
-                  ),
-                  ButtonSegment(
-                    value: 'sessions',
-                    label: Text('Sessions'),
-                    icon: Icon(Icons.view_agenda_outlined),
-                  ),
-                ],
-                selected: {_viewMode},
-                onSelectionChanged: (value) {
-                  setState(() {
-                    _viewMode = value.first;
-                  });
-                },
-              ),
-            ),
-          ),
-          if (_viewMode == 'story')
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: SegmentedButton<String>(
-                  segments: const [
-                    ButtonSegment(
-                      value: 'all',
-                      label: Text('All'),
-                      icon: Icon(Icons.all_inclusive),
-                    ),
-                    ButtonSegment(
-                      value: 'note',
-                      label: Text('Notes'),
-                      icon: Icon(Icons.edit_note),
-                    ),
-                    ButtonSegment(
-                      value: 'event',
-                      label: Text('Events'),
-                      icon: Icon(Icons.bolt_outlined),
-                    ),
-                    ButtonSegment(
-                      value: 'session',
-                      label: Text('Sessions'),
-                      icon: Icon(Icons.auto_stories_outlined),
-                    ),
-                  ],
-                  selected: {_storyFilter},
-                  onSelectionChanged: (value) {
-                    setState(() {
-                      _storyFilter = value.first;
-                    });
-                  },
-                ),
-              ),
-            ),
-          if (isDm)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-              child: SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Show private notes'),
-                subtitle: const Text(
-                  'Include notes that do not belong to a session',
-                ),
-                value: _showPrivateNotes,
-                onChanged: (value) {
-                  setState(() {
-                    _showPrivateNotes = value;
-                  });
-                },
-              ),
-            ),
-          if (isDm && _viewMode == 'sessions')
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-              child: SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(
-                    value: 'player',
-                    label: Text('Player view'),
-                    icon: Icon(Icons.auto_stories_outlined),
-                  ),
-                  ButtonSegment(
-                    value: 'dm',
-                    label: Text('DM view'),
-                    icon: Icon(Icons.psychology_outlined),
-                  ),
-                ],
-                selected: {_recapMode},
-                onSelectionChanged: (value) {
-                  setState(() {
-                    _recapMode = value.first;
-                  });
-                },
-              ),
-            ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-            child: SegmentedButton<AppRole>(
-              segments: const [
-                ButtonSegment<AppRole>(
-                  value: AppRole.dm,
-                  label: Text('DM'),
-                  icon: Icon(Icons.shield_outlined),
-                ),
-                ButtonSegment<AppRole>(
-                  value: AppRole.player,
-                  label: Text('Player'),
-                  icon: Icon(Icons.person_outline),
-                ),
-              ],
-              selected: {roleProvider.role},
-              onSelectionChanged: (value) {
-                context.read<AppRoleProvider>().setRole(value.first);
-              },
+            child: _buildTimelineCommandDeck(
+              context,
+              campaignName: activeCampaign.name,
+              isDm: isDm,
+              roleProvider: roleProvider,
             ),
           ),
           Expanded(
@@ -538,6 +408,153 @@ class _TimelineScreenState extends State<TimelineScreen> {
     );
   }
 
+  Widget _buildTimelineCommandDeck(
+    BuildContext context, {
+    required String campaignName,
+    required bool isDm,
+    required AppRoleProvider roleProvider,
+  }) {
+    final tokens = context.stitch;
+
+    return CampaignCodexFrame(
+      accentColor: tokens.accentRead,
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CampaignCodexHeader(
+            icon: Icons.route_outlined,
+            title: 'Campaign Codex',
+            subtitle: campaignName,
+            accentColor: tokens.accentReadSoft,
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            decoration: campaignCodexInputDecoration(
+              context,
+              labelText: 'Search timeline',
+              hintText: 'Search sessions, events or notes',
+            ).copyWith(prefixIcon: const Icon(Icons.search)),
+            onChanged: (value) {
+              setState(() {
+                _searchQuery = value;
+              });
+            },
+          ),
+          const SizedBox(height: 12),
+          _ScrollSafeSegmentedButton<String>(
+            segments: const [
+              ButtonSegment(
+                value: 'story',
+                label: Text('Story'),
+                icon: Icon(Icons.route_outlined),
+              ),
+              ButtonSegment(
+                value: 'sessions',
+                label: Text('Sessions'),
+                icon: Icon(Icons.view_agenda_outlined),
+              ),
+            ],
+            selected: {_viewMode},
+            onSelectionChanged: (value) {
+              setState(() {
+                _viewMode = value.first;
+              });
+            },
+          ),
+          if (_viewMode == 'story') ...[
+            const SizedBox(height: 10),
+            _ScrollSafeSegmentedButton<String>(
+              segments: const [
+                ButtonSegment(
+                  value: 'all',
+                  label: Text('All'),
+                  icon: Icon(Icons.all_inclusive),
+                ),
+                ButtonSegment(
+                  value: 'note',
+                  label: Text('Notes'),
+                  icon: Icon(Icons.edit_note),
+                ),
+                ButtonSegment(
+                  value: 'event',
+                  label: Text('Events'),
+                  icon: Icon(Icons.bolt_outlined),
+                ),
+                ButtonSegment(
+                  value: 'session',
+                  label: Text('Sessions'),
+                  icon: Icon(Icons.auto_stories_outlined),
+                ),
+              ],
+              selected: {_storyFilter},
+              onSelectionChanged: (value) {
+                setState(() {
+                  _storyFilter = value.first;
+                });
+              },
+            ),
+          ],
+          if (isDm) ...[
+            const SizedBox(height: 10),
+            _TimelineSwitchPanel(
+              title: 'Show private notes',
+              subtitle: 'Include notes that do not belong to a session',
+              value: _showPrivateNotes,
+              onChanged: (value) {
+                setState(() {
+                  _showPrivateNotes = value;
+                });
+              },
+            ),
+          ],
+          if (isDm && _viewMode == 'sessions') ...[
+            const SizedBox(height: 10),
+            _ScrollSafeSegmentedButton<String>(
+              segments: const [
+                ButtonSegment(
+                  value: 'player',
+                  label: Text('Player view'),
+                  icon: Icon(Icons.auto_stories_outlined),
+                ),
+                ButtonSegment(
+                  value: 'dm',
+                  label: Text('DM view'),
+                  icon: Icon(Icons.psychology_outlined),
+                ),
+              ],
+              selected: {_recapMode},
+              onSelectionChanged: (value) {
+                setState(() {
+                  _recapMode = value.first;
+                });
+              },
+            ),
+          ],
+          const SizedBox(height: 10),
+          _ScrollSafeSegmentedButton<AppRole>(
+            segments: const [
+              ButtonSegment<AppRole>(
+                value: AppRole.dm,
+                label: Text('DM'),
+                icon: Icon(Icons.shield_outlined),
+              ),
+              ButtonSegment<AppRole>(
+                value: AppRole.player,
+                label: Text('Player'),
+                icon: Icon(Icons.person_outline),
+              ),
+            ],
+            selected: {roleProvider.role},
+            onSelectionChanged: (value) {
+              context.read<AppRoleProvider>().setRole(value.first);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   void _openSession(BuildContext context, Session session) {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -621,11 +638,14 @@ class _TimelineScreenState extends State<TimelineScreen> {
     String title, {
     String? subtitle,
   }) {
+    final tokens = context.stitch;
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(14),
+        color: tokens.panel,
+        borderRadius: BorderRadius.circular(tokens.radiusMd),
+        border: Border.all(color: tokens.border.withValues(alpha: 0.20)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -638,7 +658,9 @@ class _TimelineScreenState extends State<TimelineScreen> {
             const SizedBox(height: 4),
             Text(
               subtitle,
-              style: Theme.of(context).textTheme.bodySmall,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: tokens.textMuted,
+                  ),
             ),
           ],
         ],
@@ -667,11 +689,13 @@ class _TimelineScreenState extends State<TimelineScreen> {
 
     final hasRecap = (recap ?? '').trim().isNotEmpty;
     final isExpanded = _expandedRecaps.contains(session.id);
+    final tokens = context.stitch;
 
     return Container(
       decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).dividerColor),
-        borderRadius: BorderRadius.circular(16),
+        color: tokens.panel,
+        border: Border.all(color: tokens.border.withValues(alpha: 0.24)),
+        borderRadius: BorderRadius.circular(tokens.radiusMd),
       ),
       child: Column(
         children: [
@@ -679,9 +703,9 @@ class _TimelineScreenState extends State<TimelineScreen> {
             width: double.infinity,
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(16),
+              color: tokens.surfaceRaised,
+              borderRadius: BorderRadius.vertical(
+                top: Radius.circular(tokens.radiusMd),
               ),
             ),
             child: Column(
@@ -689,17 +713,25 @@ class _TimelineScreenState extends State<TimelineScreen> {
               children: [
                 Text(
                   session.title.isEmpty ? 'Untitled session' : session.title,
-                  style: Theme.of(context).textTheme.titleMedium,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                 ),
                 const SizedBox(height: 6),
                 Text(
                   _formatDate(session.date),
-                  style: Theme.of(context).textTheme.bodySmall,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: tokens.textMuted,
+                      ),
                 ),
                 if ((session.summary ?? '').trim().isNotEmpty) ...[
                   const SizedBox(height: 10),
                   Text(
                     session.summary!,
+                    maxLines: 4,
+                    overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ],
@@ -708,17 +740,15 @@ class _TimelineScreenState extends State<TimelineScreen> {
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    Chip(
-                      label: Text(
-                        '${mainEvents.length} event${mainEvents.length == 1 ? '' : 's'}',
-                      ),
-                      visualDensity: VisualDensity.compact,
+                    _TimelineInfoChip(
+                      icon: Icons.bolt_outlined,
+                      label:
+                          '${mainEvents.length} event${mainEvents.length == 1 ? '' : 's'}',
                     ),
-                    Chip(
-                      label: Text(
-                        '${characterEntries.length} perspective${characterEntries.length == 1 ? '' : 's'}',
-                      ),
-                      visualDensity: VisualDensity.compact,
+                    _TimelineInfoChip(
+                      icon: Icons.edit_note,
+                      label:
+                          '${characterEntries.length} perspective${characterEntries.length == 1 ? '' : 's'}',
                     ),
                   ],
                 ),
@@ -795,9 +825,9 @@ class _TimelineScreenState extends State<TimelineScreen> {
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 color: Colors.deepPurpleAccent.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(tokens.radiusSm),
                 border: Border.all(
-                  color: Colors.deepPurpleAccent.withValues(alpha: 0.25),
+                  color: tokens.accentMagic.withValues(alpha: 0.25),
                 ),
               ),
               child: Column(
@@ -805,13 +835,21 @@ class _TimelineScreenState extends State<TimelineScreen> {
                 children: [
                   Row(
                     children: [
-                      const Icon(Icons.auto_awesome, size: 18),
+                      Icon(
+                        Icons.auto_awesome,
+                        size: 18,
+                        color: tokens.accentMagic,
+                      ),
                       const SizedBox(width: 8),
-                      Text(
-                        effectiveRecapMode == 'player'
-                            ? 'Player recap'
-                            : 'DM recap',
-                        style: Theme.of(context).textTheme.titleSmall,
+                      Expanded(
+                        child: Text(
+                          effectiveRecapMode == 'player'
+                              ? 'Player recap'
+                              : 'DM recap',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
                       ),
                     ],
                   ),
@@ -881,123 +919,178 @@ class _TimelineScreenState extends State<TimelineScreen> {
     Session? linkedSession,
   ) {
     final isDm = context.watch<AppRoleProvider>().isDm;
+    final tokens = context.stitch;
+    final color = _colorForEventType(context, event.type);
 
-    return Card(
-      margin: EdgeInsets.zero,
-      child: ListTile(
-        contentPadding: const EdgeInsets.all(14),
-        leading: CircleAvatar(
-          child: Icon(_iconForType(event.type)),
-        ),
-        title: Text(event.title),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                _formatDate(event.date),
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 8),
-              LinkedCompendiumText(
-                text: event.description,
-                campaignId: event.campaignId,
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  Chip(
-                    label: Text(event.type),
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  if (linkedSession != null)
-                    Chip(
-                      label: Text(
-                        'Session: ${linkedSession.title.isEmpty ? 'Untitled' : linkedSession.title}',
-                      ),
-                      visualDensity: VisualDensity.compact,
-                    ),
-                ],
-              ),
-            ],
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: tokens.surface,
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _TimelineTypeBadge(
+            icon: _iconForType(event.type),
+            color: color,
           ),
-        ),
-        trailing: isDm
-            ? PopupMenuButton<String>(
-                onSelected: (value) async {
-                  if (value == 'edit') {
-                    _showEditEventDialog(context, event);
-                  } else if (value == 'delete') {
-                    await _confirmDeleteEvent(context, event);
-                  }
-                },
-                itemBuilder: (context) => const [
-                  PopupMenuItem(
-                    value: 'edit',
-                    child: Text('Edit'),
-                  ),
-                  PopupMenuItem(
-                    value: 'delete',
-                    child: Text('Delete'),
-                  ),
-                ],
-              )
-            : null,
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  event.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _formatDate(event.date),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: tokens.textMuted,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                LinkedCompendiumText(
+                  text: event.description,
+                  campaignId: event.campaignId,
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _TimelineInfoChip(
+                      icon: _iconForType(event.type),
+                      label: event.type,
+                    ),
+                    if (linkedSession != null)
+                      _TimelineInfoChip(
+                        icon: Icons.auto_stories_outlined,
+                        label: linkedSession.title.isEmpty
+                            ? 'Untitled session'
+                            : linkedSession.title,
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          if (isDm)
+            PopupMenuButton<String>(
+              tooltip: 'Event actions',
+              onSelected: (value) async {
+                if (value == 'edit') {
+                  _showEditEventDialog(context, event);
+                } else if (value == 'delete') {
+                  await _confirmDeleteEvent(context, event);
+                }
+              },
+              itemBuilder: (context) => const [
+                PopupMenuItem(
+                  value: 'edit',
+                  child: Text('Edit'),
+                ),
+                PopupMenuItem(
+                  value: 'delete',
+                  child: Text('Delete'),
+                ),
+              ],
+            ),
+        ],
       ),
     );
   }
 
   Widget _buildJournalCard(BuildContext context, JournalEntry entry) {
     final isPrivate = entry.sessionId == null || entry.sessionId!.isEmpty;
+    final tokens = context.stitch;
+    final title = entry.authorCharacterName ?? entry.authorName;
 
-    return Card(
-      margin: EdgeInsets.zero,
-      child: ListTile(
-        contentPadding: const EdgeInsets.all(14),
-        leading: const CircleAvatar(
-          child: Icon(Icons.menu_book_outlined),
-        ),
-        title: Text(
-          entry.authorCharacterName ?? entry.authorName,
-        ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                _formatDate(entry.createdAt),
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 8),
-              LinkedCompendiumText(
-                text: entry.content,
-                campaignId: entry.campaignId,
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  Chip(
-                    label: Text(isPrivate ? 'Private note' : 'Session note'),
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  if ((entry.imagePath ?? '').isNotEmpty)
-                    const Chip(
-                      label: Text('Image attached'),
-                      visualDensity: VisualDensity.compact,
-                    ),
-                ],
-              ),
-            ],
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: tokens.surface,
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(color: tokens.accentRead.withValues(alpha: 0.24)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _TimelineTypeBadge(
+            icon: Icons.menu_book_outlined,
+            color: tokens.accentRead,
           ),
-        ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _formatDate(entry.createdAt),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: tokens.textMuted,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                LinkedCompendiumText(
+                  text: entry.content,
+                  campaignId: entry.campaignId,
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _TimelineInfoChip(
+                      icon: isPrivate
+                          ? Icons.lock_outline
+                          : Icons.auto_stories_outlined,
+                      label: isPrivate ? 'Private note' : 'Session note',
+                    ),
+                    if ((entry.imagePath ?? '').isNotEmpty)
+                      const _TimelineInfoChip(
+                        icon: Icons.image_outlined,
+                        label: 'Image attached',
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
+  }
+
+  Color _colorForEventType(BuildContext context, String type) {
+    final tokens = context.stitch;
+    switch (type) {
+      case 'combat':
+        return tokens.accentAction;
+      case 'dialogue':
+        return tokens.accentInfo;
+      case 'travel':
+        return tokens.accentReadSoft;
+      case 'quest':
+        return tokens.accentWarning;
+      case 'rumor':
+        return tokens.accentMagic;
+      case 'discovery':
+      default:
+        return tokens.accentRead;
+    }
   }
 
   String _generateSessionRecap(
@@ -1267,5 +1360,164 @@ class _TimelineScreenState extends State<TimelineScreen> {
     final month = date.month.toString().padLeft(2, '0');
     final year = date.year.toString();
     return '$day/$month/$year';
+  }
+}
+
+class _ScrollSafeSegmentedButton<T> extends StatelessWidget {
+  final List<ButtonSegment<T>> segments;
+  final Set<T> selected;
+  final ValueChanged<Set<T>> onSelectionChanged;
+
+  const _ScrollSafeSegmentedButton({
+    required this.segments,
+    required this.selected,
+    required this.onSelectionChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SegmentedButton<T>(
+          segments: segments,
+          selected: selected,
+          onSelectionChanged: onSelectionChanged,
+        ),
+      ),
+    );
+  }
+}
+
+class _TimelineSwitchPanel extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const _TimelineSwitchPanel({
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+      decoration: BoxDecoration(
+        color: tokens.panel,
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(color: tokens.border.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.lock_open_outlined,
+            size: 19,
+            color: tokens.accentReadSoft,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: tokens.textMuted,
+                      ),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            value: value,
+            onChanged: onChanged,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TimelineTypeBadge extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+
+  const _TimelineTypeBadge({
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
+    return Container(
+      width: 34,
+      height: 34,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(color: color.withValues(alpha: 0.38)),
+      ),
+      child: Icon(icon, size: 18, color: color),
+    );
+  }
+}
+
+class _TimelineInfoChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _TimelineInfoChip({
+    required this.icon,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 190),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: tokens.surfaceRaised,
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(color: tokens.border.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: tokens.accentReadSoft),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: tokens.textSecondary,
+                  ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

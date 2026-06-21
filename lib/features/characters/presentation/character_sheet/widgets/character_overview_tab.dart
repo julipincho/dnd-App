@@ -4,6 +4,8 @@ import '../../../../../models/character.dart';
 import '../../../../../models/character_inventory_item.dart';
 import '../../../../../providers/compendium_provider.dart';
 import '../../../../../providers/equipment_provider.dart';
+import '../../../../../theme.dart';
+import '../../../../../widgets/stitch_codex_ui.dart';
 import 'character_combat_summary_section.dart';
 import '../../../models/resolved_inventory_item.dart';
 
@@ -237,23 +239,8 @@ class CharacterOverviewTab extends StatelessWidget {
     required Widget child,
     EdgeInsetsGeometry padding = const EdgeInsets.all(14),
   }) {
-    return Container(
-      width: double.infinity,
+    return StitchCodexPanel(
       padding: padding,
-      decoration: BoxDecoration(
-        color: const Color(0xFF151922),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: const Color(0xFF8BAA6F).withValues(alpha: 0.24),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.18),
-            blurRadius: 14,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -263,15 +250,17 @@ class CharacterOverviewTab extends StatelessWidget {
                 width: 32,
                 height: 32,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF8BAA6F).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
+                  color:
+                      StitchCodexPalette.bronze.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(2),
                   border: Border.all(
-                    color: const Color(0xFF8BAA6F).withValues(alpha: 0.22),
+                    color:
+                        StitchCodexPalette.bronze.withValues(alpha: 0.30),
                   ),
                 ),
                 child: Icon(
                   icon,
-                  color: const Color(0xFFB7D28A),
+                  color: StitchCodexPalette.bronze,
                   size: 18,
                 ),
               ),
@@ -281,11 +270,12 @@ class CharacterOverviewTab extends StatelessWidget {
                   title.toUpperCase(),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: const Color(0xFFB7D28A).withValues(alpha: 0.88),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0,
+                  style: const TextStyle(
+                    color: StitchCodexPalette.textPrimary,
+                    fontFamily: StitchTypography.display,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.4,
                   ),
                 ),
               ),
@@ -309,21 +299,23 @@ class CharacterOverviewTab extends StatelessWidget {
         children: [
           Text(
             label.toUpperCase(),
-            style: TextStyle(
-              color: const Color(0xFFB7D28A).withValues(alpha: 0.74),
+            style: const TextStyle(
+              color: StitchCodexPalette.bronze,
+              fontFamily: StitchTypography.data,
               fontSize: 11,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.5,
             ),
           ),
           const SizedBox(height: 4),
           Text(
             cleanValues.join(', '),
             style: const TextStyle(
-              color: Colors.white,
+              color: StitchCodexPalette.textSecondary,
+              fontFamily: StitchTypography.body,
               fontSize: 13,
               height: 1.35,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w500,
             ),
           ),
         ],
@@ -362,8 +354,9 @@ class CharacterOverviewTab extends StatelessWidget {
           if ([armor, weapons, tools, languages].every((list) => list.isEmpty))
             Text(
               'No proficiencies recorded yet.',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.65),
+              style: const TextStyle(
+                color: StitchCodexPalette.textMuted,
+                fontFamily: StitchTypography.body,
                 fontSize: 13,
               ),
             ),
@@ -404,8 +397,9 @@ class CharacterOverviewTab extends StatelessWidget {
               .every((list) => list.isEmpty))
             Text(
               'No defenses or senses recorded yet.',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.65),
+              style: const TextStyle(
+                color: StitchCodexPalette.textMuted,
+                fontFamily: StitchTypography.body,
                 fontSize: 13,
               ),
             ),
@@ -417,14 +411,9 @@ class CharacterOverviewTab extends StatelessWidget {
   Widget _buildCommandBar({
     required bool isTablet,
   }) {
-    return Container(
-      width: double.infinity,
+    return StitchCodexPanel(
       padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: const Color(0xFF151922),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-      ),
+      emphasized: true,
       child: Wrap(
         spacing: 8,
         runSpacing: 8,
@@ -434,7 +423,7 @@ class CharacterOverviewTab extends StatelessWidget {
             _buildCommandButton(
               label: 'Campaign',
               icon: Icons.flag_outlined,
-              color: const Color(0xFF8BAA6F),
+              color: StitchCodexPalette.bronze,
               onTap: onGoToCampaign,
             ),
           _buildCommandButton(
@@ -442,25 +431,25 @@ class CharacterOverviewTab extends StatelessWidget {
                 ? 'Assign Campaign'
                 : 'Manage Campaign',
             icon: Icons.groups_outlined,
-            color: Colors.lightBlueAccent,
+            color: StitchCodexPalette.textSecondary,
             onTap: onManageCampaign,
           ),
           _buildCommandButton(
             label: 'Dice',
             icon: Icons.casino_outlined,
-            color: const Color(0xFFE14658),
+            color: StitchCodexPalette.crimsonBright,
             onTap: onOpenDiceRoller,
           ),
           _buildCommandButton(
             label: 'Combat',
             icon: Icons.sports_martial_arts_outlined,
-            color: Colors.orangeAccent,
+            color: StitchCodexPalette.bronze,
             onTap: onOpenCombatMode,
           ),
           _buildCommandButton(
             label: 'Level Up',
             icon: Icons.arrow_upward,
-            color: Colors.greenAccent,
+            color: StitchCodexPalette.success,
             onTap: onLevelUp,
           ),
         ],
@@ -477,26 +466,27 @@ class CharacterOverviewTab extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(2),
         onTap: onTap,
         child: Ink(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
           decoration: BoxDecoration(
             color: color.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(2),
             border: Border.all(color: color.withValues(alpha: 0.30)),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, color: Colors.white, size: 16),
+              Icon(icon, color: color, size: 16),
               const SizedBox(width: 7),
               Text(
                 label,
                 style: const TextStyle(
-                  color: Colors.white,
+                  color: StitchCodexPalette.textSecondary,
+                  fontFamily: StitchTypography.data,
                   fontSize: 12,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ],
@@ -640,22 +630,8 @@ class CharacterOverviewTab extends StatelessWidget {
     final titleBottomPadding = compact ? 6.0 : 8.0;
     final gridSpacing = compact ? 6.0 : 8.0;
 
-    return Container(
-      width: double.infinity,
+    return StitchCodexPanel(
       padding: EdgeInsets.all(panelPadding),
-      decoration: BoxDecoration(
-        color: const Color(0xFF111720),
-        borderRadius: BorderRadius.circular(8),
-        border:
-            Border.all(color: const Color(0xFF8BAA6F).withValues(alpha: 0.24)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.18),
-            blurRadius: 14,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -663,11 +639,12 @@ class CharacterOverviewTab extends StatelessWidget {
             padding: EdgeInsets.only(left: 2, bottom: titleBottomPadding),
             child: Text(
               'ABILITIES',
-              style: TextStyle(
-                color: const Color(0xFFB7D28A).withValues(alpha: 0.86),
+              style: const TextStyle(
+                color: StitchCodexPalette.bronze,
+                fontFamily: StitchTypography.data,
                 fontSize: 11,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 0,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.7,
               ),
             ),
           ),
@@ -1033,19 +1010,7 @@ class CharacterOverviewTab extends StatelessWidget {
       ),
     ];
 
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Color(0xFF0B0D12),
-            Color(0xFF10141B),
-            Color(0xFF0D0E13),
-          ],
-        ),
-      ),
-      child: SingleChildScrollView(
+    return SingleChildScrollView(
         padding: EdgeInsets.all(pagePadding),
         child: Center(
           child: ConstrainedBox(
@@ -1117,8 +1082,9 @@ class CharacterOverviewTab extends StatelessWidget {
                 if (spellAbilityKey != null)
                   Text(
                     'Spellcasting: $spellAbilityKey (${formatSigned(spellAbilityModifier)})',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.7),
+                    style: const TextStyle(
+                      color: StitchCodexPalette.textMuted,
+                      fontFamily: StitchTypography.data,
                       fontSize: 13,
                     ),
                   ),
@@ -1126,7 +1092,6 @@ class CharacterOverviewTab extends StatelessWidget {
             ),
           ),
         ),
-      ),
     );
   }
 }

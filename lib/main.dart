@@ -98,6 +98,7 @@ class StitchApp extends StatelessWidget {
       return MaterialApp(
         title: 'Stitch Battle Board',
         theme: stitchTheme,
+        scrollBehavior: const StitchScrollBehavior(),
         debugShowCheckedModeBanner: false,
         home: publicBoardHome,
       );
@@ -109,6 +110,7 @@ class StitchApp extends StatelessWidget {
       return MaterialApp(
         title: 'Stitch',
         theme: stitchTheme,
+        scrollBehavior: const StitchScrollBehavior(),
         debugShowCheckedModeBanner: false,
         home: const Scaffold(
           body: Center(
@@ -129,6 +131,7 @@ class StitchApp extends StatelessWidget {
       return MaterialApp(
         title: 'Stitch',
         theme: stitchTheme,
+        scrollBehavior: const StitchScrollBehavior(),
         debugShowCheckedModeBanner: false,
         home: const LoginScreen(),
       );
@@ -137,6 +140,7 @@ class StitchApp extends StatelessWidget {
     return MaterialApp.router(
       title: 'Stitch',
       theme: stitchTheme,
+      scrollBehavior: const StitchScrollBehavior(),
       routerConfig: appRouter,
       debugShowCheckedModeBanner: false,
     );

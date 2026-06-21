@@ -7,7 +7,9 @@ import 'package:image_picker/image_picker.dart';
 import '../models/compendium_entry.dart';
 import '../providers/campaign_provider.dart';
 import '../providers/compendium_provider.dart';
+import '../theme.dart';
 import '../utils/image_path_utils.dart';
+import '../widgets/stitch_codex_ui.dart';
 import 'compendium_entry_detail_screen.dart';
 
 class CompendiumScreen extends StatefulWidget {
@@ -40,11 +42,31 @@ class _CompendiumScreenState extends State<CompendiumScreen> {
 
     if (activeCampaign == null) {
       return Scaffold(
+        backgroundColor: StitchCodexPalette.ground,
         appBar: StitchAppBar(
-          title: const Text('Compendium'),
+          showBrand: false,
+          backgroundColor: StitchCodexPalette.ground,
+          title: const Text(
+            'COMPENDIUM',
+            style: TextStyle(
+              color: StitchCodexPalette.textPrimary,
+              fontFamily: StitchTypography.display,
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 1.4,
+            ),
+          ),
         ),
-        body: const Center(
-          child: Text('No active campaign selected'),
+        body: const StitchCodexBackground(
+          child: SingleChildScrollView(
+            child: StitchCodexContentWidth(
+              child: StitchCodexEmptyState(
+                icon: Icons.menu_book_outlined,
+                title: 'No active campaign',
+                message: 'Select a campaign before opening its compendium.',
+              ),
+            ),
+          ),
         ),
       );
     }
@@ -69,158 +91,168 @@ class _CompendiumScreenState extends State<CompendiumScreen> {
           }).toList();
 
     return Scaffold(
+      backgroundColor: StitchCodexPalette.ground,
       appBar: StitchAppBar(
-        title: Text('${activeCampaign.name} Compendium'),
+        showBrand: false,
+        backgroundColor: StitchCodexPalette.ground,
+        title: const Text(
+          'COMPENDIUM',
+          style: TextStyle(
+            color: StitchCodexPalette.textPrimary,
+            fontFamily: StitchTypography.display,
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 1.4,
+          ),
+        ),
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-            child: TextField(
-              decoration: const InputDecoration(
-                labelText: 'Search compendium',
-                hintText: 'Search by title, description or type',
-                prefixIcon: Icon(Icons.search),
-                border: OutlineInputBorder(),
-              ),
-              onChanged: (value) {
-                setState(() {
-                  _searchQuery = value;
-                });
-              },
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-            child: DropdownButtonFormField<String>(
-              value: _selectedType,
-              decoration: const InputDecoration(
-                labelText: 'Filter by type',
-                border: OutlineInputBorder(),
-              ),
-              items: const [
-                DropdownMenuItem(
-                  value: 'all',
-                  child: Text('All'),
-                ),
-                DropdownMenuItem(
-                  value: 'npc',
-                  child: Text('NPC'),
-                ),
-                DropdownMenuItem(
-                  value: 'location',
-                  child: Text('Location'),
-                ),
-                DropdownMenuItem(
-                  value: 'item',
-                  child: Text('Item'),
-                ),
-                DropdownMenuItem(
-                  value: 'faction',
-                  child: Text('Faction'),
-                ),
-                DropdownMenuItem(
-                  value: 'lore',
-                  child: Text('Lore'),
-                ),
-              ],
-              onChanged: (value) {
-                if (value == null) return;
-                setState(() {
-                  _selectedType = value;
-                });
-              },
-            ),
-          ),
-          Expanded(
-            child: filteredEntries.isEmpty
-                ? Center(
-                    child: Text(
-                      _searchQuery.trim().isEmpty && _selectedType == 'all'
-                          ? 'No compendium entries yet'
-                          : 'No matching entries found',
+      body: StitchCodexBackground(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 960),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                  child: StitchCodexPageHeader(
+                    eyebrow: 'CAMPAIGN LORE',
+                    title: activeCampaign.name,
+                    subtitle:
+                        'People, places, relics, factions, and discoveries gathered by the party.',
+                    trailing: StitchCodexTag(
+                      label: '${filteredEntries.length} ENTRIES',
                     ),
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.all(12),
-                    itemCount: filteredEntries.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
-                    itemBuilder: (context, index) {
-                      final entry = filteredEntries[index];
-                      final hasImage = hasDisplayableImagePath(entry.imagePath);
-
-                      return Card(
-                        child: ListTile(
-                          contentPadding: const EdgeInsets.all(16),
-                          leading: hasImage
-                              ? ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: buildImageFromPath(
-                                    entry.imagePath!,
-                                    width: 48,
-                                    height: 48,
-                                    fit: BoxFit.cover,
-                                  ),
-                                )
-                              : CircleAvatar(
-                                  child: Icon(_iconForType(entry.type)),
-                                ),
-                          title: Text(entry.title),
-                          onTap: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) =>
-                                    CompendiumEntryDetailScreen(entry: entry),
-                              ),
-                            );
-                          },
-                          subtitle: Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Chip(
-                                  label: Text(entry.type),
-                                  visualDensity: VisualDensity.compact,
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  entry.description,
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ),
-                          ),
-                          trailing: PopupMenuButton<String>(
-                            onSelected: (value) async {
-                              if (value == 'edit') {
-                                _showEditEntryDialog(context, entry);
-                              } else if (value == 'delete') {
-                                await _confirmDeleteEntry(context, entry);
-                              }
-                            },
-                            itemBuilder: (context) => const [
-                              PopupMenuItem(
-                                value: 'edit',
-                                child: Text('Edit'),
-                              ),
-                              PopupMenuItem(
-                                value: 'delete',
-                                child: Text('Delete'),
-                              ),
-                            ],
-                          ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final compact = constraints.maxWidth < 620;
+                      final search = TextField(
+                        style: stitchCodexFieldTextStyle,
+                        cursorColor: StitchCodexPalette.bronze,
+                        decoration: stitchCodexInputDecoration(
+                          labelText: 'Search compendium',
+                          hintText: 'Title, description or type',
+                          prefixIcon: Icons.search,
                         ),
+                        onChanged: (value) {
+                          setState(() {
+                            _searchQuery = value;
+                          });
+                        },
+                      );
+                      final filter = DropdownButtonFormField<String>(
+                        initialValue: _selectedType,
+                        dropdownColor: StitchCodexPalette.surface,
+                        style: stitchCodexFieldTextStyle,
+                        decoration: stitchCodexInputDecoration(
+                          labelText: 'Filter by type',
+                          prefixIcon: Icons.filter_alt_outlined,
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 'all', child: Text('All')),
+                          DropdownMenuItem(value: 'npc', child: Text('NPC')),
+                          DropdownMenuItem(
+                            value: 'location',
+                            child: Text('Location'),
+                          ),
+                          DropdownMenuItem(value: 'item', child: Text('Item')),
+                          DropdownMenuItem(
+                            value: 'faction',
+                            child: Text('Faction'),
+                          ),
+                          DropdownMenuItem(value: 'lore', child: Text('Lore')),
+                        ],
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setState(() {
+                            _selectedType = value;
+                          });
+                        },
+                      );
+
+                      if (compact) {
+                        return Column(
+                          children: [
+                            search,
+                            const SizedBox(height: 12),
+                            filter,
+                          ],
+                        );
+                      }
+                      return Row(
+                        children: [
+                          Expanded(flex: 2, child: search),
+                          const SizedBox(width: 12),
+                          Expanded(child: filter),
+                        ],
                       );
                     },
                   ),
+                ),
+                const SizedBox(height: 18),
+                Expanded(
+                  child: filteredEntries.isEmpty
+                      ? SingleChildScrollView(
+                          padding: const EdgeInsets.fromLTRB(20, 0, 20, 36),
+                          child: StitchCodexEmptyState(
+                            icon: Icons.auto_stories_outlined,
+                            title: _searchQuery.trim().isEmpty &&
+                                    _selectedType == 'all'
+                                ? 'The codex is empty'
+                                : 'No matching lore',
+                            message: _searchQuery.trim().isEmpty &&
+                                    _selectedType == 'all'
+                                ? 'Create the first entry for this campaign.'
+                                : 'Try another search or category.',
+                          ),
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(20, 0, 20, 36),
+                          itemCount: filteredEntries.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 10),
+                          itemBuilder: (context, index) {
+                            final entry = filteredEntries[index];
+                            return _CompendiumEntryCard(
+                              entry: entry,
+                              icon: _iconForType(entry.type),
+                              onTap: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => CompendiumEntryDetailScreen(
+                                      entry: entry,
+                                    ),
+                                  ),
+                                );
+                              },
+                              onAction: (value) async {
+                                if (value == 'edit') {
+                                  _showEditEntryDialog(context, entry);
+                                } else if (value == 'delete') {
+                                  await _confirmDeleteEntry(context, entry);
+                                }
+                              },
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
           ),
-        ],
+        ),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _showCreateEntryDialog(context, activeCampaign.id),
-        child: const Icon(Icons.add),
+        backgroundColor: StitchCodexPalette.crimson,
+        foregroundColor: StitchCodexPalette.textPrimary,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(2),
+        ),
+        child: const Icon(Icons.add_rounded),
       ),
     );
   }
@@ -247,9 +279,19 @@ class _CompendiumScreenState extends State<CompendiumScreen> {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('Delete entry'),
+          backgroundColor: StitchCodexPalette.surface,
+          shape: stitchCodexDialogShape(),
+          title: const Text(
+            'Delete entry',
+            style: stitchCodexDialogTitleStyle,
+          ),
           content: Text(
             'Are you sure you want to delete "${entry.title}"?',
+            style: const TextStyle(
+              color: StitchCodexPalette.textMuted,
+              fontFamily: StitchTypography.body,
+              fontSize: 16,
+            ),
           ),
           actions: [
             TextButton(
@@ -258,6 +300,7 @@ class _CompendiumScreenState extends State<CompendiumScreen> {
             ),
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
+              style: stitchCodexPrimaryButtonStyle(),
               child: const Text('Delete'),
             ),
           ],
@@ -288,7 +331,12 @@ class _CompendiumScreenState extends State<CompendiumScreen> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              title: const Text('Create entry'),
+              backgroundColor: StitchCodexPalette.surface,
+              shape: stitchCodexDialogShape(),
+              title: const Text(
+                'Create entry',
+                style: stitchCodexDialogTitleStyle,
+              ),
               content: SingleChildScrollView(
                 child: SizedBox(
                   width: 320,
@@ -297,7 +345,8 @@ class _CompendiumScreenState extends State<CompendiumScreen> {
                     children: [
                       TextField(
                         controller: titleController,
-                        decoration: const InputDecoration(
+                        style: stitchCodexFieldTextStyle,
+                        decoration: stitchCodexInputDecoration(
                           labelText: 'Title',
                           hintText: 'Example: Vargash',
                         ),
@@ -305,7 +354,8 @@ class _CompendiumScreenState extends State<CompendiumScreen> {
                       const SizedBox(height: 12),
                       TextField(
                         controller: descriptionController,
-                        decoration: const InputDecoration(
+                        style: stitchCodexFieldTextStyle,
+                        decoration: stitchCodexInputDecoration(
                           labelText: 'Description',
                           hintText: 'Describe this entry...',
                         ),
@@ -313,8 +363,10 @@ class _CompendiumScreenState extends State<CompendiumScreen> {
                       ),
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
-                        value: selectedType,
-                        decoration: const InputDecoration(
+                        initialValue: selectedType,
+                        dropdownColor: StitchCodexPalette.surface,
+                        style: stitchCodexFieldTextStyle,
+                        decoration: stitchCodexInputDecoration(
                           labelText: 'Type',
                         ),
                         items: const [
@@ -365,6 +417,7 @@ class _CompendiumScreenState extends State<CompendiumScreen> {
                                     ? 'Attach image'
                                     : 'Change image',
                               ),
+                              style: stitchCodexOutlineButtonStyle(),
                             ),
                           ),
                           if (selectedImagePath != null) ...[
@@ -426,6 +479,7 @@ class _CompendiumScreenState extends State<CompendiumScreen> {
                     if (!dialogContext.mounted) return;
                     Navigator.of(dialogContext).pop();
                   },
+                  style: stitchCodexPrimaryButtonStyle(),
                   child: const Text('Create'),
                 ),
               ],
@@ -449,7 +503,12 @@ class _CompendiumScreenState extends State<CompendiumScreen> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              title: const Text('Edit entry'),
+              backgroundColor: StitchCodexPalette.surface,
+              shape: stitchCodexDialogShape(),
+              title: const Text(
+                'Edit entry',
+                style: stitchCodexDialogTitleStyle,
+              ),
               content: SingleChildScrollView(
                 child: SizedBox(
                   width: 320,
@@ -458,22 +517,26 @@ class _CompendiumScreenState extends State<CompendiumScreen> {
                     children: [
                       TextField(
                         controller: titleController,
-                        decoration: const InputDecoration(
+                        style: stitchCodexFieldTextStyle,
+                        decoration: stitchCodexInputDecoration(
                           labelText: 'Title',
                         ),
                       ),
                       const SizedBox(height: 12),
                       TextField(
                         controller: descriptionController,
-                        decoration: const InputDecoration(
+                        style: stitchCodexFieldTextStyle,
+                        decoration: stitchCodexInputDecoration(
                           labelText: 'Description',
                         ),
                         maxLines: 5,
                       ),
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
-                        value: selectedType,
-                        decoration: const InputDecoration(
+                        initialValue: selectedType,
+                        dropdownColor: StitchCodexPalette.surface,
+                        style: stitchCodexFieldTextStyle,
+                        decoration: stitchCodexInputDecoration(
                           labelText: 'Type',
                         ),
                         items: const [
@@ -524,6 +587,7 @@ class _CompendiumScreenState extends State<CompendiumScreen> {
                                     ? 'Attach image'
                                     : 'Change image',
                               ),
+                              style: stitchCodexOutlineButtonStyle(),
                             ),
                           ),
                           if (selectedImagePath != null) ...[
@@ -582,6 +646,7 @@ class _CompendiumScreenState extends State<CompendiumScreen> {
                     if (!dialogContext.mounted) return;
                     Navigator.of(dialogContext).pop();
                   },
+                  style: stitchCodexPrimaryButtonStyle(),
                   child: const Text('Save'),
                 ),
               ],
@@ -605,6 +670,141 @@ class _CompendiumScreenState extends State<CompendiumScreen> {
       case 'npc':
       default:
         return Icons.person_outline;
+    }
+  }
+}
+
+class _CompendiumEntryCard extends StatelessWidget {
+  final CompendiumEntry entry;
+  final IconData icon;
+  final VoidCallback onTap;
+  final ValueChanged<String> onAction;
+
+  const _CompendiumEntryCard({
+    required this.entry,
+    required this.icon,
+    required this.onTap,
+    required this.onAction,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasImage = hasDisplayableImagePath(entry.imagePath);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(2),
+        onTap: onTap,
+        child: Ink(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: StitchCodexPalette.surfaceMuted,
+            borderRadius: BorderRadius.circular(2),
+            border: Border.all(
+              color: StitchCodexPalette.bronze.withValues(alpha: 0.18),
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 58,
+                height: 66,
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  color: StitchCodexPalette.surface,
+                  borderRadius: BorderRadius.circular(2),
+                  border: Border.all(
+                    color: StitchCodexPalette.bronze.withValues(alpha: 0.28),
+                  ),
+                ),
+                child: hasImage
+                    ? buildImageFromPath(
+                        entry.imagePath!,
+                        width: 58,
+                        height: 66,
+                        fit: BoxFit.cover,
+                      )
+                    : Icon(
+                        icon,
+                        color: StitchCodexPalette.bronze,
+                        size: 26,
+                      ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            entry.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: StitchCodexPalette.textPrimary,
+                              fontFamily: StitchTypography.display,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        StitchCodexTag(
+                          label: entry.type.toUpperCase(),
+                          color: _colorForCompendiumType(entry.type),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      entry.description,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: StitchCodexPalette.textMuted,
+                        fontFamily: StitchTypography.body,
+                        fontSize: 14,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 4),
+              PopupMenuButton<String>(
+                color: StitchCodexPalette.surface,
+                iconColor: StitchCodexPalette.textMuted,
+                onSelected: onAction,
+                itemBuilder: (context) => const [
+                  PopupMenuItem(value: 'edit', child: Text('Edit')),
+                  PopupMenuItem(value: 'delete', child: Text('Delete')),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Color _colorForCompendiumType(String type) {
+    switch (type) {
+      case 'npc':
+        return StitchCodexPalette.crimsonBright;
+      case 'location':
+        return const Color(0xFF5C7EA8);
+      case 'item':
+        return StitchCodexPalette.bronze;
+      case 'faction':
+        return const Color(0xFF7B68C8);
+      case 'lore':
+        return StitchCodexPalette.success;
+      default:
+        return StitchCodexPalette.textMuted;
     }
   }
 }

@@ -8,15 +8,16 @@ import 'package:provider/provider.dart';
 import '../models/dnd_race.dart';
 import '../models/dnd_subrace.dart';
 import '../providers/character_provider.dart';
+import '../theme.dart';
+import '../widgets/stitch_codex_ui.dart';
 
-const Color _raceBg = Color(0xFF1E1E22);
-const Color _raceAppBar = Color(0xFF121214);
-const Color _raceSurface = Color(0xFF17181F);
-const Color _raceSurfaceAlt = Color(0xFF24243A);
-const Color _raceImageBg = Color(0xFF101116);
-const Color _raceBorder = Color(0xFF4D4F72);
-const Color _raceAccent = Color(0xFF7C4DFF);
-const Color _raceBlue = Color(0xFF4DA8FF);
+const Color _raceBg = StitchCodexPalette.ground;
+const Color _raceAppBar = StitchCodexPalette.ground;
+const Color _raceSurface = StitchCodexPalette.surfaceMuted;
+const Color _raceSurfaceAlt = StitchCodexPalette.card;
+const Color _raceImageBg = StitchCodexPalette.surface;
+const Color _raceBorder = StitchCodexPalette.bronzeMuted;
+const Color _raceBlue = StitchCodexPalette.bronze;
 
 class RaceDetailScreen extends StatefulWidget {
   final DndRace race;
@@ -59,16 +60,19 @@ class _RaceDetailScreenState extends State<RaceDetailScreen> {
     return Scaffold(
       backgroundColor: _raceBg,
       appBar: StitchAppBar(
+        showBrand: false,
         backgroundColor: _raceAppBar,
         elevation: 0,
-        title: Text(
-          race.name,
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w800,
+        title: const Text(
+          'RACE DETAILS',
+          style: TextStyle(
+            color: StitchCodexPalette.textPrimary,
+            fontFamily: StitchTypography.display,
+            fontWeight: FontWeight.w600,
+            fontSize: 16,
+            letterSpacing: 1.4,
           ),
         ),
-        centerTitle: true,
       ),
       bottomNavigationBar: SafeArea(
         minimum: const EdgeInsets.fromLTRB(18, 8, 18, 18),
@@ -78,18 +82,7 @@ class _RaceDetailScreenState extends State<RaceDetailScreen> {
             onPressed: _chooseRace,
             icon: const Icon(Icons.arrow_forward_rounded),
             label: Text('Choose ${race.name}'),
-            style: FilledButton.styleFrom(
-              backgroundColor: _raceAccent,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              textStyle: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
+            style: stitchCodexPrimaryButtonStyle(),
           ),
         ),
       ),
@@ -262,18 +255,20 @@ class _RaceHero extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: _raceSurface,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: _raceBorder.withOpacity(0.72)),
+        borderRadius: BorderRadius.circular(2),
+        border: Border.all(
+          color: _raceBorder.withValues(alpha: 0.42),
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.20),
+            color: Colors.black.withValues(alpha: 0.24),
             blurRadius: 22,
             offset: const Offset(0, 10),
           ),
         ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(2),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -293,9 +288,10 @@ class _RaceHero extends StatelessWidget {
                         child: Text(
                           race.name,
                           style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 32,
-                            fontWeight: FontWeight.w900,
+                            color: StitchCodexPalette.textPrimary,
+                            fontFamily: StitchTypography.display,
+                            fontSize: 29,
+                            fontWeight: FontWeight.w600,
                             height: 1.04,
                           ),
                         ),
@@ -307,8 +303,9 @@ class _RaceHero extends StatelessWidget {
                   const SizedBox(height: 12),
                   Text(
                     description,
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.74),
+                    style: const TextStyle(
+                      color: StitchCodexPalette.textMuted,
+                      fontFamily: StitchTypography.body,
                       fontSize: 15,
                       height: 1.45,
                     ),
@@ -354,8 +351,8 @@ class _HeroImage extends StatelessWidget {
                 end: Alignment.bottomCenter,
                 colors: [
                   Colors.transparent,
-                  Colors.black.withOpacity(0.12),
-                  Colors.black.withOpacity(0.62),
+                  Colors.black.withValues(alpha: 0.12),
+                  Colors.black.withValues(alpha: 0.66),
                 ],
                 stops: const [0.42, 0.70, 1],
               ),
@@ -379,15 +376,16 @@ class _SourcePill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: _raceBlue.withOpacity(0.10),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: _raceBlue.withOpacity(0.18)),
+        color: _raceBlue.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(2),
+        border: Border.all(color: _raceBlue.withValues(alpha: 0.28)),
       ),
       child: Text(
         source,
         style: const TextStyle(
-          color: Color(0xFFBBDFFF),
-          fontSize: 11,
+          color: StitchCodexPalette.bronze,
+          fontFamily: StitchTypography.data,
+          fontSize: 8,
           fontWeight: FontWeight.w800,
           letterSpacing: 0.6,
         ),
@@ -435,21 +433,25 @@ class _OverviewTile extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: _raceSurface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: _raceBorder.withOpacity(0.55)),
+        borderRadius: BorderRadius.circular(2),
+        border: Border.all(
+          color: _raceBorder.withValues(alpha: 0.32),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(item.icon, color: const Color(0xFF8FD2FF), size: 22),
+          Icon(item.icon, color: StitchCodexPalette.bronze, size: 22),
           const SizedBox(height: 10),
           Text(
             item.label,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.58),
-              fontSize: 12,
+            style: const TextStyle(
+              color: StitchCodexPalette.textFaint,
+              fontFamily: StitchTypography.data,
+              fontSize: 8,
               fontWeight: FontWeight.w700,
+              letterSpacing: 0.7,
             ),
           ),
           const SizedBox(height: 5),
@@ -458,7 +460,8 @@ class _OverviewTile extends StatelessWidget {
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
-              color: Colors.white,
+              color: StitchCodexPalette.textPrimary,
+              fontFamily: StitchTypography.body,
               fontSize: 14,
               fontWeight: FontWeight.w800,
               height: 1.2,
@@ -501,22 +504,25 @@ class _RacePanel extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: _raceSurface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: _raceBorder.withOpacity(0.55)),
+        borderRadius: BorderRadius.circular(2),
+        border: Border.all(
+          color: _raceBorder.withValues(alpha: 0.32),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(icon, color: const Color(0xFF8FD2FF), size: 22),
+              Icon(icon, color: StitchCodexPalette.bronze, size: 22),
               const SizedBox(width: 10),
               Text(
                 title,
                 style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w900,
+                  color: StitchCodexPalette.textPrimary,
+                  fontFamily: StitchTypography.display,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
@@ -549,7 +555,7 @@ class _SubracePicker extends StatelessWidget {
         return Padding(
           padding: const EdgeInsets.only(bottom: 10),
           child: InkWell(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(2),
             onTap: () => onSelected(subrace),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 160),
@@ -557,10 +563,11 @@ class _SubracePicker extends StatelessWidget {
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 color: selected ? _raceSurfaceAlt : _raceImageBg,
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(2),
                 border: Border.all(
-                  color:
-                      selected ? _raceAccent : Colors.white.withOpacity(0.10),
+                  color: selected
+                      ? StitchCodexPalette.crimson
+                      : StitchCodexPalette.bronze.withValues(alpha: 0.16),
                   width: selected ? 2 : 1,
                 ),
               ),
@@ -573,9 +580,10 @@ class _SubracePicker extends StatelessWidget {
                         child: Text(
                           subrace.name,
                           style: const TextStyle(
-                            color: Colors.white,
+                            color: StitchCodexPalette.textPrimary,
+                            fontFamily: StitchTypography.display,
                             fontSize: 16,
-                            fontWeight: FontWeight.w800,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),
@@ -584,8 +592,8 @@ class _SubracePicker extends StatelessWidget {
                             ? Icons.check_circle_rounded
                             : Icons.radio_button_unchecked_rounded,
                         color: selected
-                            ? const Color(0xFF8FD2FF)
-                            : Colors.white.withOpacity(0.44),
+                            ? StitchCodexPalette.crimsonBright
+                            : StitchCodexPalette.textFaint,
                       ),
                     ],
                   ),
@@ -595,8 +603,9 @@ class _SubracePicker extends StatelessWidget {
                       subrace.description,
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.66),
+                      style: const TextStyle(
+                        color: StitchCodexPalette.textMuted,
+                        fontFamily: StitchTypography.body,
                         height: 1.35,
                       ),
                     ),
@@ -631,7 +640,10 @@ class _TraitList extends StatelessWidget {
     if (traits.isEmpty) {
       return Text(
         'No racial traits listed.',
-        style: TextStyle(color: Colors.white.withOpacity(0.66)),
+        style: const TextStyle(
+          color: StitchCodexPalette.textMuted,
+          fontFamily: StitchTypography.body,
+        ),
       );
     }
 
@@ -646,8 +658,10 @@ class _TraitList extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: _raceImageBg,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.white.withOpacity(0.08)),
+            borderRadius: BorderRadius.circular(2),
+            border: Border.all(
+              color: StitchCodexPalette.bronze.withValues(alpha: 0.14),
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -655,17 +669,19 @@ class _TraitList extends StatelessWidget {
               Text(
                 name.isEmpty ? 'Trait' : name,
                 style: const TextStyle(
-                  color: Colors.white,
+                  color: StitchCodexPalette.textPrimary,
+                  fontFamily: StitchTypography.display,
                   fontSize: 16,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               if (description.trim().isNotEmpty) ...[
                 const SizedBox(height: 7),
                 Text(
                   description,
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.70),
+                  style: const TextStyle(
+                    color: StitchCodexPalette.textMuted,
+                    fontFamily: StitchTypography.body,
                     height: 1.42,
                     fontSize: 14,
                   ),
@@ -699,18 +715,20 @@ class _ReadableBlock extends StatelessWidget {
         children: [
           Text(
             title,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.58),
-              fontSize: 12,
+            style: const TextStyle(
+              color: StitchCodexPalette.bronze,
+              fontFamily: StitchTypography.data,
+              fontSize: 8,
               fontWeight: FontWeight.w800,
-              letterSpacing: 0.5,
+              letterSpacing: 0.8,
             ),
           ),
           const SizedBox(height: 5),
           Text(
             text,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.74),
+            style: const TextStyle(
+              color: StitchCodexPalette.textMuted,
+              fontFamily: StitchTypography.body,
               height: 1.42,
               fontSize: 14,
             ),
@@ -737,15 +755,16 @@ class _ChipWrap extends StatelessWidget {
             (item) => Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: _raceBlue.withOpacity(0.10),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: _raceBlue.withOpacity(0.18)),
+                color: _raceBlue.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(2),
+                border: Border.all(color: _raceBlue.withValues(alpha: 0.28)),
               ),
               child: Text(
                 item,
                 style: const TextStyle(
-                  color: Color(0xFFBBDFFF),
-                  fontSize: 12,
+                  color: StitchCodexPalette.bronze,
+                  fontFamily: StitchTypography.data,
+                  fontSize: 8,
                   fontWeight: FontWeight.w800,
                 ),
               ),

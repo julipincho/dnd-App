@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/character_provider.dart';
+import '../theme.dart';
+import '../widgets/stitch_codex_ui.dart';
 
 class AssignStatsScreen extends StatefulWidget {
   const AssignStatsScreen({super.key});
@@ -72,9 +74,20 @@ class _AssignStatsScreenState extends State<AssignStatsScreen> {
     final charClass = character.charClass;
 
     return Scaffold(
+      backgroundColor: StitchCodexPalette.ground,
       appBar: StitchAppBar(
-        title: Text("Asignar Stats - $race, $charClass"),
-        centerTitle: true,
+        showBrand: false,
+        backgroundColor: StitchCodexPalette.ground,
+        title: const Text(
+          'ASSIGN ABILITIES',
+          style: TextStyle(
+            color: StitchCodexPalette.textPrimary,
+            fontFamily: StitchTypography.display,
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 1.4,
+          ),
+        ),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
@@ -85,100 +98,130 @@ class _AssignStatsScreenState extends State<AssignStatsScreen> {
 
           context.go('/name-character');
         },
+        backgroundColor: StitchCodexPalette.crimson,
+        foregroundColor: StitchCodexPalette.textPrimary,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(2),
+        ),
         label: const Text("Continuar"),
         icon: const Icon(Icons.arrow_forward),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            Text(
-              "Puntos restantes: $points",
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 20),
-            Expanded(
-              child: ListView.separated(
-                itemCount: stats.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 12),
-                itemBuilder: (context, i) {
-                  final stat = stats.keys.elementAt(i);
-                  final value = stats[stat]!;
-                  final mod = modifier(value);
-
-                  final racialBonus = character.racialBonuses[stat] ?? 0;
-                  final total = value + racialBonus;
-                  final totalMod = modifier(total);
-
-                  return Container(
-                    padding: const EdgeInsets.symmetric(
-                      vertical: 16,
-                      horizontal: 12,
+      body: StitchCodexBackground(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 760),
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+                  child: StitchCodexPageHeader(
+                    eyebrow: 'STEP 06 · ABILITIES',
+                    title: 'Shape your strengths',
+                    subtitle:
+                        '$race · $charClass. Spend points to define the hero behind the story.',
+                    trailing: StitchCodexTag(
+                      label: '$points POINTS LEFT',
+                      color: points == 0
+                          ? StitchCodexPalette.success
+                          : StitchCodexPalette.crimsonBright,
                     ),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.deepPurpleAccent),
-                      color: Colors.deepPurple.shade300.withOpacity(0.2),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        SizedBox(
-                          width: 110,
-                          child: Text(
-                            stat,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w500,
-                            ),
+                  ),
+                ),
+                Expanded(
+                  child: ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 96),
+                    itemCount: stats.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    itemBuilder: (context, i) {
+                      final stat = stats.keys.elementAt(i);
+                      final value = stats[stat]!;
+                      final mod = modifier(value);
+
+                      final racialBonus = character.racialBonuses[stat] ?? 0;
+                      final total = value + racialBonus;
+                      final totalMod = modifier(total);
+
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 16,
+                          horizontal: 16,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(2),
+                          border: Border.all(
+                            color: StitchCodexPalette.bronze
+                                .withValues(alpha: 0.20),
                           ),
+                          color: StitchCodexPalette.surfaceMuted,
                         ),
-                        IconButton(
-                          onPressed: () => decrease(stat),
-                          icon: const Icon(Icons.remove_circle),
-                          color: Colors.redAccent,
-                        ),
-                        Text(
-                          "$value",
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        IconButton(
-                          onPressed: () => increase(stat),
-                          icon: const Icon(Icons.add_circle),
-                          color: Colors.greenAccent,
-                        ),
-                        const Spacer(),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
-                            Text(
-                              mod >= 0 ? "+$mod" : "$mod",
-                              style: const TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white70,
-                              ),
-                            ),
-                            if (racialBonus > 0)
-                              Text(
-                                "Racial +$racialBonus \u2022 Total $total (${totalMod >= 0 ? "+$totalMod" : "$totalMod"})",
+                            SizedBox(
+                              width: 110,
+                              child: Text(
+                                stat,
                                 style: const TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.white54,
+                                  color: StitchCodexPalette.textPrimary,
+                                  fontFamily: StitchTypography.data,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 1,
                                 ),
                               ),
+                            ),
+                            IconButton(
+                              onPressed: () => decrease(stat),
+                              icon: const Icon(Icons.remove_circle_outline),
+                              color: StitchCodexPalette.crimsonBright,
+                            ),
+                            Text(
+                              "$value",
+                              style: const TextStyle(
+                                color: StitchCodexPalette.textPrimary,
+                                fontFamily: StitchTypography.data,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            IconButton(
+                              onPressed: () => increase(stat),
+                              icon: const Icon(Icons.add_circle_outline),
+                              color: StitchCodexPalette.success,
+                            ),
+                            const Spacer(),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  mod >= 0 ? "+$mod" : "$mod",
+                                  style: const TextStyle(
+                                    fontFamily: StitchTypography.data,
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w700,
+                                    color: StitchCodexPalette.bronze,
+                                  ),
+                                ),
+                                if (racialBonus > 0)
+                                  Text(
+                                    "Racial +$racialBonus \u2022 Total $total (${totalMod >= 0 ? "+$totalMod" : "$totalMod"})",
+                                    style: const TextStyle(
+                                      fontFamily: StitchTypography.body,
+                                      fontSize: 12,
+                                      color: StitchCodexPalette.textMuted,
+                                    ),
+                                  ),
+                              ],
+                            ),
                           ],
                         ),
-                      ],
-                    ),
-                  );
-                },
-              ),
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );

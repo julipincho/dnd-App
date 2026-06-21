@@ -155,6 +155,45 @@ extension StitchThemeContext on BuildContext {
       Theme.of(this).extension<StitchThemeTokens>() ?? StitchThemeTokens.dark;
 }
 
+class StitchScrollBehavior extends MaterialScrollBehavior {
+  const StitchScrollBehavior();
+
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+        ...super.dragDevices,
+        PointerDeviceKind.mouse,
+        PointerDeviceKind.trackpad,
+        PointerDeviceKind.stylus,
+      };
+}
+
+class StitchCodexPalette {
+  StitchCodexPalette._();
+
+  static const ground = Color(0xFF0C0906);
+  static const card = Color(0xFF18110A);
+  static const surface = Color(0xFF1C1209);
+  static const surfaceMuted = Color(0xFF14100A);
+  static const surfaceRaised = Color(0xFF241A10);
+  static const crimson = Color(0xFFA8192E);
+  static const crimsonBright = Color(0xFFC41E36);
+  static const bronze = Color(0xFFC4872A);
+  static const bronzeMuted = Color(0xFF9B6A28);
+  static const textPrimary = Color(0xFFEDE8DF);
+  static const textSecondary = Color(0xFFC4B09A);
+  static const textMuted = Color(0xFF9B8468);
+  static const textFaint = Color(0xFF4A3A28);
+  static const success = Color(0xFF4E9B6A);
+}
+
+class StitchTypography {
+  StitchTypography._();
+
+  static const display = 'Cinzel';
+  static const body = 'Crimson Pro';
+  static const data = 'JetBrains Mono';
+}
+
 final stitchTheme = ThemeData(
   colorScheme: ColorScheme.fromSeed(
     seedColor: StitchThemeTokens.dark.accentRead,

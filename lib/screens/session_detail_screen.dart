@@ -19,8 +19,10 @@ import '../providers/compendium_provider.dart';
 import '../providers/journal_entry_provider.dart';
 import '../providers/session_provider.dart';
 import '../services/supabase_storage_service.dart';
+import '../theme.dart';
 import '../utils/image_path_utils.dart';
 import '../widgets/campaign_event_composer_sheet.dart';
+import '../widgets/campaign_codex_ui.dart';
 import '../widgets/compendium_aware_text_field.dart';
 import '../widgets/compendium_mention_chips.dart';
 import '../widgets/journal_entry_composer_dialog.dart';
@@ -943,21 +945,12 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
   }
 
   Widget _buildSurface({required Widget child}) {
-    return Container(
-      width: double.infinity,
+    final tokens = context.stitch;
+
+    return CampaignCodexFrame(
+      accentColor: tokens.accentRead,
       padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: const Color(0xFF17132A),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.075)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.16),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
+      backgroundColor: tokens.panel,
       child: child,
     );
   }
@@ -967,48 +960,11 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     required String title,
     required String subtitle,
   }) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: const Color(0xFF4DA8FF).withOpacity(0.12),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(
-            icon,
-            color: const Color(0xFF8FD2FF),
-            size: 20,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                subtitle,
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.58),
-                  fontSize: 13,
-                  height: 1.35,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
+    return CampaignCodexHeader(
+      icon: icon,
+      title: title,
+      subtitle: subtitle,
+      accentColor: context.stitch.accentReadSoft,
     );
   }
 
@@ -1031,20 +987,24 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
       ),
       decoration: InputDecoration(
         hintText: hint,
-        hintStyle: TextStyle(color: Colors.white.withOpacity(0.36)),
+        hintStyle: TextStyle(color: context.stitch.textMuted),
         filled: true,
-        fillColor: Colors.white.withOpacity(0.035),
+        fillColor: context.stitch.surface,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: Colors.white.withOpacity(0.08)),
+          borderRadius: BorderRadius.circular(context.stitch.radiusSm),
+          borderSide: BorderSide(
+            color: context.stitch.border.withValues(alpha: 0.18),
+          ),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: Colors.white.withOpacity(0.08)),
+          borderRadius: BorderRadius.circular(context.stitch.radiusSm),
+          borderSide: BorderSide(
+            color: context.stitch.border.withValues(alpha: 0.18),
+          ),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: Color(0xFF8FD2FF)),
+          borderRadius: BorderRadius.circular(context.stitch.radiusSm),
+          borderSide: BorderSide(color: context.stitch.accentReadSoft),
         ),
         contentPadding: const EdgeInsets.all(16),
       ),
@@ -1067,9 +1027,11 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.035),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        color: context.stitch.surface,
+        borderRadius: BorderRadius.circular(context.stitch.radiusSm),
+        border: Border.all(
+          color: context.stitch.border.withValues(alpha: 0.18),
+        ),
       ),
       child: LinkedCompendiumText(
         text: text,
@@ -1085,7 +1047,8 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     required VoidCallback onPressed,
     bool isDestructive = false,
   }) {
-    final color = isDestructive ? Colors.redAccent : const Color(0xFF8FD2FF);
+    final tokens = context.stitch;
+    final color = isDestructive ? tokens.accentAction : tokens.accentReadSoft;
 
     return SizedBox(
       width: double.infinity,
@@ -1095,10 +1058,10 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
         label: Text(label),
         style: OutlinedButton.styleFrom(
           foregroundColor: color,
-          side: BorderSide(color: color.withOpacity(0.36)),
+          side: BorderSide(color: color.withValues(alpha: 0.36)),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(tokens.radiusSm),
           ),
         ),
       ),
@@ -1109,28 +1072,10 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     required IconData icon,
     required String label,
   }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.34),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withOpacity(0.12)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: Colors.white.withOpacity(0.82)),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.9),
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-      ),
+    return CampaignCodexBadge(
+      icon: icon,
+      label: label,
+      accentColor: context.stitch.accentReadSoft,
     );
   }
 
@@ -1241,12 +1186,11 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     CampaignEvent event,
     bool isDm,
   ) {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF17132A),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFF4DA8FF).withOpacity(0.12)),
-      ),
+    final tokens = context.stitch;
+
+    return CampaignCodexFrame(
+      accentColor: tokens.accentInfo,
+      backgroundColor: tokens.panel,
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1310,10 +1254,10 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
             width: double.infinity,
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.03),
-              borderRadius: BorderRadius.circular(14),
+              color: tokens.surface,
+              borderRadius: BorderRadius.circular(tokens.radiusSm),
               border: Border.all(
-                color: Colors.white.withOpacity(0.05),
+                color: tokens.border.withValues(alpha: 0.16),
               ),
             ),
             child: LinkedCompendiumText(
@@ -1345,12 +1289,11 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
 
     final hasAttachedImage = hasDisplayableImagePath(entry.imagePath);
 
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF17132A),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFC4B5FD).withOpacity(0.12)),
-      ),
+    final tokens = context.stitch;
+
+    return CampaignCodexFrame(
+      accentColor: tokens.accentMagic,
+      backgroundColor: tokens.panel,
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1439,10 +1382,10 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
             width: double.infinity,
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.03),
-              borderRadius: BorderRadius.circular(14),
+              color: tokens.surface,
+              borderRadius: BorderRadius.circular(tokens.radiusSm),
               border: Border.all(
-                color: Colors.white.withOpacity(0.05),
+                color: tokens.border.withValues(alpha: 0.16),
               ),
             ),
             child: LinkedCompendiumText(
@@ -1458,7 +1401,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
           if (hasAttachedImage) ...[
             const SizedBox(height: 14),
             ClipRRect(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(tokens.radiusSm),
               child: GestureDetector(
                 onTap: () => _showImageReader(context, entry.imagePath!),
                 child: buildImageFromPath(
@@ -1476,21 +1419,10 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
   }
 
   Widget _buildMetaChip(String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.055),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
-      ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 11,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
+    return CampaignCodexBadge(
+      label: label,
+      accentColor: context.stitch.accentReadSoft,
+      maxWidth: 170,
     );
   }
 

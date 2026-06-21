@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../theme.dart';
+import '../widgets/stitch_codex_ui.dart';
 import '../widgets/stitch_navigation.dart';
 
 class WelcomeScreen extends StatelessWidget {
@@ -9,93 +11,95 @@ class WelcomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        width: double.infinity,
-        height: double.infinity,
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              Color(0xFF222244),
-              Color(0xFF111122),
-            ],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const StitchBrandMark(size: 112),
-              const SizedBox(height: 20),
-              const Text(
-                "STITCH",
-                style: TextStyle(
-                  fontSize: 42,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 4,
-                  color: Colors.white,
+      backgroundColor: StitchCodexPalette.ground,
+      body: StitchCodexBackground(
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 640),
+                child: StitchCodexPanel(
+                  emphasized: true,
+                  padding: const EdgeInsets.fromLTRB(28, 34, 28, 28),
+                  child: Column(
+                    children: [
+                      const StitchBrandMark(size: 90),
+                      const SizedBox(height: 22),
+                      const Text(
+                        '◆ CHARACTER CREATION ◆',
+                        style: TextStyle(
+                          color: StitchCodexPalette.bronze,
+                          fontFamily: StitchTypography.data,
+                          fontSize: 8,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 2.2,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      const Text(
+                        'STITCH',
+                        style: TextStyle(
+                          fontSize: 40,
+                          fontFamily: StitchTypography.display,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 6,
+                          color: StitchCodexPalette.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      const Text(
+                        'Crea y gestiona tus personajes de D&D 5e',
+                        style: TextStyle(
+                          fontFamily: StitchTypography.body,
+                          fontSize: 19,
+                          color: StitchCodexPalette.textSecondary,
+                          fontStyle: FontStyle.italic,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Define su linaje, clase y pasado. Cada elección quedará tejida en su historia.',
+                        style: TextStyle(
+                          fontFamily: StitchTypography.body,
+                          fontSize: 15,
+                          color: StitchCodexPalette.textMuted,
+                          height: 1.5,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 34),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: () {
+                            context.go('/race-selection');
+                          },
+                          icon: const Icon(Icons.auto_awesome_outlined),
+                          label: const Text('Crear nuevo personaje'),
+                          style: stitchCodexPrimaryButtonStyle(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            context.go('/characters');
+                          },
+                          icon: const Icon(Icons.groups_outlined),
+                          label: const Text('Ver mis personajes'),
+                          style: stitchCodexOutlineButtonStyle(),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      const StitchHomeButton(),
+                    ],
+                  ),
                 ),
               ),
-              const SizedBox(height: 10),
-              const Text(
-                "Crea y gestiona tus personajes de D&D 5e",
-                style: TextStyle(
-                  fontSize: 18,
-                  color: Colors.white70,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 50),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    context.go('/race-selection');
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.deepPurpleAccent,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 40,
-                      vertical: 14,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: const Text(
-                    "Crear nuevo personaje",
-                    style: TextStyle(fontSize: 18, color: Colors.white),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: () {
-                    context.go('/characters');
-                  },
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: Colors.white70),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 40,
-                      vertical: 14,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: const Text(
-                    "Ver mis personajes",
-                    style: TextStyle(fontSize: 16, color: Colors.white70),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              const StitchHomeButton(),
-            ],
+            ),
           ),
         ),
       ),

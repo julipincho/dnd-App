@@ -8,6 +8,8 @@ import '../models/dnd_class.dart';
 import '../services/class_data_service.dart';
 import '../providers/character_provider.dart';
 import '../providers/auth_provider.dart';
+import '../theme.dart';
+import '../widgets/stitch_codex_ui.dart';
 
 class SkillsProficienciesScreen extends StatefulWidget {
   const SkillsProficienciesScreen({super.key});
@@ -77,8 +79,14 @@ class _SkillsProficienciesScreenState extends State<SkillsProficienciesScreen> {
 
     if (loading || classData == null || character == null) {
       return const Scaffold(
-        backgroundColor: Color(0xFF1E1E22),
-        body: Center(child: CircularProgressIndicator()),
+        backgroundColor: StitchCodexPalette.ground,
+        body: StitchCodexBackground(
+          child: Center(
+            child: CircularProgressIndicator(
+              color: StitchCodexPalette.bronze,
+            ),
+          ),
+        ),
       );
     }
 
@@ -100,127 +108,165 @@ class _SkillsProficienciesScreenState extends State<SkillsProficienciesScreen> {
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFF1E1E22),
+      backgroundColor: StitchCodexPalette.ground,
       appBar: StitchAppBar(
-        backgroundColor: const Color(0xFF121214),
-        title: const Text("Choose Skills"),
+        showBrand: false,
+        backgroundColor: StitchCodexPalette.ground,
+        title: const Text(
+          'CHOOSE SKILLS',
+          style: TextStyle(
+            color: StitchCodexPalette.textPrimary,
+            fontFamily: StitchTypography.display,
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 1.4,
+          ),
+        ),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          if (autoBackgroundSkills.isNotEmpty) ...[
-            Container(
-              margin: const EdgeInsets.only(bottom: 18),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFF17181F),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: Colors.deepPurpleAccent.withOpacity(0.25),
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Background Skills',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: autoBackgroundSkills.map((skill) {
-                      return Chip(
-                        label: Text(skill),
-                        visualDensity: VisualDensity.compact,
-                      );
-                    }).toList(),
-                  ),
-                ],
-              ),
+      body: StitchCodexBackground(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
+          children: [
+            const StitchCodexPageHeader(
+              eyebrow: 'STEP 05 · PROFICIENCIES',
+              title: 'Choose your skills',
+              subtitle:
+                  'Background talents are granted automatically. Choose the expertise earned through class training.',
             ),
-          ],
-          ...List.generate(choices.length, (i) {
-            final choice = choices[i];
-            final selected = selectedGroups[i];
-
-            return Container(
-              margin: const EdgeInsets.only(bottom: 18),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFF17181F),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: Colors.deepPurpleAccent.withOpacity(0.25),
+            const SizedBox(height: 22),
+            if (autoBackgroundSkills.isNotEmpty) ...[
+              Container(
+                margin: const EdgeInsets.only(bottom: 18),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: StitchCodexPalette.surfaceMuted,
+                  borderRadius: BorderRadius.circular(2),
+                  border: Border.all(
+                    color: StitchCodexPalette.success.withValues(alpha: 0.34),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'BACKGROUND SKILLS',
+                      style: TextStyle(
+                        color: StitchCodexPalette.success,
+                        fontFamily: StitchTypography.data,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: autoBackgroundSkills.map((skill) {
+                        return StitchCodexTag(
+                          label: skill.toUpperCase(),
+                          color: StitchCodexPalette.success,
+                        );
+                      }).toList(),
+                    ),
+                  ],
                 ),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    "Choose ${choice.choose} skill${choice.choose > 1 ? 's' : ''}",
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                    ),
+            ],
+            ...List.generate(choices.length, (i) {
+              final choice = choices[i];
+              final selected = selectedGroups[i];
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 18),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: StitchCodexPalette.surfaceMuted,
+                  borderRadius: BorderRadius.circular(2),
+                  border: Border.all(
+                    color: StitchCodexPalette.bronze.withValues(alpha: 0.20),
                   ),
-                  const SizedBox(height: 12),
-                  ...choice.from.map((skill) {
-                    final backgroundGranted = isBackgroundSkill(skill);
-                    final isSelected = selected.contains(skill);
-                    final alreadyUsedInAnotherGroup =
-                        isSelectedAnywhere(skill) && !isSelected;
-
-                    final disabled = backgroundGranted ||
-                        alreadyUsedInAnotherGroup ||
-                        (!isSelected && selected.length >= choice.choose);
-
-                    return Card(
-                      color: Colors.black.withOpacity(0.2),
-                      child: CheckboxListTile(
-                        activeColor: Colors.greenAccent,
-                        title: Text(
-                          skill,
-                          style: const TextStyle(color: Colors.white),
-                        ),
-                        subtitle: backgroundGranted
-                            ? const Text('Granted by background')
-                            : alreadyUsedInAnotherGroup
-                                ? const Text('Already chosen in another group')
-                                : null,
-                        value: backgroundGranted || isSelected,
-                        onChanged: disabled
-                            ? null
-                            : (_) {
-                                setState(() {
-                                  if (isSelected) {
-                                    selected.remove(skill);
-                                  } else {
-                                    if (selected.length < choice.choose &&
-                                        !alreadyUsedInAnotherGroup) {
-                                      selected.add(skill);
-                                    }
-                                  }
-                                });
-                              },
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Choose ${choice.choose} skill${choice.choose > 1 ? 's' : ''}",
+                      style: const TextStyle(
+                        color: StitchCodexPalette.textPrimary,
+                        fontFamily: StitchTypography.display,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
                       ),
-                    );
-                  }),
-                ],
-              ),
-            );
-          }),
-        ],
+                    ),
+                    const SizedBox(height: 12),
+                    ...choice.from.map((skill) {
+                      final backgroundGranted = isBackgroundSkill(skill);
+                      final isSelected = selected.contains(skill);
+                      final alreadyUsedInAnotherGroup =
+                          isSelectedAnywhere(skill) && !isSelected;
+
+                      final disabled = backgroundGranted ||
+                          alreadyUsedInAnotherGroup ||
+                          (!isSelected && selected.length >= choice.choose);
+
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: StitchCodexPalette.surface,
+                            borderRadius: BorderRadius.circular(2),
+                            border: Border.all(
+                              color: StitchCodexPalette.bronze
+                                  .withValues(alpha: 0.14),
+                            ),
+                          ),
+                          child: CheckboxListTile(
+                            activeColor: StitchCodexPalette.crimson,
+                            checkColor: StitchCodexPalette.textPrimary,
+                            title: Text(
+                              skill,
+                              style: const TextStyle(
+                                color: StitchCodexPalette.textSecondary,
+                                fontFamily: StitchTypography.body,
+                                fontSize: 15,
+                              ),
+                            ),
+                            subtitle: backgroundGranted
+                                ? const Text('Granted by background')
+                                : alreadyUsedInAnotherGroup
+                                    ? const Text(
+                                        'Already chosen in another group')
+                                    : null,
+                            value: backgroundGranted || isSelected,
+                            onChanged: disabled
+                                ? null
+                                : (_) {
+                                    setState(() {
+                                      if (isSelected) {
+                                        selected.remove(skill);
+                                      } else {
+                                        if (selected.length < choice.choose &&
+                                            !alreadyUsedInAnotherGroup) {
+                                          selected.add(skill);
+                                        }
+                                      }
+                                    });
+                                  },
+                          ),
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              );
+            }),
+          ],
+        ),
       ),
       bottomNavigationBar: Padding(
         padding: const EdgeInsets.all(16),
-        child: ElevatedButton(
+        child: FilledButton(
           onPressed: _isValid()
               ? () async {
                   final chosenList = selectedGroups.expand((x) => x).toList();
@@ -239,11 +285,12 @@ class _SkillsProficienciesScreenState extends State<SkillsProficienciesScreen> {
 
                   await context.read<CharacterProvider>().saveCharacter(userId);
 
-                  if (!mounted) return;
+                  if (!context.mounted) return;
                   context.go('/assign-stats');
                 }
               : null,
-          child: const Text("Continue"),
+          style: stitchCodexPrimaryButtonStyle(),
+          child: const Text('Continue'),
         ),
       ),
     );

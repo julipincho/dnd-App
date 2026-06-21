@@ -33,6 +33,8 @@ class CharacterProvider extends ChangeNotifier {
   String? _activeUserId;
   String? _creationCampaignId;
   CharacterCreationSource? _creationSource;
+  Uint8List? _draftPortraitBytes;
+  String? _draftPortraitFileName;
 
   Character? get character => _character;
   List<Character> get characters => _characters;
@@ -41,6 +43,8 @@ class CharacterProvider extends ChangeNotifier {
   String? get activeUserId => _activeUserId;
   String? get creationCampaignId => _creationCampaignId;
   CharacterCreationSource? get creationSource => _creationSource;
+  Uint8List? get draftPortraitBytes => _draftPortraitBytes;
+  String? get draftPortraitFileName => _draftPortraitFileName;
 
   List<Character> getCharactersByCampaignSafe(String? campaignId) {
     if (campaignId == null) return [];
@@ -115,6 +119,8 @@ class CharacterProvider extends ChangeNotifier {
 
     _character = Character.empty();
     _character!.campaignId = campaignId;
+    _draftPortraitBytes = null;
+    _draftPortraitFileName = null;
 
     _selectedIndex = null;
     notifyListeners();
@@ -136,6 +142,23 @@ class CharacterProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setDraftPortrait({
+    required Uint8List bytes,
+    required String fileName,
+  }) {
+    _draftPortraitBytes = Uint8List.fromList(bytes);
+    _draftPortraitFileName =
+        fileName.trim().isEmpty ? 'character-portrait.jpg' : fileName.trim();
+    notifyListeners();
+  }
+
+  void clearDraftPortrait() {
+    if (_draftPortraitBytes == null && _draftPortraitFileName == null) return;
+    _draftPortraitBytes = null;
+    _draftPortraitFileName = null;
+    notifyListeners();
+  }
+
   void setBackground(DndBackground background) {
     if (_character == null) return;
     _character!.background = background;
@@ -145,27 +168,32 @@ class CharacterProvider extends ChangeNotifier {
   Future<void> saveCharacter([String? userId]) async {
     if (_character == null) return;
 
-    final resolvedUserId = _resolveUserId(_character, explicitUserId: userId);
+    final characterToSave = _character!;
+    final resolvedUserId =
+        _resolveUserId(characterToSave, explicitUserId: userId);
     if (resolvedUserId == null || resolvedUserId.isEmpty) {
       debugPrint('CharacterProvider.saveCharacter: missing userId');
       return;
     }
 
-    if (_character!.id.isEmpty) {
-      _character!.id = DateTime.now().millisecondsSinceEpoch.toString();
+    if (characterToSave.id.isEmpty) {
+      characterToSave.id = DateTime.now().millisecondsSinceEpoch.toString();
     }
 
-    _character!.ownerUserId = resolvedUserId;
+    characterToSave.ownerUserId = resolvedUserId;
     _activeUserId = resolvedUserId;
 
-    await _applyFeatureAndResourceSync(_character!);
+    await _applyFeatureAndResourceSync(characterToSave);
 
-    await _cloudRepo.saveCharacter(_character!);
+    final savedCharacterId = characterToSave.id;
+    final savedCampaignId = characterToSave.campaignId;
+
+    await _cloudRepo.saveCharacter(characterToSave);
     await loadCharacters(resolvedUserId);
-    if ((_character!.campaignId ?? '').isNotEmpty) {
-      await loadCampaignCharacters(_character!.campaignId!);
+    if ((savedCampaignId ?? '').isNotEmpty) {
+      await loadCampaignCharacters(savedCampaignId!);
     }
-    _syncSelectedCharacterById(_character!.id);
+    _syncSelectedCharacterById(savedCharacterId);
   }
 
   Future<void> saveCharacterToCloud(String userId) async {
@@ -207,6 +235,8 @@ class CharacterProvider extends ChangeNotifier {
   void resetCharacter() {
     _character = Character.empty();
     _character!.campaignId = _creationCampaignId;
+    _draftPortraitBytes = null;
+    _draftPortraitFileName = null;
     _selectedIndex = null;
     notifyListeners();
   }
@@ -216,6 +246,8 @@ class CharacterProvider extends ChangeNotifier {
     _selectedIndex = null;
     _creationCampaignId = null;
     _creationSource = null;
+    _draftPortraitBytes = null;
+    _draftPortraitFileName = null;
     notifyListeners();
   }
 

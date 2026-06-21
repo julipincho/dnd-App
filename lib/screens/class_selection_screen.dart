@@ -10,15 +10,17 @@ import 'package:provider/provider.dart';
 import '../models/dnd_class.dart';
 import '../providers/character_provider.dart';
 import '../services/class_data_service.dart';
+import '../theme.dart';
+import '../widgets/stitch_codex_ui.dart';
 import 'class_progression_screen.dart';
 
-const Color _classBg = Color(0xFF1E1E22);
-const Color _classAppBar = Color(0xFF121214);
-const Color _classSurface = Color(0xFF17181F);
-const Color _classSurfaceSelected = Color(0xFF24243A);
-const Color _classSurfaceDeep = Color(0xFF101116);
-const Color _classBorder = Color(0xFF4D4F72);
-const Color _classAccent = Color(0xFF7C4DFF);
+const Color _classBg = StitchCodexPalette.ground;
+const Color _classAppBar = StitchCodexPalette.ground;
+const Color _classSurface = StitchCodexPalette.surfaceMuted;
+const Color _classSurfaceSelected = StitchCodexPalette.card;
+const Color _classSurfaceDeep = StitchCodexPalette.surface;
+const Color _classBorder = StitchCodexPalette.bronzeMuted;
+const Color _classAccent = StitchCodexPalette.crimson;
 
 class ClassSelectionScreen extends StatefulWidget {
   const ClassSelectionScreen({super.key});
@@ -240,6 +242,37 @@ class _ClassSelectionScreenState extends State<ClassSelectionScreen> {
     setState(() {
       _selectedIndex = index;
     });
+    _scrollClassIntoView(index);
+  }
+
+  void _moveClassSelection(int delta) {
+    if (_classes.isEmpty) return;
+    final nextIndex =
+        (_selectedIndex + delta).clamp(0, _classes.length - 1);
+    if (nextIndex == _selectedIndex) return;
+    _selectClass(nextIndex);
+  }
+
+  void _scrollClassIntoView(int index) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_classScrollController.hasClients) return;
+
+      const cardExtent = 291.0;
+      final viewportWidth =
+          _classScrollController.position.viewportDimension;
+      final centeredOffset =
+          (index * cardExtent) - ((viewportWidth - 275) / 2);
+      final target = centeredOffset.clamp(
+        0.0,
+        _classScrollController.position.maxScrollExtent,
+      );
+
+      _classScrollController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+      );
+    });
   }
 
   void _chooseClass(DndClass cls) {
@@ -266,7 +299,13 @@ class _ClassSelectionScreenState extends State<ClassSelectionScreen> {
     if (_loading) {
       return const Scaffold(
         backgroundColor: _classBg,
-        body: Center(child: CircularProgressIndicator()),
+        body: StitchCodexBackground(
+          child: Center(
+            child: CircularProgressIndicator(
+              color: StitchCodexPalette.bronze,
+            ),
+          ),
+        ),
       );
     }
 
@@ -279,7 +318,10 @@ class _ClassSelectionScreenState extends State<ClassSelectionScreen> {
         body: Center(
           child: Text(
             'No classes available.',
-            style: TextStyle(color: Colors.white),
+            style: TextStyle(
+              color: StitchCodexPalette.textMuted,
+              fontFamily: StitchTypography.body,
+            ),
           ),
         ),
       );
@@ -288,61 +330,139 @@ class _ClassSelectionScreenState extends State<ClassSelectionScreen> {
     return Scaffold(
       backgroundColor: _classBg,
       appBar: StitchAppBar(
+        showBrand: false,
         backgroundColor: _classAppBar,
         elevation: 0,
         title: const Text(
-          'Select a Class',
+          'SELECT A CLASS',
           style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w800,
+            color: StitchCodexPalette.textPrimary,
+            fontFamily: StitchTypography.display,
+            fontWeight: FontWeight.w600,
+            fontSize: 16,
+            letterSpacing: 1.4,
           ),
         ),
-        centerTitle: true,
       ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
-          children: [
-            SizedBox(
-              height: 390,
-              child: ListView.separated(
-                key: const PageStorageKey<String>('class-selection-carousel'),
-                controller: _classScrollController,
-                scrollDirection: Axis.horizontal,
-                restorationId: 'class-selection-carousel',
-                itemCount: _classes.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 16),
-                itemBuilder: (context, index) {
-                  final cls = _classes[index];
-                  return _ClassChoiceCard(
-                    cls: cls,
-                    selected: index == _selectedIndex,
-                    tagline: _classTagline(cls),
-                    imageLoader: () => _cachedClassImage(cls.name),
-                    onTap: () => _selectClass(index),
-                  );
-                },
+      body: StitchCodexBackground(
+        child: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(18, 18, 18, 36),
+            children: [
+              const StitchCodexPageHeader(
+                eyebrow: 'STEP 02 · CALLING',
+                title: 'Choose your class',
+                subtitle:
+                    'Select the discipline, talents, and path your hero will carry into the adventure.',
               ),
-            ),
-            const SizedBox(height: 28),
-            Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 760),
-                child: _SelectedClassPanel(
-                  cls: selected,
-                  tagline: _classTagline(selected),
-                  primaryAbility: _primaryAbility(selected),
-                  savingThrows: selected.savingThrows.isEmpty
-                      ? 'None listed'
-                      : _displayAbilities(selected.savingThrows),
-                  features: _featurePreview(selected),
-                  onViewProgression: () => _openProgression(selected),
-                  onChoose: () => _chooseClass(selected),
+              const SizedBox(height: 22),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'DRAG OR USE THE ARROWS TO EXPLORE',
+                      style: TextStyle(
+                        color: StitchCodexPalette.textMuted,
+                        fontFamily: StitchTypography.data,
+                        fontSize: 8,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                  ),
+                  _CarouselArrowButton(
+                    icon: Icons.arrow_back_rounded,
+                    tooltip: 'Previous class',
+                    enabled: _selectedIndex > 0,
+                    onPressed: () => _moveClassSelection(-1),
+                  ),
+                  const SizedBox(width: 8),
+                  _CarouselArrowButton(
+                    icon: Icons.arrow_forward_rounded,
+                    tooltip: 'Next class',
+                    enabled: _selectedIndex < _classes.length - 1,
+                    onPressed: () => _moveClassSelection(1),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 390,
+                child: ListView.separated(
+                  key: const PageStorageKey<String>('class-selection-carousel'),
+                  controller: _classScrollController,
+                  scrollDirection: Axis.horizontal,
+                  restorationId: 'class-selection-carousel',
+                  itemCount: _classes.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 16),
+                  itemBuilder: (context, index) {
+                    final cls = _classes[index];
+                    return _ClassChoiceCard(
+                      cls: cls,
+                      selected: index == _selectedIndex,
+                      tagline: _classTagline(cls),
+                      imageLoader: () => _cachedClassImage(cls.name),
+                      onTap: () => _selectClass(index),
+                    );
+                  },
                 ),
               ),
-            ),
-          ],
+              const SizedBox(height: 30),
+              Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 760),
+                  child: _SelectedClassPanel(
+                    cls: selected,
+                    tagline: _classTagline(selected),
+                    primaryAbility: _primaryAbility(selected),
+                    savingThrows: selected.savingThrows.isEmpty
+                        ? 'None listed'
+                        : _displayAbilities(selected.savingThrows),
+                    features: _featurePreview(selected),
+                    onViewProgression: () => _openProgression(selected),
+                    onChoose: () => _chooseClass(selected),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
+      ),
+    );
+  }
+}
+
+class _CarouselArrowButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final bool enabled;
+  final VoidCallback onPressed;
+
+  const _CarouselArrowButton({
+    required this.icon,
+    required this.tooltip,
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: IconButton(
+        onPressed: enabled ? onPressed : null,
+        style: IconButton.styleFrom(
+          foregroundColor: StitchCodexPalette.bronze,
+          disabledForegroundColor: StitchCodexPalette.textFaint,
+          backgroundColor: StitchCodexPalette.surfaceMuted,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(2),
+            side: BorderSide(
+              color: StitchCodexPalette.bronze.withValues(alpha: 0.28),
+            ),
+          ),
+        ),
+        icon: Icon(icon, size: 19),
       ),
     );
   }
@@ -380,22 +500,24 @@ class _ClassChoiceCard extends StatelessWidget {
     return SizedBox(
       width: 275,
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(2),
         onTap: onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
             color: selected ? _classSurfaceSelected : _classSurface,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(2),
             border: Border.all(
-              color: selected ? _classAccent : Colors.white24,
+              color: selected
+                  ? StitchCodexPalette.bronze
+                  : _classBorder.withValues(alpha: 0.34),
               width: selected ? 2 : 1,
             ),
             boxShadow: selected
                 ? [
                     BoxShadow(
-                      color: _classAccent.withOpacity(0.24),
+                      color: _classAccent.withValues(alpha: 0.18),
                       blurRadius: 18,
                       offset: const Offset(0, 8),
                     ),
@@ -413,7 +535,7 @@ class _ClassChoiceCard extends StatelessWidget {
                     height: 250,
                     decoration: BoxDecoration(
                       color: _classSurfaceDeep,
-                      borderRadius: BorderRadius.circular(9),
+                      borderRadius: BorderRadius.circular(2),
                       image: image == null
                           ? null
                           : DecorationImage(
@@ -426,7 +548,8 @@ class _ClassChoiceCard extends StatelessWidget {
                         ? Center(
                             child: Icon(
                               _iconForClass(cls.name),
-                              color: Colors.white.withOpacity(0.45),
+                              color: StitchCodexPalette.bronze
+                                  .withValues(alpha: 0.64),
                               size: 72,
                             ),
                           )
@@ -440,9 +563,10 @@ class _ClassChoiceCard extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 21,
-                  fontWeight: FontWeight.w800,
+                  color: StitchCodexPalette.textPrimary,
+                  fontFamily: StitchTypography.display,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               const SizedBox(height: 6),
@@ -450,8 +574,9 @@ class _ClassChoiceCard extends StatelessWidget {
                 tagline,
                 maxLines: 3,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.70),
+                style: const TextStyle(
+                  color: StitchCodexPalette.textMuted,
+                  fontFamily: StitchTypography.body,
                   fontSize: 15,
                   height: 1.28,
                 ),
@@ -523,9 +648,10 @@ class _SelectedClassPanel extends StatelessWidget {
           cls.name,
           textAlign: TextAlign.center,
           style: const TextStyle(
-            color: Colors.white,
-            fontSize: 38,
-            fontWeight: FontWeight.w900,
+            color: StitchCodexPalette.textPrimary,
+            fontFamily: StitchTypography.display,
+            fontSize: 34,
+            fontWeight: FontWeight.w600,
             height: 1.05,
           ),
         ),
@@ -533,9 +659,11 @@ class _SelectedClassPanel extends StatelessWidget {
         Text(
           tagline,
           textAlign: TextAlign.center,
-          style: TextStyle(
-            color: Colors.white.withOpacity(0.72),
+          style: const TextStyle(
+            color: StitchCodexPalette.textSecondary,
+            fontFamily: StitchTypography.body,
             fontSize: 17,
+            fontStyle: FontStyle.italic,
             height: 1.35,
           ),
         ),
@@ -560,7 +688,11 @@ class _SelectedClassPanel extends StatelessWidget {
           child: features.isEmpty
               ? const Text(
                   'No class features are listed for this class yet.',
-                  style: TextStyle(color: Colors.white70, height: 1.4),
+                  style: TextStyle(
+                    color: StitchCodexPalette.textMuted,
+                    fontFamily: StitchTypography.body,
+                    height: 1.4,
+                  ),
                 )
               : Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -575,9 +707,10 @@ class _SelectedClassPanel extends StatelessWidget {
                                 ? feature.name
                                 : '${feature.name} - Level ${feature.level}',
                             style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
+                              color: StitchCodexPalette.textPrimary,
+                              fontFamily: StitchTypography.display,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                           const SizedBox(height: 6),
@@ -585,8 +718,9 @@ class _SelectedClassPanel extends StatelessWidget {
                             feature.description,
                             maxLines: 5,
                             overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.82),
+                            style: const TextStyle(
+                              color: StitchCodexPalette.textMuted,
+                              fontFamily: StitchTypography.body,
                               height: 1.45,
                               fontSize: 15,
                             ),
@@ -631,7 +765,11 @@ class _SelectedClassPanel extends StatelessWidget {
             title: 'Spellcasting',
             child: Text(
               'Spellcasting Ability: ${cls.spellcastingAbility}',
-              style: const TextStyle(color: Colors.white, height: 1.4),
+              style: const TextStyle(
+                color: StitchCodexPalette.textSecondary,
+                fontFamily: StitchTypography.body,
+                height: 1.4,
+              ),
             ),
           ),
         const SizedBox(height: 18),
@@ -641,14 +779,7 @@ class _SelectedClassPanel extends StatelessWidget {
             onPressed: onViewProgression,
             icon: const Icon(Icons.timeline_outlined),
             label: const Text('View Level Progression'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.white,
-              side: BorderSide(color: Colors.white.withOpacity(0.25)),
-              padding: const EdgeInsets.symmetric(vertical: 15),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
+            style: stitchCodexOutlineButtonStyle(),
           ),
         ),
         const SizedBox(height: 14),
@@ -656,19 +787,14 @@ class _SelectedClassPanel extends StatelessWidget {
           width: double.infinity,
           child: FilledButton(
             onPressed: onChoose,
-            style: FilledButton.styleFrom(
-              backgroundColor: _classAccent,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 17),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
+            style: stitchCodexPrimaryButtonStyle(),
             child: Text(
               'Choose ${cls.name}',
               style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
+                fontFamily: StitchTypography.data,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.8,
               ),
             ),
           ),
@@ -692,11 +818,13 @@ class _InfoGrid extends StatelessWidget {
         return Container(
           decoration: BoxDecoration(
             color: _classSurface,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: _classBorder),
+            borderRadius: BorderRadius.circular(2),
+            border: Border.all(
+              color: _classBorder.withValues(alpha: 0.36),
+            ),
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(2),
             child: compact
                 ? Column(
                     children: [
@@ -785,9 +913,12 @@ class _InfoTile extends StatelessWidget {
         children: [
           Text(
             item.label,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.65),
-              fontSize: 14,
+            style: const TextStyle(
+              color: StitchCodexPalette.textFaint,
+              fontFamily: StitchTypography.data,
+              fontSize: 8,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.8,
             ),
           ),
           const SizedBox(height: 8),
@@ -796,9 +927,10 @@ class _InfoTile extends StatelessWidget {
             maxLines: 4,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
-              color: Colors.white,
+              color: StitchCodexPalette.textPrimary,
+              fontFamily: StitchTypography.body,
               fontSize: 15,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w600,
               height: 1.25,
             ),
           ),
@@ -825,23 +957,26 @@ class _ClassAccordion extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
         color: _classSurface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: _classBorder),
+        borderRadius: BorderRadius.circular(2),
+        border: Border.all(
+          color: _classBorder.withValues(alpha: 0.36),
+        ),
       ),
       child: Theme(
         data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
         child: ExpansionTile(
           initiallyExpanded: initiallyExpanded,
-          iconColor: Colors.white,
-          collapsedIconColor: Colors.white,
+          iconColor: StitchCodexPalette.bronze,
+          collapsedIconColor: StitchCodexPalette.textMuted,
           tilePadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
           childrenPadding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
           title: Text(
             title,
             style: const TextStyle(
-              color: Colors.white,
-              fontSize: 20,
-              fontWeight: FontWeight.w900,
+              color: StitchCodexPalette.textPrimary,
+              fontFamily: StitchTypography.display,
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
             ),
           ),
           children: [
@@ -872,7 +1007,11 @@ class _BulletText extends StatelessWidget {
     if (visibleItems.isEmpty) {
       return Text(
         emptyText,
-        style: const TextStyle(color: Colors.white70, height: 1.4),
+        style: const TextStyle(
+          color: StitchCodexPalette.textMuted,
+          fontFamily: StitchTypography.body,
+          height: 1.4,
+        ),
       );
     }
 
@@ -883,8 +1022,9 @@ class _BulletText extends StatelessWidget {
           padding: const EdgeInsets.only(bottom: 8),
           child: Text(
             '- $item',
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.84),
+            style: const TextStyle(
+              color: StitchCodexPalette.textMuted,
+              fontFamily: StitchTypography.body,
               height: 1.4,
               fontSize: 15,
             ),

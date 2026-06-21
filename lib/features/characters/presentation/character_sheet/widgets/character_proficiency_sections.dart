@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:stitch_app/models/character.dart';
+import 'package:stitch_app/theme.dart';
 
 typedef CharacterStatBonusBuilder = int Function(
   Character character,
@@ -17,7 +18,7 @@ typedef CharacterStatRollHandler = Future<void> Function({
 });
 
 class CharacterSavingThrowsSection extends StatelessWidget {
-  static const Color _accentColor = Color(0xFF8BAA6F);
+  static const Color _accentColor = StitchCodexPalette.bronze;
 
   static const List<String> abilities = [
     'STR',
@@ -103,7 +104,7 @@ class CharacterSavingThrowsSection extends StatelessWidget {
 }
 
 class CharacterSkillsSection extends StatelessWidget {
-  static const Color _accentColor = Color(0xFF8BAA6F);
+  static const Color _accentColor = StitchCodexPalette.bronze;
 
   static const Map<String, List<String>> skillsByAbility = {
     'STR': ['Athletics'],
@@ -212,8 +213,8 @@ class _ExpandableStatSection extends StatelessWidget {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: const Color(0xFF151922),
-        borderRadius: BorderRadius.circular(8),
+        color: StitchCodexPalette.surfaceMuted,
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(
           color: accentColor.withValues(alpha: 0.24),
         ),
@@ -228,7 +229,7 @@ class _ExpandableStatSection extends StatelessWidget {
       child: Column(
         children: [
           InkWell(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(2),
             onTap: onToggleExpanded,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -239,7 +240,7 @@ class _ExpandableStatSection extends StatelessWidget {
                     height: 32,
                     decoration: BoxDecoration(
                       color: accentColor.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(2),
                       border: Border.all(
                         color: accentColor.withValues(alpha: 0.22),
                       ),
@@ -251,17 +252,19 @@ class _ExpandableStatSection extends StatelessWidget {
                     child: Text(
                       title.toUpperCase(),
                       style: TextStyle(
-                        color: accentColor.withValues(alpha: 0.88),
+                        color: StitchCodexPalette.textPrimary,
+                        fontFamily: StitchTypography.display,
                         fontSize: isTablet ? 12 : 11,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.4,
                       ),
                     ),
                   ),
                   Text(
                     isExpanded ? 'Hide' : 'Show',
                     style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.6),
+                      color: StitchCodexPalette.textMuted,
+                      fontFamily: StitchTypography.body,
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                     ),
@@ -269,14 +272,17 @@ class _ExpandableStatSection extends StatelessWidget {
                   const SizedBox(width: 8),
                   Icon(
                     isExpanded ? Icons.expand_less : Icons.expand_more,
-                    color: Colors.white54,
+                    color: StitchCodexPalette.textMuted,
                   ),
                 ],
               ),
             ),
           ),
           if (isExpanded) ...[
-            const Divider(height: 1, color: Colors.white12),
+            Divider(
+              height: 1,
+              color: StitchCodexPalette.bronze.withValues(alpha: 0.12),
+            ),
             child,
           ],
         ],
@@ -312,17 +318,18 @@ class _SkillGroup extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-            color: const Color(0xFF8BAA6F).withValues(alpha: 0.14),
-            borderRadius: BorderRadius.circular(8),
+            color: StitchCodexPalette.bronze.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(2),
             border: Border.all(
-              color: const Color(0xFF8BAA6F).withValues(alpha: 0.22),
+              color: StitchCodexPalette.bronze.withValues(alpha: 0.28),
             ),
           ),
           child: Text(
             ability,
             style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w900,
+              color: StitchCodexPalette.bronze,
+              fontFamily: StitchTypography.data,
+              fontWeight: FontWeight.w700,
               fontSize: 11,
               letterSpacing: 0,
             ),
@@ -371,24 +378,24 @@ class _RollableStatRow extends StatelessWidget {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(2),
           onTap: onRoll,
           child: Ink(
             padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(2),
               gradient: const LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  Color(0xFF1B2230),
-                  Color(0xFF111720),
+                  StitchCodexPalette.surfaceRaised,
+                  StitchCodexPalette.surface,
                 ],
               ),
               border: Border.all(
                 color: isProficient
-                    ? const Color(0xFF8BAA6F).withValues(alpha: 0.42)
-                    : const Color(0xFF8BAA6F).withValues(alpha: 0.16),
+                    ? StitchCodexPalette.bronze.withValues(alpha: 0.42)
+                    : StitchCodexPalette.bronze.withValues(alpha: 0.16),
               ),
               boxShadow: [
                 BoxShadow(
@@ -398,7 +405,8 @@ class _RollableStatRow extends StatelessWidget {
                 ),
                 if (isProficient)
                   BoxShadow(
-                    color: const Color(0xFF8BAA6F).withValues(alpha: 0.10),
+                    color:
+                        StitchCodexPalette.bronze.withValues(alpha: 0.10),
                     blurRadius: 12,
                     spreadRadius: 1,
                   ),
@@ -418,7 +426,8 @@ class _RollableStatRow extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.92),
+                          color: StitchCodexPalette.textPrimary,
+                          fontFamily: StitchTypography.body,
                           fontSize: 13,
                           fontWeight: FontWeight.w800,
                           height: 1.1,
@@ -430,7 +439,8 @@ class _RollableStatRow extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.48),
+                          color: StitchCodexPalette.textMuted,
+                          fontFamily: StitchTypography.body,
                           fontSize: 11,
                           fontWeight: FontWeight.w500,
                           height: 1.1,

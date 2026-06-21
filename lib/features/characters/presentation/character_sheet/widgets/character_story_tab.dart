@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:stitch_app/models/character.dart';
+import 'package:stitch_app/theme.dart';
 import 'package:stitch_app/utils/image_path_utils.dart';
+import 'package:stitch_app/widgets/stitch_codex_ui.dart';
 
 class CharacterStoryTab extends StatelessWidget {
   final Character character;
@@ -143,10 +145,10 @@ class _PortraitPanel extends StatelessWidget {
         minHeight: isTablet ? 360 : 260,
       ),
       decoration: BoxDecoration(
-        color: const Color(0xFF171821),
-        borderRadius: BorderRadius.circular(8),
+        color: StitchCodexPalette.card,
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(
-          color: Colors.deepPurpleAccent.withValues(alpha: 0.28),
+          color: StitchCodexPalette.bronze.withValues(alpha: 0.34),
         ),
         image: hasPortrait
             ? DecorationImage(
@@ -175,9 +177,10 @@ class _PortraitPanel extends StatelessWidget {
                 child: Text(
                   character.name.isEmpty ? 'Unnamed Character' : character.name,
                   style: const TextStyle(
-                    color: Colors.white,
+                    color: StitchCodexPalette.textPrimary,
+                    fontFamily: StitchTypography.display,
                     fontSize: 18,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
@@ -185,7 +188,7 @@ class _PortraitPanel extends StatelessWidget {
           : Center(
               child: Icon(
                 Icons.image_outlined,
-                color: Colors.white.withValues(alpha: 0.42),
+                color: StitchCodexPalette.bronze,
                 size: 46,
               ),
             ),
@@ -207,25 +210,17 @@ class _IdentityPanel extends StatelessWidget {
     final raceText =
         '${character.race}${character.subrace != null ? ' (${character.subrace})' : ''}';
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withValues(alpha: 0.28),
-        ),
-      ),
+    return StitchCodexPanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             character.name.isEmpty ? 'Unnamed Character' : character.name,
             style: const TextStyle(
-              color: Colors.white,
+              color: StitchCodexPalette.textPrimary,
+              fontFamily: StitchTypography.display,
               fontSize: 22,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w600,
             ),
           ),
           const SizedBox(height: 12),
@@ -260,19 +255,21 @@ class _StoryMetaRow extends StatelessWidget {
             child: Text(
               label.toUpperCase(),
               style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.5),
+                color: StitchCodexPalette.bronze.withValues(alpha: 0.82),
+                fontFamily: StitchTypography.data,
                 fontSize: 11,
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ),
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
+            style: const TextStyle(
+              color: StitchCodexPalette.textSecondary,
+              fontFamily: StitchTypography.body,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
                 height: 1.25,
               ),
             ),
@@ -294,32 +291,27 @@ class _NarrativeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withValues(alpha: 0.28),
-        ),
-      ),
+    return StitchCodexPanel(
+      emphasized: true,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             title,
             style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
+              color: StitchCodexPalette.textPrimary,
+              fontFamily: StitchTypography.display,
+              fontWeight: FontWeight.w600,
               fontSize: 16,
             ),
           ),
           const SizedBox(height: 10),
           Text(
             content,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.86),
+            style: const TextStyle(
+              color: StitchCodexPalette.textSecondary,
+              fontFamily: StitchTypography.body,
+              fontSize: 16,
               height: 1.45,
             ),
           ),

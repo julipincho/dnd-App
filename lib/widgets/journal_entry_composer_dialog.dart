@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../models/character.dart';
+import '../theme.dart';
 import '../utils/image_path_utils.dart';
+import 'campaign_codex_ui.dart';
 import 'compendium_aware_text_field.dart';
 import 'compendium_mention_chips.dart';
 
@@ -132,6 +134,7 @@ class _JournalEntryComposerDialogState
   @override
   Widget build(BuildContext context) {
     final canSubmit = _contentController.text.trim().isNotEmpty && !_isSaving;
+    final tokens = context.stitch;
 
     return SafeArea(
       child: Padding(
@@ -145,48 +148,32 @@ class _JournalEntryComposerDialogState
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 640),
             child: SingleChildScrollView(
-              child: Padding(
-                padding: const EdgeInsets.all(4),
+              child: CampaignCodexFrame(
+                accentColor: tokens.accentMagic,
+                padding: const EdgeInsets.all(18),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _CharacterAvatar(character: _selectedCharacter),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                widget.title,
-                                style: Theme.of(context).textTheme.titleLarge,
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                _characterName(_selectedCharacter),
-                                style: Theme.of(context).textTheme.bodyMedium,
-                              ),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          onPressed: _isSaving
-                              ? null
-                              : () => Navigator.of(context).pop(),
-                          icon: const Icon(Icons.close),
-                          tooltip: 'Close',
-                        ),
-                      ],
+                    CampaignCodexHeader(
+                      icon: Icons.edit_note,
+                      title: widget.title,
+                      subtitle: _characterName(_selectedCharacter),
+                      accentColor: tokens.accentMagic,
+                      trailing: IconButton(
+                        onPressed: _isSaving
+                            ? null
+                            : () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.close),
+                        tooltip: 'Close',
+                      ),
                     ),
                     const SizedBox(height: 18),
                     DropdownButtonFormField<Character>(
-                      value: _selectedCharacter,
-                      decoration: const InputDecoration(
+                      initialValue: _selectedCharacter,
+                      decoration: campaignCodexInputDecoration(
+                        context,
                         labelText: 'Character',
-                        border: OutlineInputBorder(),
                       ),
                       items: widget.characters.map((character) {
                         return DropdownMenuItem<Character>(
@@ -219,10 +206,10 @@ class _JournalEntryComposerDialogState
                     CompendiumAwareTextField(
                       controller: _contentController,
                       campaignId: widget.campaignId,
-                      decoration: InputDecoration(
+                      decoration: campaignCodexInputDecoration(
+                        context,
                         labelText: 'Note',
                         hintText: 'What did your character notice or decide?',
-                        border: const OutlineInputBorder(),
                         errorText: _showContentError
                             ? 'Write a note before saving.'
                             : null,
@@ -240,47 +227,18 @@ class _JournalEntryComposerDialogState
                       ),
                     ],
                     const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: _isSaving ? null : _pickImage,
-                            icon: const Icon(Icons.image_outlined),
-                            label: Text(
-                              _selectedImagePath == null
-                                  ? 'Attach image'
-                                  : 'Change image',
-                            ),
-                          ),
-                        ),
-                        if (_selectedImagePath != null) ...[
-                          const SizedBox(width: 8),
-                          IconButton(
-                            onPressed: _isSaving
-                                ? null
-                                : () {
-                                    setState(() {
-                                      _selectedImagePath = null;
-                                    });
-                                  },
-                            icon: const Icon(Icons.close),
-                            tooltip: 'Remove image',
-                          ),
-                        ],
-                      ],
+                    CampaignCodexImageAttachment(
+                      imagePath: _selectedImagePath,
+                      emptyLabel: 'Attach image',
+                      filledLabel: 'Change image',
+                      enabled: !_isSaving,
+                      onPickImage: _pickImage,
+                      onRemoveImage: () {
+                        setState(() {
+                          _selectedImagePath = null;
+                        });
+                      },
                     ),
-                    if (_selectedImagePath != null) ...[
-                      const SizedBox(height: 12),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: buildImageFromPath(
-                          _selectedImagePath!,
-                          width: double.infinity,
-                          height: 180,
-                          fit: BoxFit.cover,
-                        ),
-                      ),
-                    ],
                     const SizedBox(height: 20),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.end,

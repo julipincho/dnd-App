@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:stitch_app/models/character.dart';
+import 'package:stitch_app/theme.dart';
 import 'package:stitch_app/utils/image_path_utils.dart';
 
 class CharacterSheetHeader extends StatelessWidget {
@@ -33,14 +34,14 @@ class CharacterSheetHeader extends StatelessWidget {
       constraints: BoxConstraints(minHeight: minHeight),
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        color: const Color(0xFF11141B),
-        borderRadius: BorderRadius.circular(8),
+        color: StitchCodexPalette.card,
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(
-          color: const Color(0xFFE14658).withValues(alpha: 0.34),
+          color: StitchCodexPalette.bronze.withValues(alpha: 0.46),
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.28),
+            color: StitchCodexPalette.crimson.withValues(alpha: 0.10),
             blurRadius: 24,
             offset: const Offset(0, 16),
           ),
@@ -55,7 +56,7 @@ class CharacterSheetHeader extends StatelessWidget {
               alignment: Alignment.centerRight,
               filterQuality: FilterQuality.high,
               errorBuilder: (_, __, ___) => const ColoredBox(
-                color: Color(0xFF11141B),
+                color: StitchCodexPalette.card,
               ),
             ),
           ),
@@ -66,9 +67,9 @@ class CharacterSheetHeader extends StatelessWidget {
                   begin: Alignment.centerLeft,
                   end: Alignment.centerRight,
                   colors: [
-                    const Color(0xFF0E1117),
-                    const Color(0xFF11141B).withValues(alpha: 0.94),
-                    const Color(0xFF11141B).withValues(alpha: 0.48),
+                    StitchCodexPalette.ground,
+                    StitchCodexPalette.card.withValues(alpha: 0.94),
+                    StitchCodexPalette.card.withValues(alpha: 0.42),
                   ],
                 ),
               ),
@@ -81,7 +82,7 @@ class CharacterSheetHeader extends StatelessWidget {
                   begin: Alignment.bottomCenter,
                   end: Alignment.topCenter,
                   colors: [
-                    Colors.black.withValues(alpha: 0.60),
+                    StitchCodexPalette.ground.withValues(alpha: 0.88),
                     Colors.transparent,
                   ],
                 ),
@@ -203,10 +204,10 @@ class _CharacterHeaderPortrait extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: const Color(0xFF252631),
-        borderRadius: BorderRadius.circular(8),
+        color: StitchCodexPalette.surfaceRaised,
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(
-          color: const Color(0xFFE14658).withValues(alpha: 0.72),
+          color: StitchCodexPalette.bronze.withValues(alpha: 0.74),
           width: 2,
         ),
         boxShadow: [
@@ -228,7 +229,7 @@ class _CharacterHeaderPortrait extends StatelessWidget {
           ? const Icon(
               Icons.person,
               size: 34,
-              color: Colors.white70,
+              color: StitchCodexPalette.bronze,
             )
           : null,
     );
@@ -260,6 +261,17 @@ class _CharacterHeaderTextBlock extends StatelessWidget {
       crossAxisAlignment:
           isCentered ? CrossAxisAlignment.center : CrossAxisAlignment.start,
       children: [
+        const Text(
+          'LIVING CHARACTER RECORD',
+          style: TextStyle(
+            color: StitchCodexPalette.bronze,
+            fontFamily: StitchTypography.data,
+            fontSize: 8,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.8,
+          ),
+        ),
+        const SizedBox(height: 7),
         Text(
           character.name.isEmpty ? 'Unnamed Character' : character.name,
           textAlign: isCentered ? TextAlign.center : TextAlign.start,
@@ -271,8 +283,9 @@ class _CharacterHeaderTextBlock extends StatelessWidget {
               ),
             ],
             fontSize: titleSize,
-            fontWeight: FontWeight.w900,
-            color: Colors.white,
+            fontFamily: StitchTypography.display,
+            fontWeight: FontWeight.w600,
+            color: StitchCodexPalette.textPrimary,
             height: 1,
           ),
         ),
@@ -282,8 +295,9 @@ class _CharacterHeaderTextBlock extends StatelessWidget {
           textAlign: isCentered ? TextAlign.center : TextAlign.start,
           style: TextStyle(
             fontSize: subtitleSize,
-            color: Colors.white.withValues(alpha: 0.82),
-            fontWeight: FontWeight.w700,
+            color: StitchCodexPalette.textSecondary,
+            fontFamily: StitchTypography.body,
+            fontWeight: FontWeight.w600,
           ),
         ),
         const SizedBox(height: 10),
@@ -306,8 +320,9 @@ class _CharacterHeaderTextBlock extends StatelessWidget {
           textAlign: isCentered ? TextAlign.center : TextAlign.start,
           style: TextStyle(
             fontSize: smallSubtitleSize,
-            color: Colors.white.withValues(alpha: 0.76),
-            fontWeight: FontWeight.w600,
+            color: StitchCodexPalette.textMuted,
+            fontFamily: StitchTypography.body,
+            fontWeight: FontWeight.w500,
           ),
         ),
       ],
@@ -329,10 +344,10 @@ class _ClassIdentityChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: const Color(0xFFE14658).withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(999),
+        color: StitchCodexPalette.crimson.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(
-          color: const Color(0xFFE14658).withValues(alpha: 0.42),
+          color: StitchCodexPalette.crimsonBright.withValues(alpha: 0.42),
         ),
       ),
       child: Text(
@@ -340,9 +355,10 @@ class _ClassIdentityChip extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
-          color: Colors.white.withValues(alpha: 0.90),
+          color: StitchCodexPalette.textSecondary,
+          fontFamily: StitchTypography.data,
           fontSize: fontSize,
-          fontWeight: FontWeight.w800,
+          fontWeight: FontWeight.w700,
           height: 1,
         ),
       ),

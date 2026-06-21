@@ -43,13 +43,12 @@ class SupabaseStorageService {
     }
 
     final extension = _extensionFor(file.path);
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final safeOwner = _safePathSegment(ownerUserId);
-    final safeFolder = _safePathSegment(folder);
-    final safeEntity =
-        entityId == null || entityId.trim().isEmpty ? 'image' : entityId;
-    final fileName = '${_safePathSegment(safeEntity)}_$timestamp$extension';
-    final storagePath = 'users/$safeOwner/$safeFolder/$fileName';
+    final storagePath = _storagePath(
+      ownerUserId: ownerUserId,
+      folder: folder,
+      entityId: entityId,
+      extension: extension,
+    );
 
     await Supabase.instance.client.storage.from(imageBucket).upload(
           storagePath,
@@ -62,6 +61,59 @@ class SupabaseStorageService {
     return Supabase.instance.client.storage
         .from(imageBucket)
         .getPublicUrl(storagePath);
+  }
+
+  static Future<String> uploadUserImageBytes({
+    required Uint8List bytes,
+    required String fileName,
+    required String ownerUserId,
+    required String folder,
+    String? entityId,
+  }) async {
+    if (!isConfigured) {
+      throw StateError(
+        'Supabase is not configured. Run Flutter with SUPABASE_URL and '
+        'SUPABASE_ANON_KEY dart-defines before uploading images.',
+      );
+    }
+    if (bytes.isEmpty) {
+      throw ArgumentError.value(bytes, 'bytes', 'Image bytes cannot be empty.');
+    }
+
+    final extension = _extensionFor(fileName);
+    final storagePath = _storagePath(
+      ownerUserId: ownerUserId,
+      folder: folder,
+      entityId: entityId,
+      extension: extension,
+    );
+
+    await Supabase.instance.client.storage.from(imageBucket).uploadBinary(
+          storagePath,
+          bytes,
+          fileOptions: FileOptions(
+            contentType: _contentTypeFor(extension),
+          ),
+        );
+
+    return Supabase.instance.client.storage
+        .from(imageBucket)
+        .getPublicUrl(storagePath);
+  }
+
+  static String _storagePath({
+    required String ownerUserId,
+    required String folder,
+    required String extension,
+    String? entityId,
+  }) {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final safeOwner = _safePathSegment(ownerUserId);
+    final safeFolder = _safePathSegment(folder);
+    final safeEntity =
+        entityId == null || entityId.trim().isEmpty ? 'image' : entityId;
+    final fileName = '${_safePathSegment(safeEntity)}_$timestamp$extension';
+    return 'users/$safeOwner/$safeFolder/$fileName';
   }
 
   static String _safePathSegment(String value) {

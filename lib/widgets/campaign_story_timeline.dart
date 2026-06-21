@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import '../models/compendium_entry.dart';
 import '../models/session.dart';
 import '../models/story_timeline_item.dart';
+import '../theme.dart';
 import '../utils/compendium_linking.dart';
+import 'campaign_codex_ui.dart';
 import 'compendium_mention_chips.dart';
 import 'linked_compendium_text.dart';
 
@@ -17,31 +19,20 @@ class CampaignStoryOverviewCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
+    final tokens = context.stitch;
+
+    return CampaignCodexFrame(
+      accentColor: tokens.accentRead,
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Theme.of(context).dividerColor),
-      ),
+      backgroundColor: tokens.panel,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              CircleAvatar(
-                backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                child: const Icon(Icons.route_outlined),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Shared chronicle',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-              ),
-            ],
+          CampaignCodexHeader(
+            icon: Icons.route_outlined,
+            title: 'Shared chronicle',
+            subtitle: 'Sessions, notes, events and compendium links',
+            accentColor: tokens.accentReadSoft,
           ),
           const SizedBox(height: 14),
           Wrap(
@@ -105,6 +96,7 @@ class CampaignStoryTimelineTile extends StatelessWidget {
       text: item.linkText,
       entries: compendiumEntries,
     );
+    final tokens = context.stitch;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
@@ -117,13 +109,17 @@ class CampaignStoryTimelineTile extends StatelessWidget {
                 width: 42,
                 height: 42,
                 decoration: BoxDecoration(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .primaryContainer
-                      .withValues(alpha: 0.85),
-                  borderRadius: BorderRadius.circular(14),
+                  color: tokens.accentRead.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(tokens.radiusSm),
+                  border: Border.all(
+                    color: tokens.accentRead.withValues(alpha: 0.34),
+                  ),
                 ),
-                child: Icon(_storyIcon(item), size: 20),
+                child: Icon(
+                  _storyIcon(item),
+                  size: 20,
+                  color: tokens.accentReadSoft,
+                ),
               ),
               const SizedBox(height: 8),
               Container(
@@ -136,14 +132,12 @@ class CampaignStoryTimelineTile extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: InkWell(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(tokens.radiusMd),
               onTap: onToggleExpanded,
-              child: Container(
+              child: CampaignCodexFrame(
+                accentColor: tokens.accentRead,
                 padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Theme.of(context).dividerColor),
-                  borderRadius: BorderRadius.circular(16),
-                ),
+                backgroundColor: tokens.panel,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -156,6 +150,8 @@ class CampaignStoryTimelineTile extends StatelessWidget {
                             children: [
                               Text(
                                 item.title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
                                 style: Theme.of(context).textTheme.titleMedium,
                               ),
                               const SizedBox(height: 6),
@@ -226,9 +222,8 @@ class CampaignStoryTimelineTile extends StatelessWidget {
                               size: 16,
                             ),
                             label: Text(
-                              item.linkedSession!.title.isEmpty
-                                  ? 'Open session'
-                                  : item.linkedSession!.title,
+                              'Open session',
+                              overflow: TextOverflow.ellipsis,
                             ),
                             onPressed: () {
                               onOpenSession(item.linkedSession!);

@@ -66,6 +66,7 @@ import '../services/multiclass_spellcasting_service.dart';
 import '../services/supabase_storage_service.dart';
 import '../theme.dart';
 import '../utils/image_path_utils.dart';
+import '../widgets/stitch_codex_ui.dart';
 
 enum _SpellChoiceSaveMode {
   known,
@@ -3461,11 +3462,16 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
     if (foundCharacter == null) {
       return const Scaffold(
-        backgroundColor: Color(0xFF15151A),
-        body: Center(
-          child: Text(
-            "Character not found",
-            style: TextStyle(color: Colors.white),
+        backgroundColor: StitchCodexPalette.ground,
+        body: StitchCodexBackground(
+          child: Center(
+            child: Text(
+              'Character not found',
+              style: TextStyle(
+                color: StitchCodexPalette.textMuted,
+                fontFamily: StitchTypography.body,
+              ),
+            ),
           ),
         ),
       );
@@ -3511,20 +3517,30 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     return DefaultTabController(
       length: 6,
       child: Scaffold(
-        backgroundColor: const Color(0xFF15151A),
+        backgroundColor: StitchCodexPalette.ground,
         appBar: StitchAppBar(
-          backgroundColor: const Color(0xFF121214),
-          elevation: 4,
+          showBrand: false,
+          backgroundColor: StitchCodexPalette.ground,
+          elevation: 0,
           title: Text(
-            char.name.isEmpty ? "Unnamed Character" : char.name,
-            style: const TextStyle(fontWeight: FontWeight.bold),
+            (char.name.isEmpty ? 'Unnamed Character' : char.name).toUpperCase(),
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: StitchCodexPalette.textPrimary,
+              fontFamily: StitchTypography.display,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 1.15,
+            ),
           ),
-          centerTitle: true,
           actions: [
             // Go to campaign is always available.
             if (char.campaignId != null)
               IconButton(
-                icon: const Icon(Icons.flag_outlined, color: Colors.white),
+                icon: const Icon(
+                  Icons.flag_outlined,
+                  color: StitchCodexPalette.bronze,
+                ),
                 tooltip: 'Go to campaign',
                 onPressed: () async {
                   final campaignId = char.campaignId;
@@ -3550,7 +3566,11 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
             // Owner actions.
             if (isOwnedByCurrentUser)
               IconButton(
-                icon: const Icon(Icons.edit, color: Colors.white),
+                tooltip: 'Edit character',
+                icon: const Icon(
+                  Icons.edit_outlined,
+                  color: StitchCodexPalette.textSecondary,
+                ),
                 onPressed: () {
                   context.push('/edit-character/${char.id}');
                 },
@@ -3558,16 +3578,29 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
             if (isOwnedByCurrentUser)
               IconButton(
-                icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                icon: const Icon(
+                  Icons.delete_outline,
+                  color: StitchCodexPalette.crimsonBright,
+                ),
                 tooltip: 'Delete character',
                 onPressed: () async {
                   final characterProvider = context.read<CharacterProvider>();
                   final confirm = await showDialog<bool>(
                     context: context,
                     builder: (dialogContext) => AlertDialog(
-                      title: const Text('Delete Character'),
+                      backgroundColor: StitchCodexPalette.surface,
+                      shape: stitchCodexDialogShape(),
+                      title: const Text(
+                        'Delete Character',
+                        style: stitchCodexDialogTitleStyle,
+                      ),
                       content: const Text(
-                        'Are you sure you want to delete this character?',
+                        'Remove this character from the archive? This cannot be undone.',
+                        style: TextStyle(
+                          color: StitchCodexPalette.textMuted,
+                          fontFamily: StitchTypography.body,
+                          fontSize: 15,
+                        ),
                       ),
                       actions: [
                         TextButton(
@@ -3578,7 +3611,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                           onPressed: () => Navigator.pop(dialogContext, true),
                           child: const Text(
                             'Delete',
-                            style: TextStyle(color: Colors.red),
+                            style: TextStyle(
+                              color: StitchCodexPalette.crimsonBright,
+                            ),
                           ),
                         ),
                       ],
@@ -3603,21 +3638,52 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 },
               ),
           ],
-          bottom: const TabBar(
-            isScrollable: true,
-            indicatorColor: Colors.deepPurpleAccent,
-            tabs: [
-              Tab(text: "Overview"),
-              Tab(text: "Inventory"),
-              Tab(text: "Spells"),
-              Tab(text: "Features"),
-              Tab(text: "Story"),
-              Tab(text: "Notes / Journal"),
-            ],
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(54),
+            child: Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: StitchCodexPalette.surfaceMuted,
+                border: Border(
+                  top: BorderSide(
+                    color:
+                        StitchCodexPalette.bronze.withValues(alpha: 0.12),
+                  ),
+                  bottom: BorderSide(
+                    color:
+                        StitchCodexPalette.bronze.withValues(alpha: 0.22),
+                  ),
+                ),
+              ),
+              child: const TabBar(
+                isScrollable: true,
+                tabAlignment: TabAlignment.start,
+                dividerColor: Colors.transparent,
+                indicatorColor: StitchCodexPalette.bronze,
+                indicatorWeight: 2,
+                labelColor: StitchCodexPalette.textPrimary,
+                unselectedLabelColor: StitchCodexPalette.textMuted,
+                labelStyle: TextStyle(
+                  fontFamily: StitchTypography.data,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.6,
+                ),
+                tabs: [
+                  Tab(icon: Icon(Icons.dashboard_outlined), text: 'OVERVIEW'),
+                  Tab(icon: Icon(Icons.inventory_2_outlined), text: 'INVENTORY'),
+                  Tab(icon: Icon(Icons.auto_awesome_outlined), text: 'SPELLS'),
+                  Tab(icon: Icon(Icons.workspace_premium_outlined), text: 'FEATURES'),
+                  Tab(icon: Icon(Icons.history_edu_outlined), text: 'STORY'),
+                  Tab(icon: Icon(Icons.edit_note_outlined), text: 'JOURNAL'),
+                ],
+              ),
+            ),
           ),
         ),
-        body: TabBarView(
-          children: [
+        body: StitchCodexBackground(
+          child: TabBarView(
+            children: [
             CharacterOverviewTab(
               header: CharacterSheetHeader(character: char),
               char: char,
@@ -3778,7 +3844,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               characterJournalEntries,
               campaignSessions,
             ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -3818,37 +3885,28 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final valueSize = isLargeTablet ? 22.0 : 19.0;
     final iconSize = isLargeTablet ? 19.0 : 17.0;
 
-    return Container(
+    return ConstrainedBox(
       constraints: const BoxConstraints(minHeight: 82),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-      decoration: BoxDecoration(
-        color: const Color(0xFF151922),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: const Color(0xFF8BAA6F).withValues(alpha: 0.26),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.16),
-            blurRadius: 12,
-            offset: const Offset(0, 7),
-          ),
-        ],
-      ),
-      child: Row(
+      child: StitchCodexPanel(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+        child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Container(
             width: 34,
             height: 34,
             decoration: BoxDecoration(
-              color: const Color(0xFF8BAA6F).withValues(alpha: 0.13),
-              borderRadius: BorderRadius.circular(8),
+              color: StitchCodexPalette.bronze.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(2),
               border: Border.all(
-                color: const Color(0xFF8BAA6F).withValues(alpha: 0.24),
+                color: StitchCodexPalette.bronze.withValues(alpha: 0.28),
               ),
             ),
-            child: Icon(icon, color: const Color(0xFFB7D28A), size: iconSize),
+            child: Icon(
+              icon,
+              color: StitchCodexPalette.bronze,
+              size: iconSize,
+            ),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -3861,9 +3919,10 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: Colors.white,
+                    color: StitchCodexPalette.textPrimary,
+                    fontFamily: StitchTypography.data,
                     fontSize: valueSize,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w700,
                     height: 1.05,
                   ),
                 ),
@@ -3873,15 +3932,17 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: Colors.white70,
+                    color: StitchCodexPalette.textMuted,
+                    fontFamily: StitchTypography.body,
                     fontSize: labelSize,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
             ),
           ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -3901,16 +3962,16 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(2),
         onTap: onTap,
         child: Ink(
           height: 82,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
-            color: const Color(0xFF151922),
-            borderRadius: BorderRadius.circular(8),
+            color: StitchCodexPalette.surfaceMuted,
+            borderRadius: BorderRadius.circular(2),
             border: Border.all(
-              color: const Color(0xFF8BAA6F).withValues(alpha: 0.26),
+              color: StitchCodexPalette.crimsonBright.withValues(alpha: 0.28),
             ),
           ),
           child: Row(
@@ -3920,14 +3981,18 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 width: 34,
                 height: 34,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFE14658).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
+                  color: StitchCodexPalette.crimson.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(2),
                   border: Border.all(
-                    color: const Color(0xFFE14658).withValues(alpha: 0.24),
+                    color: StitchCodexPalette.crimsonBright
+                        .withValues(alpha: 0.28),
                   ),
                 ),
-                child:
-                    Icon(icon, color: const Color(0xFFE14658), size: iconSize),
+                child: Icon(
+                  icon,
+                  color: StitchCodexPalette.crimsonBright,
+                  size: iconSize,
+                ),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -3940,9 +4005,10 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: Colors.white,
+                        color: StitchCodexPalette.textPrimary,
+                        fontFamily: StitchTypography.data,
                         fontSize: valueSize,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                         height: 1.05,
                       ),
                     ),
@@ -3952,9 +4018,10 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: Colors.white70,
+                        color: StitchCodexPalette.textMuted,
+                        fontFamily: StitchTypography.body,
                         fontSize: labelSize,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
@@ -3962,7 +4029,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               ),
               Icon(
                 Icons.edit_outlined,
-                color: Colors.white38,
+                color: StitchCodexPalette.textFaint,
                 size: isLargeTablet ? 16 : 14,
               ),
             ],
