@@ -128,7 +128,7 @@ class CharacterDeathSavesSection extends StatelessWidget {
                         child: _DeathSaveTrack(
                           title: 'Successes',
                           value: clampedSuccesses,
-                          color: Colors.greenAccent,
+                          color: StitchCodexPalette.success,
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -136,7 +136,7 @@ class CharacterDeathSavesSection extends StatelessWidget {
                         child: _DeathSaveTrack(
                           title: 'Failures',
                           value: clampedFailures,
-                          color: Colors.redAccent,
+                          color: StitchCodexPalette.crimsonBright,
                         ),
                       ),
                     ],
@@ -181,7 +181,7 @@ class _DeathSaveStatus {
       return const _DeathSaveStatus(
         label: 'Stable',
         detail: '3 successes reached. Reset after the scene resolves.',
-        color: Colors.greenAccent,
+        color: StitchCodexPalette.success,
         icon: Icons.health_and_safety_outlined,
       );
     }
@@ -190,7 +190,7 @@ class _DeathSaveStatus {
       return const _DeathSaveStatus(
         label: 'Dead',
         detail: '3 failures reached. Resolve consequences with the table.',
-        color: Colors.redAccent,
+        color: StitchCodexPalette.crimsonBright,
         icon: Icons.dangerous_outlined,
       );
     }
@@ -199,7 +199,7 @@ class _DeathSaveStatus {
       return const _DeathSaveStatus(
         label: 'At 0 HP',
         detail: 'Roll at the start of each turn until stabilized or healed.',
-        color: Colors.orangeAccent,
+        color: StitchCodexPalette.bronzeBright,
         icon: Icons.monitor_heart_outlined,
       );
     }
@@ -207,7 +207,7 @@ class _DeathSaveStatus {
     return const _DeathSaveStatus(
       label: 'Inactive',
       detail: 'Death saves become active when current HP drops to 0.',
-      color: Colors.white70,
+      color: StitchCodexPalette.textSecondary,
       icon: Icons.shield_outlined,
     );
   }

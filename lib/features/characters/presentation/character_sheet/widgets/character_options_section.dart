@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:stitch_app/models/character_option_definition.dart';
+import 'package:stitch_app/theme.dart';
 
 import 'character_sheet_meta_chip.dart';
 
@@ -20,7 +21,10 @@ class CharacterOptionsSectionContent extends StatelessWidget {
     if (groups.isEmpty) {
       return const Text(
         'This character has no class options to choose yet.',
-        style: TextStyle(color: Colors.white70),
+        style: TextStyle(
+          color: StitchCodexPalette.textMuted,
+          fontFamily: StitchTypography.body,
+        ),
       );
     }
 
@@ -32,7 +36,8 @@ class CharacterOptionsSectionContent extends StatelessWidget {
               ? 'Choices granted by class, subclass, or feats will appear here.'
               : 'You can view this character\'s class options, but only the owner can modify them.',
           style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.7),
+            color: StitchCodexPalette.textMuted,
+            fontFamily: StitchTypography.body,
             fontSize: 12,
           ),
         ),
@@ -99,12 +104,12 @@ class _CharacterOptionGrantGroupCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFF262632),
-        borderRadius: BorderRadius.circular(14),
+        color: StitchCodexPalette.surface,
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(
           color: group.isComplete
-              ? Colors.greenAccent.withValues(alpha: 0.28)
-              : Colors.deepPurpleAccent.withValues(alpha: 0.24),
+              ? StitchCodexPalette.success.withValues(alpha: 0.32)
+              : StitchCodexPalette.bronze.withValues(alpha: 0.24),
         ),
       ),
       child: Column(
@@ -113,7 +118,8 @@ class _CharacterOptionGrantGroupCard extends StatelessWidget {
           Text(
             group.title,
             style: const TextStyle(
-              color: Colors.white,
+              color: StitchCodexPalette.textPrimary,
+              fontFamily: StitchTypography.display,
               fontSize: 15,
               fontWeight: FontWeight.w700,
             ),
@@ -147,7 +153,8 @@ class _CharacterOptionGrantGroupCard extends StatelessWidget {
             Text(
               '${group.availableOptionsCount} option${group.availableOptionsCount == 1 ? '' : 's'} available',
               style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.58),
+                color: StitchCodexPalette.textMuted,
+                fontFamily: StitchTypography.body,
                 fontSize: 12,
               ),
             ),
@@ -192,7 +199,8 @@ class _SelectedSpellLabels extends StatelessWidget {
       return Text(
         'No selection made yet.',
         style: TextStyle(
-          color: Colors.white.withValues(alpha: 0.7),
+          color: StitchCodexPalette.textMuted,
+          fontFamily: StitchTypography.body,
           fontSize: 13,
         ),
       );
@@ -222,7 +230,8 @@ class _SelectedOptions extends StatelessWidget {
       return Text(
         'No selection made yet.',
         style: TextStyle(
-          color: Colors.white.withValues(alpha: 0.7),
+          color: StitchCodexPalette.textMuted,
+          fontFamily: StitchTypography.body,
           fontSize: 13,
         ),
       );
@@ -236,7 +245,7 @@ class _SelectedOptions extends StatelessWidget {
             (option) => Material(
               color: Colors.transparent,
               child: InkWell(
-                borderRadius: BorderRadius.circular(999),
+                borderRadius: BorderRadius.circular(2),
                 onTap: () => onOptionTap(option),
                 child: CharacterSheetMetaChip(label: option.name),
               ),

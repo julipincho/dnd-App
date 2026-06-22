@@ -159,8 +159,8 @@ class _EquipmentSlotCard extends StatelessWidget {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  Color(0xFF1B2230),
-                  Color(0xFF111720),
+                  StitchCodexPalette.surfaceRaised,
+                  StitchCodexPalette.surfaceMuted,
                 ],
               ),
         color: item == null ? tokens.surface : null,

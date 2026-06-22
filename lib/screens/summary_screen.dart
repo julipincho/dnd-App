@@ -136,8 +136,6 @@ class _SummaryScreenState extends State<SummaryScreen> {
     }
 
     setState(() => _isFinalizing = true);
-    String? portraitWarning;
-
     try {
       characterProvider.update((character) {
         if (character.id.isEmpty) {
@@ -190,8 +188,17 @@ class _SummaryScreenState extends State<SummaryScreen> {
         } catch (error, stackTrace) {
           debugPrint('Error uploading character portrait: $error');
           debugPrint('$stackTrace');
-          portraitWarning =
-              'The character was saved, but the portrait could not be uploaded.';
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                SupabaseStorageService.isConfigured
+                    ? 'The portrait could not be uploaded. The character was not saved, so you can try again without losing the image.'
+                    : 'Image storage is not configured. Start the app with the Supabase configuration before saving this character.',
+              ),
+            ),
+          );
+          return;
         }
       }
 
@@ -200,12 +207,6 @@ class _SummaryScreenState extends State<SummaryScreen> {
 
       if (!mounted) return;
       characterProvider.clearDraftPortrait();
-
-      if (portraitWarning != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(portraitWarning)),
-        );
-      }
 
       context.go('/character/$characterId');
     } catch (error, stackTrace) {

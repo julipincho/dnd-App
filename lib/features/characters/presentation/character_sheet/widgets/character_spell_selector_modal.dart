@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:stitch_app/models/spell.dart';
+import 'package:stitch_app/theme.dart';
 
 class CharacterSpellSelectorModal extends StatefulWidget {
   final List<Spell> spells;
@@ -62,8 +63,11 @@ class _CharacterSpellSelectorModalState
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.deepPurpleAccent.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(999),
+        color: StitchCodexPalette.bronze.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(2),
+        border: Border.all(
+          color: StitchCodexPalette.bronze.withValues(alpha: 0.28),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -211,10 +215,10 @@ class _CharacterSpellSelectorModalState
                           final spell = filtered[index];
 
                           return Material(
-                            color: const Color(0xFF202028),
-                            borderRadius: BorderRadius.circular(14),
+                            color: StitchCodexPalette.card,
+                            borderRadius: BorderRadius.circular(3),
                             child: InkWell(
-                              borderRadius: BorderRadius.circular(14),
+                              borderRadius: BorderRadius.circular(3),
                               onTap: () => widget.onSelect(spell),
                               child: Padding(
                                 padding: const EdgeInsets.all(14),
@@ -225,9 +229,13 @@ class _CharacterSpellSelectorModalState
                                       width: 44,
                                       height: 44,
                                       decoration: BoxDecoration(
-                                        color: Colors.deepPurpleAccent
+                                        color: StitchCodexPalette.crimsonBright
                                             .withValues(alpha: 0.18),
-                                        borderRadius: BorderRadius.circular(12),
+                                        borderRadius: BorderRadius.circular(2),
+                                        border: Border.all(
+                                          color: StitchCodexPalette.crimsonBright
+                                              .withValues(alpha: 0.32),
+                                        ),
                                       ),
                                       alignment: Alignment.center,
                                       child: Text(

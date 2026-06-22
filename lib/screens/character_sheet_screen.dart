@@ -3955,6 +3955,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     required bool isLargeTablet,
     required VoidCallback onTap,
   }) {
+    final accent = label == 'Initiative'
+        ? StitchCodexPalette.cold
+        : StitchCodexPalette.crimsonBright;
     final labelSize = isLargeTablet ? 12.0 : 11.0;
     final valueSize = isLargeTablet ? 20.0 : 18.0;
     final iconSize = isLargeTablet ? 20.0 : 18.0;
@@ -3971,7 +3974,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
             color: StitchCodexPalette.surfaceMuted,
             borderRadius: BorderRadius.circular(2),
             border: Border.all(
-              color: StitchCodexPalette.crimsonBright.withValues(alpha: 0.28),
+              color: accent.withValues(alpha: 0.30),
             ),
           ),
           child: Row(
@@ -3981,16 +3984,15 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 width: 34,
                 height: 34,
                 decoration: BoxDecoration(
-                  color: StitchCodexPalette.crimson.withValues(alpha: 0.12),
+                  color: accent.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(2),
                   border: Border.all(
-                    color: StitchCodexPalette.crimsonBright
-                        .withValues(alpha: 0.28),
+                    color: accent.withValues(alpha: 0.30),
                   ),
                 ),
                 child: Icon(
                   icon,
-                  color: StitchCodexPalette.crimsonBright,
+                  color: accent,
                   size: iconSize,
                 ),
               ),
@@ -4048,10 +4050,10 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: const Color(0xFF151922),
-        borderRadius: BorderRadius.circular(8),
+        color: StitchCodexPalette.surfaceMuted,
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(
-          color: const Color(0xFF8BAA6F).withValues(alpha: 0.24),
+          color: StitchCodexPalette.bronze.withValues(alpha: 0.22),
         ),
         boxShadow: [
           BoxShadow(
@@ -4064,7 +4066,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       child: Column(
         children: [
           InkWell(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(2),
             onTap: () {
               setState(() {
                 _recentRollsExpanded = !_recentRollsExpanded;
@@ -4078,15 +4080,17 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     width: 32,
                     height: 32,
                     decoration: BoxDecoration(
-                      color: const Color(0xFF8BAA6F).withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(8),
+                      color:
+                          StitchCodexPalette.bronze.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(2),
                       border: Border.all(
-                        color: const Color(0xFF8BAA6F).withValues(alpha: 0.22),
+                        color:
+                            StitchCodexPalette.bronze.withValues(alpha: 0.26),
                       ),
                     ),
                     child: const Icon(
                       Icons.history,
-                      color: Color(0xFFB7D28A),
+                      color: StitchCodexPalette.bronze,
                       size: 18,
                     ),
                   ),
@@ -4095,7 +4099,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     child: Text(
                       'RECENT ROLLS (${_diceLog.length})',
                       style: TextStyle(
-                        color: const Color(0xFFB7D28A).withValues(alpha: 0.88),
+                        color: StitchCodexPalette.bronze,
+                        fontFamily: StitchTypography.data,
                         fontSize: isTablet ? 12 : 11,
                         fontWeight: FontWeight.w900,
                         letterSpacing: 0,
@@ -4117,14 +4122,17 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     _recentRollsExpanded
                         ? Icons.expand_less
                         : Icons.expand_more,
-                    color: Colors.white70,
+                    color: StitchCodexPalette.textMuted,
                   ),
                 ],
               ),
             ),
           ),
           if (_recentRollsExpanded) ...[
-            const Divider(height: 1, color: Colors.white12),
+            Divider(
+              height: 1,
+              color: StitchCodexPalette.bronze.withValues(alpha: 0.12),
+            ),
             if (_diceLog.isEmpty)
               const Padding(
                 padding: EdgeInsets.all(16),
@@ -4132,7 +4140,10 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                   alignment: Alignment.centerLeft,
                   child: Text(
                     'No rolls yet.',
-                    style: TextStyle(color: Colors.white70),
+                    style: TextStyle(
+                      color: StitchCodexPalette.textMuted,
+                      fontFamily: StitchTypography.body,
+                    ),
                   ),
                 ),
               )
@@ -4147,12 +4158,11 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         margin: const EdgeInsets.only(bottom: 10),
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF111720),
-                          borderRadius: BorderRadius.circular(8),
+                          color: StitchCodexPalette.surface,
+                          borderRadius: BorderRadius.circular(2),
                           border: Border.all(
-                            color: const Color(
-                              0xFF8BAA6F,
-                            ).withValues(alpha: 0.18),
+                            color: StitchCodexPalette.bronze
+                                .withValues(alpha: 0.18),
                           ),
                         ),
                         child: Row(
@@ -4161,7 +4171,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                               child: Text(
                                 roll.summaryText,
                                 style: TextStyle(
-                                  color: Colors.white,
+                                  color: StitchCodexPalette.textPrimary,
+                                  fontFamily: StitchTypography.body,
                                   fontSize: isTablet ? 14 : 13,
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -4174,20 +4185,19 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                 vertical: 8,
                               ),
                               decoration: BoxDecoration(
-                                color: const Color(
-                                  0xFF8BAA6F,
-                                ).withValues(alpha: 0.18),
-                                borderRadius: BorderRadius.circular(999),
+                                color: StitchCodexPalette.bronze
+                                    .withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(2),
                                 border: Border.all(
-                                  color: const Color(
-                                    0xFF8BAA6F,
-                                  ).withValues(alpha: 0.28),
+                                  color: StitchCodexPalette.bronze
+                                      .withValues(alpha: 0.30),
                                 ),
                               ),
                               child: Text(
                                 '${roll.total}',
                                 style: const TextStyle(
-                                  color: Colors.white,
+                                  color: StitchCodexPalette.bronze,
+                                  fontFamily: StitchTypography.data,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
@@ -4204,7 +4214,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                           child: Text(
                             'Showing the last 5 rolls.',
                             style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.6),
+                              color: StitchCodexPalette.textMuted,
+                              fontFamily: StitchTypography.body,
                               fontSize: 12,
                             ),
                           ),
@@ -4234,7 +4245,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(2),
         onTap: () => _rollAbilityCheck(char, label),
         child: Ink(
           decoration: BoxDecoration(
@@ -4242,13 +4253,13 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                Color(0xFF1B2230),
-                Color(0xFF111720),
+                StitchCodexPalette.surfaceRaised,
+                StitchCodexPalette.surface,
               ],
             ),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(2),
             border: Border.all(
-              color: const Color(0xFF8BAA6F).withValues(alpha: 0.34),
+              color: StitchCodexPalette.bronze.withValues(alpha: 0.26),
             ),
             boxShadow: [
               BoxShadow(
@@ -4270,7 +4281,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: labelSize,
-                    color: const Color(0xFFB7D28A).withValues(alpha: 0.88),
+                    color: StitchCodexPalette.textMuted,
+                    fontFamily: StitchTypography.data,
                     fontWeight: FontWeight.w900,
                     letterSpacing: 0,
                   ),
@@ -4280,7 +4292,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                   _formatSigned(mod),
                   style: TextStyle(
                     fontSize: modSize,
-                    color: Colors.white,
+                    color: StitchCodexPalette.textPrimary,
+                    fontFamily: StitchTypography.display,
                     fontWeight: FontWeight.w900,
                     height: 1,
                   ),
@@ -4293,17 +4306,19 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     horizontal: 10,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.34),
-                    borderRadius: BorderRadius.circular(999),
+                    color: StitchCodexPalette.ground.withValues(alpha: 0.72),
+                    borderRadius: BorderRadius.circular(2),
                     border: Border.all(
-                      color: const Color(0xFF8BAA6F).withValues(alpha: 0.24),
+                      color:
+                          StitchCodexPalette.bronze.withValues(alpha: 0.24),
                     ),
                   ),
                   child: Text(
                     "$score",
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.9),
+                      color: StitchCodexPalette.bronze,
+                      fontFamily: StitchTypography.data,
                       fontSize: scoreSize,
                       fontWeight: FontWeight.w800,
                       height: 1,

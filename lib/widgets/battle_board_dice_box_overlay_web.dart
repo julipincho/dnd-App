@@ -3,7 +3,7 @@ import 'dart:async';
 import 'dart:html' as html;
 // ignore: avoid_web_libraries_in_flutter
 import 'dart:js_util' as js_util;
-import 'dart:ui' as ui;
+import 'dart:ui_web' as ui_web;
 
 import 'package:flutter/material.dart';
 
@@ -132,8 +132,7 @@ class _BattleBoardDiceBoxOverlayState extends State<BattleBoardDiceBoxOverlay> {
   void _registerViewFactory() {
     if (_registeredViewTypes.contains(_viewType)) return;
 
-    // ignore: undefined_prefixed_name
-    ui.platformViewRegistry.registerViewFactory(
+    ui_web.platformViewRegistry.registerViewFactory(
       _viewType,
       (int viewId) {
         final element = html.DivElement()

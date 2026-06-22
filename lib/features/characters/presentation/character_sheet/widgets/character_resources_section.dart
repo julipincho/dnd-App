@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:stitch_app/models/character_resource.dart';
+import 'package:stitch_app/theme.dart';
+import 'package:stitch_app/widgets/stitch_codex_ui.dart';
 
 import 'character_sheet_meta_chip.dart';
 
@@ -33,7 +35,10 @@ class CharacterResourcesSection extends StatelessWidget {
         title: 'Resources',
         child: Text(
           'No tracked resources yet.',
-          style: TextStyle(color: Colors.white70),
+          style: TextStyle(
+            color: StitchCodexPalette.textMuted,
+            fontFamily: StitchTypography.body,
+          ),
         ),
       );
     }
@@ -121,10 +126,10 @@ class _ResourceCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFF262632),
-        borderRadius: BorderRadius.circular(14),
+        color: StitchCodexPalette.surface,
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(
-          color: Colors.deepPurpleAccent.withValues(alpha: 0.24),
+          color: StitchCodexPalette.bronze.withValues(alpha: 0.24),
         ),
       ),
       child: Column(
@@ -138,9 +143,10 @@ class _ResourceCard extends StatelessWidget {
               Text(
                 resource.name,
                 style: TextStyle(
-                  color: Colors.white,
+                  color: StitchCodexPalette.textPrimary,
+                  fontFamily: StitchTypography.display,
                   fontSize: isLargeTablet ? 16 : 15,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               CharacterSheetMetaChip(label: resource.rechargeType),
@@ -150,7 +156,8 @@ class _ResourceCard extends StatelessWidget {
           Text(
             '$current / $max',
             style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.88),
+              color: StitchCodexPalette.bronze,
+              fontFamily: StitchTypography.data,
               fontSize: isTablet ? 16 : 15,
               fontWeight: FontWeight.w600,
             ),
@@ -192,24 +199,16 @@ class _CharacterSheetSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withValues(alpha: 0.28),
-        ),
-      ),
+    return StitchCodexPanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             title,
             style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
+              color: StitchCodexPalette.textPrimary,
+              fontFamily: StitchTypography.display,
+              fontWeight: FontWeight.w600,
               fontSize: 16,
             ),
           ),

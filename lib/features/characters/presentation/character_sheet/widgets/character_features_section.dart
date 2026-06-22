@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:stitch_app/models/character.dart';
 import 'package:stitch_app/models/character_feature.dart';
+import 'package:stitch_app/theme.dart';
+import 'package:stitch_app/widgets/stitch_codex_ui.dart';
 
 import 'character_sheet_meta_chip.dart';
 
@@ -30,7 +32,10 @@ class CharacterFeaturesSection extends StatelessWidget {
         title: 'Features',
         child: Text(
           'No features available yet.',
-          style: TextStyle(color: Colors.white70),
+          style: TextStyle(
+            color: StitchCodexPalette.textMuted,
+            fontFamily: StitchTypography.body,
+          ),
         ),
       );
     }
@@ -243,10 +248,10 @@ class _FeatureSourceGroupCard extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFF22222C),
-        borderRadius: BorderRadius.circular(16),
+        color: StitchCodexPalette.surface,
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(
-          color: Colors.deepPurpleAccent.withValues(alpha: 0.24),
+          color: StitchCodexPalette.bronze.withValues(alpha: 0.24),
         ),
       ),
       child: Theme(
@@ -261,17 +266,18 @@ class _FeatureSourceGroupCard extends StatelessWidget {
             vertical: 6,
           ),
           childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-          iconColor: Colors.white70,
-          collapsedIconColor: Colors.white54,
+          iconColor: StitchCodexPalette.bronze,
+          collapsedIconColor: StitchCodexPalette.textMuted,
           leading: Icon(
             icon,
-            color: Colors.deepPurpleAccent.shade100,
+            color: StitchCodexPalette.bronze,
             size: 20,
           ),
           title: Text(
             title,
             style: TextStyle(
-              color: Colors.white,
+              color: StitchCodexPalette.textPrimary,
+              fontFamily: StitchTypography.display,
               fontSize: isLargeTablet ? 17 : 15,
               fontWeight: FontWeight.w700,
             ),
@@ -281,7 +287,8 @@ class _FeatureSourceGroupCard extends StatelessWidget {
             child: Text(
               '${features.length} feature${features.length == 1 ? '' : 's'}',
               style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.62),
+                color: StitchCodexPalette.textMuted,
+                fontFamily: StitchTypography.body,
                 fontSize: 12,
               ),
             ),
@@ -317,10 +324,10 @@ class _FeatureTile extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF2A2A36),
-        borderRadius: BorderRadius.circular(14),
+        color: StitchCodexPalette.surfaceMuted,
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(
-          color: Colors.white.withValues(alpha: 0.06),
+          color: StitchCodexPalette.bronze.withValues(alpha: 0.12),
         ),
       ),
       child: Theme(
@@ -335,12 +342,13 @@ class _FeatureTile extends StatelessWidget {
             vertical: 4,
           ),
           childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-          iconColor: Colors.white70,
-          collapsedIconColor: Colors.white54,
+          iconColor: StitchCodexPalette.bronze,
+          collapsedIconColor: StitchCodexPalette.textMuted,
           title: Text(
             feature.name,
             style: TextStyle(
-              color: Colors.white,
+              color: StitchCodexPalette.textPrimary,
+              fontFamily: StitchTypography.display,
               fontSize: isLargeTablet ? 15 : 14,
               fontWeight: FontWeight.w700,
             ),
@@ -367,7 +375,8 @@ class _FeatureTile extends StatelessWidget {
                     ? 'No description available.'
                     : feature.description,
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.82),
+                  color: StitchCodexPalette.textSecondary,
+                  fontFamily: StitchTypography.body,
                   fontSize: isTablet ? 14 : 13,
                   height: 1.45,
                 ),
@@ -391,24 +400,16 @@ class _CharacterSheetSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withValues(alpha: 0.28),
-        ),
-      ),
+    return StitchCodexPanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             title,
             style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
+              color: StitchCodexPalette.textPrimary,
+              fontFamily: StitchTypography.display,
+              fontWeight: FontWeight.w600,
               fontSize: 16,
             ),
           ),

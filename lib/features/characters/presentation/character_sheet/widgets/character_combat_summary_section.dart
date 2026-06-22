@@ -4,12 +4,12 @@ import '../../../../../models/character.dart';
 import '../../../../../models/character_inventory_item.dart';
 import '../../../../../providers/compendium_provider.dart';
 import '../../../../../providers/equipment_provider.dart';
+import '../../../../../theme.dart';
+import '../../../../../widgets/stitch_codex_ui.dart';
 import '../../../models/resolved_inventory_item.dart';
 
 class CharacterCombatSummarySection extends StatelessWidget {
-  static const Color _panelColor = Color(0xFF151922);
-  static const Color _accentColor = Color(0xFFE14658);
-  static const Color _supportColor = Color(0xFF8BAA6F);
+  static const Color _accentColor = StitchCodexPalette.crimsonBright;
 
   final Character char;
   final EquipmentProvider equipmentProvider;
@@ -207,23 +207,10 @@ class CharacterCombatSummarySection extends StatelessWidget {
               )
             : const _CombatPrimaryAction.empty();
 
-    return Container(
-      width: double.infinity,
+    return StitchCodexPanel(
+      emphasized: true,
+      accent: _accentColor,
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: _panelColor,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: _supportColor.withValues(alpha: 0.24),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.18),
-            blurRadius: 14,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -234,7 +221,7 @@ class CharacterCombatSummarySection extends StatelessWidget {
                 height: 32,
                 decoration: BoxDecoration(
                   color: _accentColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(2),
                   border: Border.all(
                     color: _accentColor.withValues(alpha: 0.22),
                   ),
@@ -250,10 +237,11 @@ class CharacterCombatSummarySection extends StatelessWidget {
                 child: Text(
                   'ACTIONS & COMBAT',
                   style: TextStyle(
-                    color: _supportColor.withValues(alpha: 0.88),
+                    color: StitchCodexPalette.textPrimary,
+                    fontFamily: StitchTypography.display,
                     fontSize: isLargeTablet ? 12 : 11,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.4,
                   ),
                 ),
               ),
@@ -264,8 +252,8 @@ class CharacterCombatSummarySection extends StatelessWidget {
                         ? 'Spell Focus'
                         : 'No Action',
                 color: isWeapon || isFocus
-                    ? Colors.deepPurpleAccent
-                    : Colors.white54,
+                    ? StitchCodexPalette.crimsonBright
+                    : StitchCodexPalette.textMuted,
               ),
             ],
           ),
@@ -452,13 +440,13 @@ class _PrimaryActionCard extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            Color(0xFF1B2230),
-            Color(0xFF111720),
+            StitchCodexPalette.surfaceRaised,
+            StitchCodexPalette.surface,
           ],
         ),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(
-          color: const Color(0xFFE14658).withValues(alpha: 0.34),
+          color: StitchCodexPalette.crimsonBright.withValues(alpha: 0.34),
         ),
       ),
       child: Column(
@@ -472,14 +460,14 @@ class _PrimaryActionCard extends StatelessWidget {
                 height: 42,
                 decoration: BoxDecoration(
                   color: Colors.redAccent.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(2),
                   border: Border.all(
                     color: Colors.redAccent.withValues(alpha: 0.24),
                   ),
                 ),
                 child: const Icon(
                   Icons.sports_martial_arts_outlined,
-                  color: Colors.white,
+                  color: StitchCodexPalette.textPrimary,
                 ),
               ),
               const SizedBox(width: 12),
@@ -490,16 +478,18 @@ class _PrimaryActionCard extends StatelessWidget {
                     Text(
                       action.title,
                       style: TextStyle(
-                        color: Colors.white,
+                        color: StitchCodexPalette.textPrimary,
+                        fontFamily: StitchTypography.display,
                         fontSize: isTablet ? 16 : 15,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       action.subtitle,
                       style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.65),
+                        color: StitchCodexPalette.textMuted,
+                        fontFamily: StitchTypography.body,
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                       ),
@@ -520,11 +510,11 @@ class _PrimaryActionCard extends StatelessWidget {
               ),
               _CompactBadge(
                 label: 'Damage ${action.damage}',
-                color: Colors.deepPurpleAccent,
+                color: StitchCodexPalette.bronze,
               ),
               _CompactBadge(
                 label: action.ability,
-                color: Colors.blueAccent,
+                color: StitchCodexPalette.textSecondary,
               ),
             ],
           ),
@@ -538,10 +528,10 @@ class _PrimaryActionCard extends StatelessWidget {
                 icon: const Icon(Icons.casino_outlined),
                 label: const Text('Attack'),
                 style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFFE14658),
-                  foregroundColor: Colors.white,
+                  backgroundColor: StitchCodexPalette.crimson,
+                  foregroundColor: StitchCodexPalette.textPrimary,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(2),
                   ),
                 ),
               ),
@@ -550,12 +540,12 @@ class _PrimaryActionCard extends StatelessWidget {
                 icon: const Icon(Icons.auto_fix_high_outlined),
                 label: const Text('Damage'),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
+                  foregroundColor: StitchCodexPalette.textSecondary,
                   side: BorderSide(
                     color: Colors.redAccent.withValues(alpha: 0.28),
                   ),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(2),
                   ),
                 ),
               ),
@@ -621,10 +611,10 @@ class _CombatMetricTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF111720),
-        borderRadius: BorderRadius.circular(8),
+        color: StitchCodexPalette.surface,
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(
-          color: const Color(0xFF8BAA6F).withValues(alpha: 0.18),
+          color: StitchCodexPalette.bronze.withValues(alpha: 0.18),
         ),
       ),
       child: Row(
@@ -634,10 +624,10 @@ class _CombatMetricTile extends StatelessWidget {
             width: 28,
             height: 28,
             decoration: BoxDecoration(
-              color: const Color(0xFF8BAA6F).withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(8),
+              color: StitchCodexPalette.bronze.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(2),
             ),
-            child: Icon(icon, color: const Color(0xFFB7D28A), size: 16),
+            child: Icon(icon, color: StitchCodexPalette.bronze, size: 16),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -650,7 +640,8 @@ class _CombatMetricTile extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.62),
+                    color: StitchCodexPalette.textMuted,
+                    fontFamily: StitchTypography.body,
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
                   ),
@@ -661,7 +652,8 @@ class _CombatMetricTile extends StatelessWidget {
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    color: Colors.white,
+                    color: StitchCodexPalette.textPrimary,
+                    fontFamily: StitchTypography.data,
                     fontSize: 13,
                     height: 1.2,
                     fontWeight: FontWeight.w800,
@@ -691,7 +683,7 @@ class _CompactBadge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(
           color: color.withValues(alpha: 0.34),
         ),
@@ -699,9 +691,10 @@ class _CompactBadge extends StatelessWidget {
       child: Text(
         label,
         style: const TextStyle(
-          color: Colors.white,
+          color: StitchCodexPalette.textSecondary,
+          fontFamily: StitchTypography.data,
           fontSize: 11,
-          fontWeight: FontWeight.w800,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );

@@ -478,11 +478,11 @@ class _ProficiencyIndicator extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: isProficient
-            ? const Color(0xFF8BAA6F).withValues(alpha: 0.20)
+            ? StitchCodexPalette.bronze.withValues(alpha: 0.18)
             : Colors.white.withValues(alpha: 0.05),
         border: Border.all(
           color: isProficient
-              ? const Color(0xFF8BAA6F).withValues(alpha: 0.35)
+              ? StitchCodexPalette.bronze.withValues(alpha: 0.38)
               : Colors.white.withValues(alpha: 0.08),
         ),
       ),
@@ -516,11 +516,11 @@ class _BonusBadge extends StatelessWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(10),
         color: isProficient
-            ? const Color(0xFF8BAA6F).withValues(alpha: 0.18)
+            ? StitchCodexPalette.bronze.withValues(alpha: 0.16)
             : Colors.white.withValues(alpha: 0.05),
         border: Border.all(
           color: isProficient
-              ? const Color(0xFF8BAA6F).withValues(alpha: 0.30)
+              ? StitchCodexPalette.bronze.withValues(alpha: 0.32)
               : Colors.white.withValues(alpha: 0.10),
         ),
       ),

@@ -49,25 +49,25 @@ class StitchThemeTokens extends ThemeExtension<StitchThemeTokens> {
   });
 
   static const dark = StitchThemeTokens(
-    pageTop: Color(0xFF0B0D12),
-    pageMid: Color(0xFF10141B),
-    pageBottom: Color(0xFF0D0E13),
-    panel: Color(0xFF151922),
-    surface: Color(0xFF111720),
-    surfaceRaised: Color(0xFF1B2230),
-    border: Color(0xFF8BAA6F),
-    textPrimary: Color(0xFFFFFFFF),
-    textSecondary: Color(0xB3FFFFFF),
-    textMuted: Color(0x80FFFFFF),
-    accentRead: Color(0xFF8BAA6F),
-    accentReadSoft: Color(0xFFB7D28A),
-    accentAction: Color(0xFFE14658),
-    accentMagic: Color(0xFF7C5CFF),
-    accentInfo: Color(0xFF62D4FF),
-    accentSuccess: Color(0xFF64F4A2),
-    accentWarning: Color(0xFFFFB454),
-    radiusSm: 8,
-    radiusMd: 12,
+    pageTop: StitchCodexPalette.ground,
+    pageMid: StitchCodexPalette.surfaceMuted,
+    pageBottom: StitchCodexPalette.ground,
+    panel: StitchCodexPalette.card,
+    surface: StitchCodexPalette.surfaceMuted,
+    surfaceRaised: StitchCodexPalette.surfaceRaised,
+    border: StitchCodexPalette.bronzeMuted,
+    textPrimary: StitchCodexPalette.textPrimary,
+    textSecondary: StitchCodexPalette.textSecondary,
+    textMuted: StitchCodexPalette.textMuted,
+    accentRead: StitchCodexPalette.bronze,
+    accentReadSoft: Color(0xFFE0B665),
+    accentAction: StitchCodexPalette.crimsonBright,
+    accentMagic: StitchCodexPalette.arcane,
+    accentInfo: StitchCodexPalette.cold,
+    accentSuccess: StitchCodexPalette.success,
+    accentWarning: StitchCodexPalette.bronzeBright,
+    radiusSm: 3,
+    radiusMd: 5,
     radiusPill: 999,
   );
 
@@ -179,11 +179,17 @@ class StitchCodexPalette {
   static const crimsonBright = Color(0xFFC41E36);
   static const bronze = Color(0xFFC4872A);
   static const bronzeMuted = Color(0xFF9B6A28);
+  static const bronzeBright = Color(0xFFD4A854);
   static const textPrimary = Color(0xFFEDE8DF);
   static const textSecondary = Color(0xFFC4B09A);
   static const textMuted = Color(0xFF9B8468);
   static const textFaint = Color(0xFF4A3A28);
   static const success = Color(0xFF4E9B6A);
+  static const arcane = Color(0xFF7B68C8);
+  static const cold = Color(0xFF5C7EA8);
+  static const divine = Color(0xFFD4C050);
+  static const shadow = Color(0xFFB85CA8);
+  static const flame = Color(0xFFC85C48);
 }
 
 class StitchTypography {
@@ -200,7 +206,7 @@ final stitchTheme = ThemeData(
     brightness: Brightness.dark,
   ),
   useMaterial3: true,
-  fontFamily: 'Roboto',
+  fontFamily: StitchTypography.body,
   scaffoldBackgroundColor: StitchThemeTokens.dark.pageBottom,
   extensions: const [
     StitchThemeTokens.dark,

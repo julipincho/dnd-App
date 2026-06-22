@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:stitch_app/theme.dart';
+import 'package:stitch_app/widgets/stitch_codex_ui.dart';
 
 class CharacterSpellcastingClassSummary {
   final String className;
@@ -94,13 +95,12 @@ class _SpellcastingClassCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.stitch;
     final borderColor = summary.isActive
-        ? tokens.accentMagic.withValues(alpha: 0.70)
-        : tokens.accentMagic.withValues(alpha: 0.18);
+        ? StitchCodexPalette.crimsonBright.withValues(alpha: 0.70)
+        : StitchCodexPalette.bronze.withValues(alpha: 0.18);
     final backgroundColor = summary.isActive
-        ? tokens.accentMagic.withValues(alpha: 0.10)
-        : tokens.surface;
+        ? StitchCodexPalette.crimson.withValues(alpha: 0.10)
+        : StitchCodexPalette.surface;
     final abilityLabel = summary.ability == null
         ? 'Not set'
         : '${summary.ability} ${_formatSigned(summary.abilityModifier)}';
@@ -109,7 +109,7 @@ class _SpellcastingClassCard extends StatelessWidget {
         : abilityLabel;
 
     return InkWell(
-      borderRadius: BorderRadius.circular(tokens.radiusSm),
+      borderRadius: BorderRadius.circular(2),
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 160),
@@ -117,13 +117,14 @@ class _SpellcastingClassCard extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: backgroundColor,
-          borderRadius: BorderRadius.circular(tokens.radiusSm),
+          borderRadius: BorderRadius.circular(2),
           border:
               Border.all(color: borderColor, width: summary.isActive ? 1.4 : 1),
           boxShadow: summary.isActive
               ? [
                   BoxShadow(
-                    color: tokens.accentMagic.withValues(alpha: 0.14),
+                    color: StitchCodexPalette.crimsonBright
+                        .withValues(alpha: 0.14),
                     blurRadius: 14,
                     offset: const Offset(0, 8),
                   ),
@@ -140,15 +141,17 @@ class _SpellcastingClassCard extends StatelessWidget {
                   width: 42,
                   height: 42,
                   decoration: BoxDecoration(
-                    color: tokens.accentMagic.withValues(alpha: 0.14),
-                    borderRadius: BorderRadius.circular(tokens.radiusSm),
+                    color:
+                        StitchCodexPalette.crimson.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(2),
                     border: Border.all(
-                      color: tokens.accentMagic.withValues(alpha: 0.24),
+                      color: StitchCodexPalette.crimsonBright
+                          .withValues(alpha: 0.24),
                     ),
                   ),
                   child: Icon(
                     _spellcastingClassIcon(summary.className),
-                    color: Colors.white,
+                    color: StitchCodexPalette.crimsonBright,
                     size: 22,
                   ),
                 ),
@@ -167,7 +170,8 @@ class _SpellcastingClassCard extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              color: Colors.white,
+                              color: StitchCodexPalette.textPrimary,
+                              fontFamily: StitchTypography.display,
                               fontSize: isTablet ? 17 : 16,
                               fontWeight: FontWeight.w900,
                             ),
@@ -175,7 +179,7 @@ class _SpellcastingClassCard extends StatelessWidget {
                           if (summary.isActive)
                             _CompactSpellBadge(
                               label: 'Active',
-                              color: tokens.accentMagic,
+                              color: StitchCodexPalette.crimsonBright,
                             ),
                         ],
                       ),
@@ -184,8 +188,9 @@ class _SpellcastingClassCard extends StatelessWidget {
                         detailLabel,
                         style: TextStyle(
                           color: summary.ability == null
-                              ? tokens.accentWarning
-                              : tokens.textSecondary,
+                              ? StitchCodexPalette.crimsonBright
+                              : StitchCodexPalette.textMuted,
+                          fontFamily: StitchTypography.body,
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
                         ),
@@ -198,7 +203,9 @@ class _SpellcastingClassCard extends StatelessWidget {
                       ? Icons.radio_button_checked
                       : Icons.radio_button_unchecked,
                   color:
-                      summary.isActive ? tokens.accentMagic : tokens.textMuted,
+                      summary.isActive
+                          ? StitchCodexPalette.crimsonBright
+                          : StitchCodexPalette.textMuted,
                 ),
               ],
             ),
@@ -275,10 +282,11 @@ class _SpellcastingMetricTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
       decoration: BoxDecoration(
-        color: const Color(0xFF111720),
-        borderRadius: BorderRadius.circular(8),
-        border:
-            Border.all(color: const Color(0xFF7C5CFF).withValues(alpha: 0.14)),
+        color: StitchCodexPalette.surface,
+        borderRadius: BorderRadius.circular(2),
+        border: Border.all(
+          color: StitchCodexPalette.bronze.withValues(alpha: 0.14),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -288,7 +296,8 @@ class _SpellcastingMetricTile extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.62),
+              color: StitchCodexPalette.textMuted,
+              fontFamily: StitchTypography.body,
               fontSize: 11,
               fontWeight: FontWeight.w700,
             ),
@@ -299,7 +308,8 @@ class _SpellcastingMetricTile extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
-              color: Colors.white,
+              color: StitchCodexPalette.textPrimary,
+              fontFamily: StitchTypography.data,
               fontSize: 15,
               fontWeight: FontWeight.w800,
             ),
@@ -331,18 +341,21 @@ class _ProgressSpellPill extends StatelessWidget {
       decoration: BoxDecoration(
         color: overLimit
             ? Colors.orangeAccent.withValues(alpha: 0.16)
-            : Colors.deepPurpleAccent.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(8),
+            : StitchCodexPalette.bronze.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(
           color: overLimit
               ? Colors.orangeAccent.withValues(alpha: 0.55)
-              : Colors.deepPurpleAccent.withValues(alpha: 0.22),
+              : StitchCodexPalette.bronze.withValues(alpha: 0.24),
         ),
       ),
       child: Text(
         '$label $value',
         style: TextStyle(
-          color: overLimit ? Colors.orangeAccent : Colors.white70,
+          color: overLimit
+              ? Colors.orangeAccent
+              : StitchCodexPalette.textSecondary,
+          fontFamily: StitchTypography.data,
           fontSize: 12,
           fontWeight: FontWeight.w800,
         ),
@@ -366,13 +379,14 @@ class _CompactSpellBadge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(color: color.withValues(alpha: 0.45)),
       ),
       child: Text(
         label,
         style: const TextStyle(
-          color: Colors.white,
+          color: StitchCodexPalette.textSecondary,
+          fontFamily: StitchTypography.data,
           fontSize: 11,
           fontWeight: FontWeight.w800,
         ),
@@ -392,23 +406,7 @@ class _CharacterSheetSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF151922),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withValues(alpha: 0.24),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.18),
-            blurRadius: 14,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
+    return StitchCodexPanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -418,15 +416,16 @@ class _CharacterSheetSection extends StatelessWidget {
                 width: 32,
                 height: 32,
                 decoration: BoxDecoration(
-                  color: Colors.deepPurpleAccent.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(8),
+                  color: StitchCodexPalette.crimson.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(2),
                   border: Border.all(
-                    color: Colors.deepPurpleAccent.withValues(alpha: 0.24),
+                    color: StitchCodexPalette.crimsonBright
+                        .withValues(alpha: 0.24),
                   ),
                 ),
                 child: const Icon(
                   Icons.auto_awesome_outlined,
-                  color: Colors.white,
+                  color: StitchCodexPalette.crimsonBright,
                   size: 18,
                 ),
               ),
@@ -434,9 +433,10 @@ class _CharacterSheetSection extends StatelessWidget {
               Expanded(
                 child: Text(
                   title.toUpperCase(),
-                  style: TextStyle(
-                    color: const Color(0xFFB7D28A).withValues(alpha: 0.88),
-                    fontWeight: FontWeight.w900,
+                  style: const TextStyle(
+                    color: StitchCodexPalette.textPrimary,
+                    fontFamily: StitchTypography.display,
+                    fontWeight: FontWeight.w600,
                     fontSize: 12,
                     letterSpacing: 0,
                   ),

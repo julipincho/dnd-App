@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:stitch_app/models/feat_data.dart';
+import 'package:stitch_app/theme.dart';
+import 'package:stitch_app/widgets/stitch_codex_ui.dart';
 
 import 'character_sheet_meta_chip.dart';
 
@@ -25,23 +27,15 @@ class CharacterFeatsSection extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withValues(alpha: 0.28),
-        ),
-      ),
+    return StitchCodexPanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             'Feats',
             style: TextStyle(
-              color: Colors.white,
+              color: StitchCodexPalette.textPrimary,
+              fontFamily: StitchTypography.display,
               fontSize: isLargeTablet ? 20 : (isTablet ? 19 : 18),
               fontWeight: FontWeight.w700,
             ),
@@ -50,7 +44,8 @@ class CharacterFeatsSection extends StatelessWidget {
           Text(
             '${feats.length} selected',
             style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.65),
+              color: StitchCodexPalette.textMuted,
+              fontFamily: StitchTypography.body,
               fontSize: 13,
             ),
           ),
@@ -103,16 +98,16 @@ class _FeatCard extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF262632),
-        borderRadius: BorderRadius.circular(14),
+        color: StitchCodexPalette.surface,
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(
-          color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
+          color: StitchCodexPalette.bronze.withValues(alpha: 0.22),
         ),
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(2),
           onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.all(14),
@@ -123,12 +118,12 @@ class _FeatCard extends StatelessWidget {
                   width: 42,
                   height: 42,
                   decoration: BoxDecoration(
-                    color: Colors.deepPurpleAccent.withValues(alpha: 0.18),
-                    borderRadius: BorderRadius.circular(12),
+                    color: StitchCodexPalette.bronze.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(2),
                   ),
                   child: const Icon(
                     Icons.workspace_premium_outlined,
-                    color: Colors.white,
+                    color: StitchCodexPalette.bronze,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -139,7 +134,8 @@ class _FeatCard extends StatelessWidget {
                       Text(
                         feat.name,
                         style: const TextStyle(
-                          color: Colors.white,
+                          color: StitchCodexPalette.textPrimary,
+                          fontFamily: StitchTypography.display,
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
                         ),
@@ -167,7 +163,8 @@ class _FeatCard extends StatelessWidget {
                           maxLines: 3,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.72),
+                            color: StitchCodexPalette.textSecondary,
+                            fontFamily: StitchTypography.body,
                             fontSize: 13,
                             height: 1.35,
                           ),
@@ -179,7 +176,7 @@ class _FeatCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 const Icon(
                   Icons.chevron_right,
-                  color: Colors.white54,
+                  color: StitchCodexPalette.textMuted,
                 ),
               ],
             ),

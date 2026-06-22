@@ -18,6 +18,19 @@ import 'package:stitch_app/services/monster_repository.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  group('Character persistence', () {
+    test('remote portrait URL survives Firestore serialization', () {
+      final character = Character.empty()
+        ..id = 'character-portrait-test'
+        ..portraitPath =
+            'https://example.supabase.co/storage/v1/object/public/user-images/portrait.png';
+
+      final restored = Character.fromJson(character.toJson());
+
+      expect(restored.portraitPath, character.portraitPath);
+    });
+  });
+
   group('Battle board models', () {
     test('BattleScene preserves the tactical scene payload', () {
       final timestamp = DateTime(2026, 5, 16, 10, 30);

@@ -683,7 +683,7 @@ class _InventoryItemImage extends StatelessWidget {
           end: Alignment.bottomRight,
           colors: [
             accent.withValues(alpha: 0.24),
-            const Color(0xFF111720),
+            StitchCodexPalette.surfaceMuted,
           ],
         ),
         borderRadius: BorderRadius.circular(8),

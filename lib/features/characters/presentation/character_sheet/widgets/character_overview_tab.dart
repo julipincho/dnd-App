@@ -649,7 +649,7 @@ class CharacterOverviewTab extends StatelessWidget {
             ),
           ),
           GridView.count(
-            crossAxisCount: statColumns,
+            crossAxisCount: compact ? 3 : statColumns,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             crossAxisSpacing: gridSpacing,
@@ -887,6 +887,206 @@ class CharacterOverviewTab extends StatelessWidget {
     );
   }
 
+  Widget _buildViewportColumn({
+    required Widget child,
+  }) {
+    return SingleChildScrollView(
+      primary: false,
+      child: child,
+    );
+  }
+
+  Widget _buildSpellcastingPanel({
+    required String ability,
+    required int modifier,
+  }) {
+    return StitchCodexPanel(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      accent: StitchCodexPalette.bronze,
+      child: Row(
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: StitchCodexPalette.bronze.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(2),
+              border: Border.all(
+                color: StitchCodexPalette.bronze.withValues(alpha: 0.28),
+              ),
+            ),
+            child: const Icon(
+              Icons.auto_awesome_outlined,
+              color: StitchCodexPalette.bronze,
+              size: 18,
+            ),
+          ),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'SPELLCASTING',
+                  style: TextStyle(
+                    color: StitchCodexPalette.textPrimary,
+                    fontFamily: StitchTypography.display,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  'Primary ability and modifier',
+                  style: TextStyle(
+                    color: StitchCodexPalette.textMuted,
+                    fontFamily: StitchTypography.body,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            ability,
+            style: const TextStyle(
+              color: StitchCodexPalette.textPrimary,
+              fontFamily: StitchTypography.data,
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(width: 8),
+          StitchCodexTag(
+            label: formatSigned(modifier),
+            color: StitchCodexPalette.crimsonBright,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDesktopViewport({
+    required BuildContext context,
+    required Widget hpCard,
+    required Widget initiativeCard,
+    required List<Widget> summaryCards,
+    required Widget abilityRail,
+    required bool isTablet,
+    required bool isLargeTablet,
+    required String? spellAbilityKey,
+    required int spellAbilityModifier,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.all(12),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1440),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                width: 300,
+                child: _buildViewportColumn(
+                  child: _buildDetailsColumn(
+                    spacing: 9,
+                    children: [
+                      header,
+                      _buildCommandBar(isTablet: isTablet),
+                      hpCard,
+                      initiativeCard,
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              SizedBox(
+                width: 360,
+                child: _buildViewportColumn(
+                  child: _buildDetailsColumn(
+                    spacing: 9,
+                    children: [
+                      abilityRail,
+                      buildSavingThrowsSection(
+                        context,
+                        char,
+                        isTablet: isTablet,
+                        isLargeTablet: isLargeTablet,
+                      ),
+                      buildSkillsSection(
+                        context,
+                        char,
+                        isTablet: isTablet,
+                        isLargeTablet: isLargeTablet,
+                      ),
+                      _buildDefensesPanel(char),
+                      _buildProficienciesPanel(char),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _buildViewportColumn(
+                  child: _buildDetailsColumn(
+                    spacing: 9,
+                    children: [
+                      _buildMetricStrip(
+                        cards: summaryCards,
+                        columns: 3,
+                      ),
+                      if (spellAbilityKey != null)
+                        _buildSpellcastingPanel(
+                          ability: spellAbilityKey,
+                          modifier: spellAbilityModifier,
+                        ),
+                      CharacterCombatSummarySection(
+                        char: char,
+                        equipmentProvider: equipmentProvider,
+                        compendiumProvider: compendiumProvider,
+                        isTablet: isTablet,
+                        isLargeTablet: isLargeTablet,
+                        resolveEquippedMainHandItem:
+                            resolveEquippedMainHandItem,
+                        isMainHandWeapon: isMainHandWeapon,
+                        isMainHandFocus: isMainHandFocus,
+                        findInventoryItemById: findInventoryItemById,
+                        resolveInventoryItem: resolveInventoryItem,
+                        calculateMainHandAttackBonus:
+                            calculateMainHandAttackBonus,
+                        buildMainHandDamageText: buildMainHandDamageText,
+                        getWeaponAttackAbilityLabel:
+                            getWeaponAttackAbilityLabel,
+                        computeSpellAttackBonus: computeSpellAttackBonus,
+                        normalizedSpellcastingAbility:
+                            normalizedSpellcastingAbility,
+                        rollMainHandAttack: rollMainHandAttack,
+                        rollMainHandDamage: rollMainHandDamage,
+                        formatSigned: formatSigned,
+                      ),
+                      buildDeathSavesSection(
+                        context,
+                        char,
+                        isTablet: isTablet,
+                        isLargeTablet: isLargeTablet,
+                      ),
+                      buildRecentDiceRolls(
+                        isTablet: isTablet,
+                        isLargeTablet: isLargeTablet,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
@@ -898,7 +1098,7 @@ class CharacterOverviewTab extends StatelessWidget {
     final pagePadding = useDesktopColumns ? 26.0 : (isTablet ? 20.0 : 14.0);
     final statColumns = isLargeTablet ? 6 : 3;
     final statAspectRatio = isLargeTablet ? 1.28 : (isTablet ? 1.12 : 0.98);
-    final compactStatAspectRatio = isLargeTablet ? 1.42 : statAspectRatio;
+    final compactStatAspectRatio = isLargeTablet ? 1.22 : statAspectRatio;
     final dashboardColumns = isLargeTablet ? 4 : (isTablet ? 3 : 2);
 
     final str = getStat("STR");
@@ -1010,88 +1210,95 @@ class CharacterOverviewTab extends StatelessWidget {
       ),
     ];
 
-    return SingleChildScrollView(
-        padding: EdgeInsets.all(pagePadding),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: maxContentWidth),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                header,
-                const SizedBox(height: 10),
-                _buildCommandBar(isTablet: isTablet),
-                const SizedBox(height: 10),
-                if (isLargeTablet)
-                  _buildTopCombatDashboard(
-                    hpCard: hpCard,
-                    initiativeCard: initiativeCard,
-                    summaryCards: summaryCards,
-                    abilityRail: _buildAbilityRail(
-                      char: char,
+    return LayoutBuilder(
+      builder: (context, viewport) {
+        final abilityRail = _buildAbilityRail(
+          char: char,
+          isTablet: isTablet,
+          isLargeTablet: isLargeTablet,
+          compact: useDesktopColumns,
+          statColumns: statColumns,
+          statAspectRatio:
+              useDesktopColumns ? compactStatAspectRatio : statAspectRatio,
+          str: str,
+          dex: dex,
+          con: con,
+          intScore: intScore,
+          wis: wis,
+          cha: cha,
+        );
+
+        if (useDesktopColumns &&
+            viewport.maxHeight.isFinite &&
+            viewport.maxHeight >= 560) {
+          return _buildDesktopViewport(
+            context: context,
+            hpCard: hpCard,
+            initiativeCard: initiativeCard,
+            summaryCards: summaryCards,
+            abilityRail: abilityRail,
+            isTablet: isTablet,
+            isLargeTablet: isLargeTablet,
+            spellAbilityKey: spellAbilityKey,
+            spellAbilityModifier: spellAbilityModifier,
+          );
+        }
+
+        return SingleChildScrollView(
+          padding: EdgeInsets.all(pagePadding),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: maxContentWidth),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  header,
+                  const SizedBox(height: 10),
+                  _buildCommandBar(isTablet: isTablet),
+                  const SizedBox(height: 10),
+                  if (isLargeTablet)
+                    _buildTopCombatDashboard(
+                      hpCard: hpCard,
+                      initiativeCard: initiativeCard,
+                      summaryCards: summaryCards,
+                      abilityRail: abilityRail,
+                    )
+                  else ...[
+                    _buildMetricDashboard(
+                      hpCard: hpCard,
+                      initiativeCard: initiativeCard,
+                      cards: summaryCards,
+                      columns: dashboardColumns,
+                    ),
+                    const SizedBox(height: 10),
+                    abilityRail,
+                  ],
+                  const SizedBox(height: 18),
+                  if (isLargeTablet)
+                    _buildLargeDetailsLayout(
+                      context: context,
+                      useDesktopColumns: useDesktopColumns,
                       isTablet: isTablet,
                       isLargeTablet: isLargeTablet,
-                      compact: true,
-                      statColumns: statColumns,
-                      statAspectRatio: compactStatAspectRatio,
-                      str: str,
-                      dex: dex,
-                      con: con,
-                      intScore: intScore,
-                      wis: wis,
-                      cha: cha,
+                    )
+                  else
+                    _buildStackedDetailsLayout(
+                      context: context,
+                      isTablet: isTablet,
+                      isLargeTablet: isLargeTablet,
                     ),
-                  )
-                else ...[
-                  _buildMetricDashboard(
-                    hpCard: hpCard,
-                    initiativeCard: initiativeCard,
-                    cards: summaryCards,
-                    columns: dashboardColumns,
-                  ),
-                  const SizedBox(height: 10),
-                  _buildAbilityRail(
-                    char: char,
-                    isTablet: isTablet,
-                    isLargeTablet: isLargeTablet,
-                    statColumns: statColumns,
-                    statAspectRatio: statAspectRatio,
-                    str: str,
-                    dex: dex,
-                    con: con,
-                    intScore: intScore,
-                    wis: wis,
-                    cha: cha,
-                  ),
+                  const SizedBox(height: 18),
+                  if (spellAbilityKey != null)
+                    _buildSpellcastingPanel(
+                      ability: spellAbilityKey,
+                      modifier: spellAbilityModifier,
+                    ),
                 ],
-                const SizedBox(height: 18),
-                if (isLargeTablet)
-                  _buildLargeDetailsLayout(
-                    context: context,
-                    useDesktopColumns: useDesktopColumns,
-                    isTablet: isTablet,
-                    isLargeTablet: isLargeTablet,
-                  )
-                else
-                  _buildStackedDetailsLayout(
-                    context: context,
-                    isTablet: isTablet,
-                    isLargeTablet: isLargeTablet,
-                  ),
-                const SizedBox(height: 18),
-                if (spellAbilityKey != null)
-                  Text(
-                    'Spellcasting: $spellAbilityKey (${formatSigned(spellAbilityModifier)})',
-                    style: const TextStyle(
-                      color: StitchCodexPalette.textMuted,
-                      fontFamily: StitchTypography.data,
-                      fontSize: 13,
-                    ),
-                  ),
-              ],
+              ),
             ),
           ),
-        ),
+        );
+      },
     );
   }
 }

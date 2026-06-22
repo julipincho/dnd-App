@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
@@ -42,7 +42,8 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
   late TextEditingController _acController;
   late TextEditingController _speedController;
 
-  File? _portrait;
+  Uint8List? _portraitBytes;
+  String? _portraitFileName;
   String? _portraitPath;
   List<FeatData> _allFeats = [];
   List<DndBackground> backgrounds = [];
@@ -268,13 +269,6 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
         ? character!.alignment
         : "True Neutral";
 
-    if (_portraitPath != null &&
-        _portraitPath!.isNotEmpty &&
-        !isRemoteImagePath(_portraitPath!) &&
-        File(_portraitPath!).existsSync()) {
-      _portrait = File(_portraitPath!);
-    }
-
     _loadBackgrounds(character!.background.name);
     _loadClassData();
     _loadProgressionClassData();
@@ -409,15 +403,30 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
 
   Future<void> _pickImage() async {
     try {
-      final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
-      if (picked != null && mounted) {
-        setState(() {
-          _portrait = File(picked.path);
-          _portraitPath = picked.path;
-        });
-      }
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1200,
+        maxHeight: 1200,
+        imageQuality: 88,
+      );
+      if (picked == null) return;
+
+      final bytes = await picked.readAsBytes();
+      if (!mounted || bytes.isEmpty) return;
+
+      setState(() {
+        _portraitBytes = bytes;
+        _portraitFileName = picked.name;
+        _portraitPath = picked.path;
+      });
     } catch (e) {
       debugPrint('Error picking portrait: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('The portrait could not be opened. Try another image.'),
+        ),
+      );
     }
   }
 
@@ -1737,10 +1746,12 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
     if (userId == null) return;
 
     var resolvedPortraitPath = _portraitPath ?? character!.portraitPath;
-    if (_portrait != null) {
+    if (_portraitBytes != null) {
       try {
-        resolvedPortraitPath = await SupabaseStorageService.uploadUserImage(
-          file: _portrait!,
+        resolvedPortraitPath =
+            await SupabaseStorageService.uploadUserImageBytes(
+          bytes: _portraitBytes!,
+          fileName: _portraitFileName ?? 'character-portrait.jpg',
           ownerUserId: userId,
           folder: 'character-portraits',
           entityId: character!.id,
@@ -1826,6 +1837,12 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
   }
 
   Widget _portraitEditor(double radius) {
+    final ImageProvider? portraitImage = _portraitBytes != null
+        ? MemoryImage(_portraitBytes!)
+        : hasDisplayableImagePath(_portraitPath)
+            ? imageProviderFromPath(_portraitPath!)
+            : null;
+
     return GestureDetector(
       onTap: _pickImage,
       child: Container(
@@ -1836,15 +1853,15 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
           border: Border.all(
             color: StitchCodexPalette.bronze.withValues(alpha: 0.44),
           ),
-          image: hasDisplayableImagePath(_portraitPath)
+          image: portraitImage != null
               ? DecorationImage(
-                  image: imageProviderFromPath(_portraitPath!),
+                  image: portraitImage,
                   fit: BoxFit.cover,
                   alignment: Alignment.topCenter,
                 )
               : null,
         ),
-        child: !hasDisplayableImagePath(_portraitPath)
+        child: portraitImage == null
             ? const Icon(
                 Icons.add_a_photo_outlined,
                 size: 32,

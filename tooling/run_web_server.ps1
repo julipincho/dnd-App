@@ -1,7 +1,7 @@
 param(
     [string]$HostName = "127.0.0.1",
     [int]$Port = 54621,
-    [string]$FlutterBin = "C:\src\flutter\bin\flutter.bat",
+    [string]$FlutterBin = "",
     [switch]$OpenBrowser
 )
 
@@ -11,6 +11,28 @@ $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $freePortScript = Join-Path $PSScriptRoot "free_web_port.ps1"
 
 Set-Location $repoRoot
+
+$gitCmd = Join-Path $env:ProgramFiles "Git\cmd"
+if ((Test-Path $gitCmd) -and (($env:Path -split ';') -notcontains $gitCmd)) {
+    $env:Path = "$gitCmd;$env:Path"
+}
+
+if ([string]::IsNullOrWhiteSpace($FlutterBin)) {
+    if (-not [string]::IsNullOrWhiteSpace($env:FLUTTER_BIN)) {
+        $FlutterBin = $env:FLUTTER_BIN
+    } else {
+        $flutterCommand = Get-Command flutter -ErrorAction SilentlyContinue
+        if ($flutterCommand) {
+            $FlutterBin = $flutterCommand.Source
+        } else {
+            $FlutterBin = Join-Path $env:USERPROFILE "development\flutter\bin\flutter.bat"
+        }
+    }
+}
+
+if (-not (Test-Path $FlutterBin)) {
+    throw "No se encontro Flutter en '$FlutterBin'. Abre una terminal nueva o ejecuta pasando -FlutterBin 'C:\Users\julip\development\flutter\bin\flutter.bat'."
+}
 
 Write-Host "Stitch web run: liberando puerto $Port..."
 & $freePortScript -Port $Port

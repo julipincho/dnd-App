@@ -192,37 +192,54 @@ class _LevelUpScreenState extends State<LevelUpScreen> {
 
     setState(() => _saving = true);
 
-    final provider = context.read<CharacterProvider>();
-    await provider.updateCharacterById(character.id, (ch) {
-      CharacterLevelUpService.applyLevelUp(
-        character: ch,
-        decision: CharacterLevelUpDecision(
-          className: selectedClass.name,
-          subclassName: _selectedSubclass?.name,
-          hpGain: _hpGain,
-          hitDie: selectedClass.hitDie,
-          skillProficiencies: [
-            if (_selectedMulticlassSkill != null) _selectedMulticlassSkill!,
-          ],
-        ),
-      );
-    });
-
-    await provider.syncFeaturesAndResources(character.id);
-
-    final updated = provider.getCharacterById(character.id);
-    if (updated != null &&
-        MulticlassSpellcastingService.hasAutoSlots(updated)) {
+    try {
+      final provider = context.read<CharacterProvider>();
       await provider.updateCharacterById(character.id, (ch) {
-        CharacterSpellSlotService.applyAutoSlotState(
-          ch,
-          preserveUsed: true,
+        CharacterLevelUpService.applyLevelUp(
+          character: ch,
+          decision: CharacterLevelUpDecision(
+            className: selectedClass.name,
+            subclassName: _selectedSubclass?.name,
+            hpGain: _hpGain,
+            hitDie: selectedClass.hitDie,
+            skillProficiencies: [
+              if (_selectedMulticlassSkill != null) _selectedMulticlassSkill!,
+            ],
+          ),
         );
       });
-    }
 
-    if (!mounted) return;
-    context.pop();
+      await provider.syncFeaturesAndResources(character.id);
+
+      final updated = provider.getCharacterById(character.id);
+      if (updated != null &&
+          MulticlassSpellcastingService.hasAutoSlots(updated)) {
+        await provider.updateCharacterById(character.id, (ch) {
+          CharacterSpellSlotService.applyAutoSlotState(
+            ch,
+            preserveUsed: true,
+          );
+        });
+      }
+
+      if (!mounted) return;
+      context.pop();
+    } catch (error, stackTrace) {
+      debugPrint('Error applying character level up: $error');
+      debugPrint('$stackTrace');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'The level could not be applied. Check your connection and try again.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _saving = false);
+      }
+    }
   }
 
   @override
@@ -385,7 +402,7 @@ class _LevelUpScreenState extends State<LevelUpScreen> {
               pagePadding,
               pagePadding,
               pagePadding,
-              118,
+              pagePadding,
             ),
             child: Center(
               child: ConstrainedBox(
@@ -443,27 +460,34 @@ class _LevelUpActionBar extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
           child: Center(
+            heightFactor: 1,
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 1220),
-              child: FilledButton.icon(
-                onPressed: canConfirm && !saving ? onConfirm : null,
-                icon: saving
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.arrow_upward_rounded),
-                label: Text(
-                  saving ? 'Applying...' : 'Confirm $className $nextClassLevel',
-                ),
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFFE14658),
-                  foregroundColor: Colors.white,
-                  disabledBackgroundColor: Colors.white.withValues(alpha: 0.10),
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: canConfirm && !saving ? onConfirm : null,
+                  icon: saving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.arrow_upward_rounded),
+                  label: Text(
+                    saving
+                        ? 'Applying...'
+                        : 'Confirm $className $nextClassLevel',
+                  ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFFE14658),
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor:
+                        Colors.white.withValues(alpha: 0.10),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                   ),
                 ),
               ),

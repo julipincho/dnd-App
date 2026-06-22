@@ -16,13 +16,22 @@ class CharacterSheetHeader extends StatelessWidget {
     final screenWidth = MediaQuery.of(context).size.width;
     final isTablet = screenWidth >= 600;
     final isLargeTablet = screenWidth >= 900;
+    final isDesktopCompact = screenWidth >= 1180;
 
-    final cardPadding = isLargeTablet ? 24.0 : (isTablet ? 20.0 : 16.0);
-    final portraitSize = isLargeTablet ? 128.0 : (isTablet ? 112.0 : 92.0);
-    final titleSize = isLargeTablet ? 36.0 : (isTablet ? 31.0 : 25.0);
+    final cardPadding = isDesktopCompact
+        ? 16.0
+        : (isLargeTablet ? 24.0 : (isTablet ? 20.0 : 16.0));
+    final portraitSize = isDesktopCompact
+        ? 82.0
+        : (isLargeTablet ? 128.0 : (isTablet ? 112.0 : 92.0));
+    final titleSize = isDesktopCompact
+        ? 27.0
+        : (isLargeTablet ? 36.0 : (isTablet ? 31.0 : 25.0));
     final subtitleSize = isLargeTablet ? 15.0 : (isTablet ? 14.0 : 13.0);
     final smallSubtitleSize = isLargeTablet ? 13.0 : (isTablet ? 12.0 : 11.0);
-    final minHeight = isLargeTablet ? 246.0 : (isTablet ? 226.0 : 286.0);
+    final minHeight = isDesktopCompact
+        ? 166.0
+        : (isLargeTablet ? 246.0 : (isTablet ? 226.0 : 286.0));
 
     final portrait = _CharacterHeaderPortrait(
       character: character,

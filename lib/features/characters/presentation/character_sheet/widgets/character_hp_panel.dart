@@ -264,7 +264,7 @@ class _HpStatus {
       return const _HpStatus(
         label: 'DOWN',
         detail: 'Death saves are active until healed or stabilized.',
-        color: Colors.redAccent,
+        color: StitchCodexPalette.crimsonBright,
         icon: Icons.monitor_heart_outlined,
       );
     }
@@ -273,7 +273,7 @@ class _HpStatus {
       return const _HpStatus(
         label: 'CRITICAL',
         detail: 'One bad hit can change the fight.',
-        color: Colors.deepOrangeAccent,
+        color: StitchCodexPalette.flame,
         icon: Icons.warning_amber_rounded,
       );
     }
@@ -282,7 +282,7 @@ class _HpStatus {
       return const _HpStatus(
         label: 'BLOODIED',
         detail: 'Below half HP.',
-        color: Colors.orangeAccent,
+        color: StitchCodexPalette.bronze,
         icon: Icons.favorite_border,
       );
     }
@@ -290,7 +290,7 @@ class _HpStatus {
     return const _HpStatus(
       label: 'HEALTHY',
       detail: 'Ready to keep fighting.',
-      color: Colors.greenAccent,
+      color: StitchCodexPalette.success,
       icon: Icons.favorite,
     );
   }
