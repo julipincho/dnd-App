@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -16,7 +18,6 @@ import '../providers/compendium_provider.dart';
 import '../providers/journal_entry_provider.dart';
 import '../providers/session_provider.dart';
 import '../providers/spell_provider.dart';
-import '../screens/compendium_entry_detail_screen.dart';
 import '../widgets/linked_compendium_text.dart';
 import '../utils/spellcasting_rules.dart';
 import 'package:stitch_app/core/rules/rule_engine.dart';
@@ -31,38 +32,46 @@ import '../models/character_option_definition.dart';
 import '../models/character_option_category.dart';
 import '../core/rules/character_choice_engine.dart';
 import '../models/character_available_options_engine.dart';
-import '../models/character_option_selection_helper.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_death_saves_section.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_hp_panel.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_inventory_tab.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_equipment_section.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_features_section.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_feats_section.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_options_section.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_overview_tab.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_resources_section.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_spellbook_section.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_spellcasting_classes_section.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_spellcasting_summary_section.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_spell_slots_section.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_spell_selector_modal.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_proficiency_sections.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_sheet_header.dart';
+import 'package:stitch_app/features/characters/presentation/character_sheet/widgets/character_story_tab.dart';
 import '../services/character_pact_service.dart';
+import '../services/character_spell_slot_service.dart';
 import '../logic/character_option_effects.dart';
 import '../models/character_selected_option_group.dart';
 import '../services/character_infusion_service.dart';
 import '../models/feat_data.dart';
 import '../services/feat_data_service.dart';
+import '../features/characters/models/resolved_inventory_item.dart';
+import '../services/race_sync_service.dart';
+import '../providers/campaign_provider.dart';
+import '../providers/auth_provider.dart';
+import '../services/character_inventory_service.dart';
+import '../services/character_weapon_attack_service.dart';
+import '../services/multiclass_spellcasting_service.dart';
+import '../services/supabase_storage_service.dart';
+import '../theme.dart';
+import '../utils/image_path_utils.dart';
+import '../widgets/stitch_codex_ui.dart';
 
 enum _SpellChoiceSaveMode {
   known,
   prepared,
   innate,
-}
-
-class _ResolvedInventoryItem {
-  final CharacterInventoryItem originalItem;
-  final CharacterInventoryItem effectiveItem;
-  final EquipmentCompendiumItem? equipmentItem;
-  final CompendiumEntry? campaignEntry;
-  final String sourceLabel;
-  final String? resolvedDescription;
-  final String? resolvedImagePath;
-
-  const _ResolvedInventoryItem({
-    required this.originalItem,
-    required this.effectiveItem,
-    required this.equipmentItem,
-    required this.campaignEntry,
-    required this.sourceLabel,
-    required this.resolvedDescription,
-    required this.resolvedImagePath,
-  });
 }
 
 class CharacterSheetScreen extends StatefulWidget {
@@ -94,310 +103,6 @@ class _CharacterOptionGrantGroup {
   int get totalCount => grants.fold(0, (sum, grant) => sum + grant.count);
 }
 
-class _SpellSelectorModal extends StatefulWidget {
-  final List<Spell> spells;
-  final Set<String> excludedSpellIds;
-  final Function(Spell) onSelect;
-
-  const _SpellSelectorModal({
-    required this.spells,
-    required this.excludedSpellIds,
-    required this.onSelect,
-  });
-
-  @override
-  State<_SpellSelectorModal> createState() => _SpellSelectorModalState();
-}
-
-class _SpellSelectorModalState extends State<_SpellSelectorModal> {
-  String query = '';
-  int? selectedLevel;
-
-  List<Spell> get _filteredSpells {
-    final normalizedQuery = query.trim().toLowerCase();
-
-    final filtered = widget.spells.where((spell) {
-      final notAlreadyAdded = !widget.excludedSpellIds.contains(spell.id);
-
-      final matchesQuery = normalizedQuery.isEmpty ||
-          spell.name.toLowerCase().contains(normalizedQuery) ||
-          spell.school.toLowerCase().contains(normalizedQuery);
-
-      final matchesLevel =
-          selectedLevel == null || spell.level == selectedLevel;
-
-      return notAlreadyAdded && matchesQuery && matchesLevel;
-    }).toList();
-
-    filtered.sort((a, b) {
-      final levelCompare = a.level.compareTo(b.level);
-      if (levelCompare != 0) return levelCompare;
-      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
-    });
-
-    return filtered;
-  }
-
-  Widget _buildSpellMetaChip(String label) {
-    IconData icon;
-
-    if (label.contains('Level') || label == 'Cantrips') {
-      icon = Icons.auto_awesome;
-    } else if (label.contains('action')) {
-      icon = Icons.flash_on;
-    } else {
-      icon = Icons.circle;
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.deepPurpleAccent.withOpacity(0.18),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 12, color: Colors.white70),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 12,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _levelLabel(int? level) {
-    if (level == null) return 'All levels';
-    if (level == 0) return 'Cantrips';
-    return 'Level $level';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final filtered = _filteredSpells;
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.only(
-          left: 16,
-          right: 16,
-          top: 16,
-          bottom: bottomInset + 16,
-        ),
-        child: SizedBox(
-          height: MediaQuery.of(context).size.height * 0.82,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 42,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: Colors.white24,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Add Spell',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                '${filtered.length} available result${filtered.length == 1 ? '' : 's'}',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.68),
-                  fontSize: 13,
-                ),
-              ),
-              const SizedBox(height: 14),
-              TextField(
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  hintText: 'Search by name or school...',
-                  hintStyle: TextStyle(color: Colors.white.withOpacity(0.45)),
-                  prefixIcon: const Icon(Icons.search, color: Colors.white70),
-                  filled: true,
-                  fillColor: const Color(0xFF2A2A35),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide.none,
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-                onChanged: (value) {
-                  setState(() {
-                    query = value;
-                  });
-                },
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                height: 42,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: ChoiceChip(
-                        label: const Text('All levels'),
-                        selected: selectedLevel == null,
-                        onSelected: (_) {
-                          setState(() {
-                            selectedLevel = null;
-                          });
-                        },
-                      ),
-                    ),
-                    ...List.generate(10, (index) {
-                      final level = index;
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: ChoiceChip(
-                          label: Text(_levelLabel(level)),
-                          selected: selectedLevel == level,
-                          onSelected: (_) {
-                            setState(() {
-                              selectedLevel = level;
-                            });
-                          },
-                        ),
-                      );
-                    }),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 14),
-              Expanded(
-                child: filtered.isEmpty
-                    ? Center(
-                        child: Text(
-                          'No spells found with the current filters.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.7),
-                            fontSize: 14,
-                          ),
-                        ),
-                      )
-                    : ListView.separated(
-                        itemCount: filtered.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 8),
-                        itemBuilder: (context, index) {
-                          final spell = filtered[index];
-
-                          return Material(
-                            color: const Color(0xFF202028),
-                            borderRadius: BorderRadius.circular(14),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(14),
-                              onTap: () => widget.onSelect(spell),
-                              child: Padding(
-                                padding: const EdgeInsets.all(14),
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Container(
-                                      width: 44,
-                                      height: 44,
-                                      decoration: BoxDecoration(
-                                        color: Colors.deepPurpleAccent
-                                            .withOpacity(0.18),
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      alignment: Alignment.center,
-                                      child: Text(
-                                        spell.level == 0
-                                            ? 'C'
-                                            : '${spell.level}',
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            spell.name,
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 15,
-                                              fontWeight: FontWeight.w700,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Wrap(
-                                            spacing: 8,
-                                            runSpacing: 6,
-                                            children: [
-                                              _buildSpellMetaChip(
-                                                _levelLabel(spell.level),
-                                              ),
-                                              _buildSpellMetaChip(
-                                                spell.school,
-                                              ),
-                                              if (spell.castingTime.isNotEmpty)
-                                                _buildSpellMetaChip(
-                                                  spell.castingTime,
-                                                ),
-                                            ],
-                                          ),
-                                          if (spell.description.isNotEmpty) ...[
-                                            const SizedBox(height: 8),
-                                            Text(
-                                              spell.description,
-                                              maxLines: 2,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: TextStyle(
-                                                color: Colors.white
-                                                    .withOpacity(0.72),
-                                                fontSize: 13,
-                                                height: 1.35,
-                                              ),
-                                            ),
-                                          ],
-                                        ],
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    const Icon(
-                                      Icons.add_circle_outline,
-                                      color: Colors.white70,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
   final List<DiceRollResult> _diceLog = [];
   List<FeatData> _allFeats = [];
@@ -405,6 +110,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
   bool _skillsExpanded = false;
   bool _savingThrowsExpanded = false;
   bool _deathSavesExpanded = false;
+  final ScrollController _skillsScrollController = ScrollController();
+  final Map<String, String> _selectedSpellcastingClassByCharacterId = {};
   int _getTotalCharacterLevel(Character char) {
     return char.level <= 0 ? 1 : char.level;
   }
@@ -423,15 +130,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final grants = CharacterChoiceEngine.buildChoiceGrants(char);
 
     final Map<String, List<CharacterChoiceGrant>> grouped = {};
-    print('--- FEATURES GRANTS DEBUG ---');
-    print('Character: ${char.name}');
-    print('Class: "${char.charClass}"');
-    print('Subclass: "${char.subclass}"');
-    print('Level: ${char.level}');
-    print('Grants count: ${grants.length}');
     for (final grant in grants) {
       final key =
-          '${grant.category.key}__${grant.sourceId ?? ''}__${grant.sourceName ?? ''}';
+          '${grant.category.key}__${grant.sourceId}__${grant.sourceName ?? ''}';
 
       grouped.putIfAbsent(key, () => []);
       grouped[key]!.add(grant);
@@ -479,6 +180,184 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     return groups;
   }
 
+  Future<void> _showManageCampaignSheet(
+    BuildContext context,
+    Character char,
+  ) async {
+    final campaignProvider = context.read<CampaignProvider>();
+    final characterProvider = context.read<CharacterProvider>();
+
+    final campaigns = [...campaignProvider.campaigns]
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+    String? selectedCampaignId =
+        (char.campaignId != null && char.campaignId!.trim().isNotEmpty)
+            ? char.campaignId
+            : null;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1B1B24),
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(
+                      color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Center(
+                          child: Container(
+                            width: 42,
+                            height: 5,
+                            decoration: BoxDecoration(
+                              color: Colors.white24,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        const Text(
+                          'Manage Campaign',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          char.name.isEmpty
+                              ? 'Choose where this character belongs.'
+                              : 'Choose where ${char.name} belongs.',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.7),
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        RadioListTile<String?>(
+                          value: null,
+                          groupValue: selectedCampaignId,
+                          activeColor: Colors.deepPurpleAccent,
+                          title: const Text(
+                            'No Campaign',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                          subtitle: Text(
+                            'Keep this character unassigned.',
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.6),
+                            ),
+                          ),
+                          onChanged: (value) {
+                            setSheetState(() {
+                              selectedCampaignId = value;
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                        if (campaigns.isEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(
+                              'No campaigns available yet.',
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.65),
+                              ),
+                            ),
+                          )
+                        else
+                          ...campaigns.map((campaign) {
+                            return RadioListTile<String?>(
+                              value: campaign.id,
+                              groupValue: selectedCampaignId,
+                              activeColor: Colors.deepPurpleAccent,
+                              title: Text(
+                                campaign.name,
+                                style: const TextStyle(color: Colors.white),
+                              ),
+                              subtitle: Text(
+                                (campaign.description ?? 'No description')
+                                    .trim(),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.6),
+                                ),
+                              ),
+                              onChanged: (value) {
+                                setSheetState(() {
+                                  selectedCampaignId = value;
+                                });
+                              },
+                            );
+                          }),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextButton(
+                                onPressed: () => Navigator.pop(sheetContext),
+                                child: const Text('Cancel'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: FilledButton(
+                                onPressed: () async {
+                                  await characterProvider.updateCharacterById(
+                                    char.id,
+                                    (ch) {
+                                      ch.campaignId = selectedCampaignId;
+                                    },
+                                  );
+
+                                  if (!sheetContext.mounted) return;
+                                  Navigator.pop(sheetContext);
+
+                                  if (!mounted) return;
+                                  ScaffoldMessenger.of(this.context)
+                                      .showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        selectedCampaignId == null
+                                            ? 'Character removed from campaign.'
+                                            : 'Character campaign updated.',
+                                      ),
+                                    ),
+                                  );
+                                },
+                                child: const Text('Save'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<void> _reconcileCharacterOptionSelections(
     BuildContext context,
     String characterId,
@@ -511,13 +390,14 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
   ) async {
     if (_isDeathSaveFinished(char)) return;
     if (!_isAtZeroHp(char)) return;
+    final provider = context.read<CharacterProvider>();
 
     final result = await _openDeathSaveRoller();
     if (result == null) return;
 
     final roll = result.rolls.isNotEmpty ? result.rolls.first : result.total;
 
-    await context.read<CharacterProvider>().updateCharacterById(char.id, (ch) {
+    await provider.updateCharacterById(char.id, (ch) {
       if ((ch.currentHp ?? 0) > 0) return;
       if (ch.deathSaveSuccesses >= 3 || ch.deathSaveFailures >= 3) return;
 
@@ -689,13 +569,17 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         final currentChar = maybeChar.first;
         _clearPreparedSpellsIfUnsupported(context, currentChar);
         characterProvider.syncFeaturesAndResources(currentChar.id);
-      }
-      if (journalProvider.entries.isEmpty) {
-        journalProvider.loadEntries();
-      }
 
-      if (sessionProvider.sessions.isEmpty) {
-        sessionProvider.loadSessions();
+        final campaignId = currentChar.campaignId;
+        if (campaignId != null && campaignId.isNotEmpty) {
+          if (journalProvider.entries.isEmpty) {
+            journalProvider.loadEntries(campaignId);
+          }
+
+          if (sessionProvider.sessions.isEmpty) {
+            sessionProvider.loadSessions(campaignId);
+          }
+        }
       }
 
       if (compendiumProvider.entries.isEmpty) {
@@ -705,6 +589,12 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         spellProvider.loadSpells();
       }
     });
+  }
+
+  @override
+  void dispose() {
+    _skillsScrollController.dispose();
+    super.dispose();
   }
 
   int _abilityMod(int score) => ((score - 10) / 2).floor();
@@ -752,10 +642,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     }
   }
 
-  String _formatModifier(int modifier) {
-    return modifier >= 0 ? '+$modifier' : '$modifier';
-  }
-
   int _proficiencyBonus(int level) {
     return 2 + ((level - 1) ~/ 4);
   }
@@ -770,15 +656,545 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     return base + (perceptionProficient ? _proficiencyBonus(char.level) : 0);
   }
 
+//SPELLS
   bool _isCaster(Character char) {
-    return char.spellcastingAbility != null &&
-        char.spellcastingAbility!.trim().isNotEmpty;
+    return char.hasAnySpellcastingAbility;
   }
 
-  String? _defaultSpellcastingAbilityForClass(Character char) {
-    switch (char.charClass.toLowerCase().trim()) {
+  String _spellClassKey(String className) => className.trim().toLowerCase();
+
+  String _formatClassName(String className) {
+    final trimmed = className.trim();
+    if (trimmed.isEmpty) return 'Unknown';
+    return '${trimmed[0].toUpperCase()}${trimmed.substring(1)}';
+  }
+
+  List<String> _spellcastingClassNames(Character char) {
+    final result = <String>[];
+
+    for (final entry in char.classLevels.entries) {
+      if (entry.value <= 0) continue;
+      final progression = SpellcastingRules.getProgressionForClassAndSubclass(
+        className: entry.key,
+        subclassName: char.subclassForClass(entry.key),
+      );
+      if (progression == SpellcastingProgression.none) continue;
+      result.add(entry.key);
+    }
+
+    result.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    if (result.isEmpty && char.charClass.trim().isNotEmpty) {
+      final progression = SpellcastingRules.getProgressionForClassAndSubclass(
+        className: char.charClass,
+        subclassName: char.subclassForClass(char.charClass) ?? char.subclass,
+      );
+      if (progression != SpellcastingProgression.none) {
+        result.add(char.charClass);
+      }
+    }
+
+    return result;
+  }
+
+  String _activeSpellcastingClass(Character char) {
+    final classes = _spellcastingClassNames(char);
+    if (classes.isEmpty) return char.charClass;
+
+    final selected = _selectedSpellcastingClassByCharacterId[char.id];
+    if (selected != null) {
+      final selectedKey = _spellClassKey(selected);
+      for (final className in classes) {
+        if (_spellClassKey(className) == selectedKey) return className;
+      }
+    }
+
+    return classes.first;
+  }
+
+  int _levelForSpellcastingClass(Character char, String className) {
+    final level = char.levelForClass(className);
+    return level > 0 ? level : char.level;
+  }
+
+  List<String> _knownSpellIdsForClass(Character char, String className) {
+    return char.knownSpellIdsForClass(className);
+  }
+
+  List<String> _preparedSpellIdsForClass(Character char, String className) {
+    return char.preparedSpellIdsForClass(className);
+  }
+
+  Future<void> _saveSpellcastingAbility(
+    BuildContext context,
+    Character char,
+    String className,
+    String? ability,
+  ) async {
+    final provider = context.read<CharacterProvider>();
+
+    await provider.updateCharacterById(char.id, (ch) {
+      ch.setSpellcastingAbilityForClass(className, ability);
+    });
+
+    if (!context.mounted) return;
+
+    final updatedChar = provider.characters.firstWhere((c) => c.id == char.id);
+
+    await _clearPreparedSpellsIfUnsupported(context, updatedChar);
+    if (!context.mounted) return;
+
+    if ((ability != null && ability.trim().isNotEmpty) &&
+        MulticlassSpellcastingService.hasAutoSlots(updatedChar)) {
+      await _applyAutoSpellSlots(
+        context,
+        updatedChar,
+        preserveUsed: true,
+      );
+    }
+  }
+
+  Future<void> _showSpellcastingConfigDialog(
+    BuildContext context,
+    Character char,
+    String className,
+  ) async {
+    bool enabled =
+        (_normalizedSpellcastingAbilityForClass(char, className) != null);
+    String? selectedAbility = _normalizedSpellcastingAbilityForClass(
+          char,
+          className,
+        ) ??
+        _defaultSpellcastingAbilityForClassName(className);
+
+    const availableAbilities = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'];
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final defaultAbility =
+                _defaultSpellcastingAbilityForClassName(className);
+
+            return AlertDialog(
+              title: Text(
+                enabled
+                    ? 'Edit ${_formatClassName(className)} Spellcasting'
+                    : 'Enable ${_formatClassName(className)} Spellcasting',
+              ),
+              content: SingleChildScrollView(
+                child: SizedBox(
+                  width: 360,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Character can cast spells'),
+                        subtitle: const Text(
+                          'Enable spellcasting calculations for this character',
+                        ),
+                        value: enabled,
+                        onChanged: (value) {
+                          setDialogState(() {
+                            enabled = value;
+                            if (enabled && selectedAbility == null) {
+                              selectedAbility = defaultAbility ?? 'INT';
+                            }
+                          });
+                        },
+                      ),
+                      if (enabled) ...[
+                        const SizedBox(height: 12),
+                        if (defaultAbility != null)
+                          Container(
+                            width: double.infinity,
+                            margin: const EdgeInsets.only(bottom: 12),
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.deepPurpleAccent
+                                  .withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: Colors.deepPurpleAccent
+                                    .withValues(alpha: 0.22),
+                              ),
+                            ),
+                            child: Text(
+                              'Suggested for ${_formatClassName(className)}: $defaultAbility',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        DropdownButtonFormField<String>(
+                          value: selectedAbility,
+                          decoration: const InputDecoration(
+                            labelText: 'Spellcasting Ability',
+                          ),
+                          items: availableAbilities.map((ability) {
+                            final score = _getCurrentAbilityScore(
+                              char,
+                              ability,
+                              equipmentProvider:
+                                  context.read<EquipmentProvider>(),
+                              compendiumProvider:
+                                  context.read<CompendiumProvider>(),
+                            );
+                            final mod = _getAbilityModifier(score);
+
+                            return DropdownMenuItem<String>(
+                              value: ability,
+                              child: Text(
+                                '$ability - $score (${_formatSigned(mod)})',
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: (value) {
+                            setDialogState(() {
+                              selectedAbility = value;
+                            });
+                          },
+                        ),
+                        if (defaultAbility != null) ...[
+                          const SizedBox(height: 10),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton.icon(
+                              onPressed: () {
+                                setDialogState(() {
+                                  selectedAbility = defaultAbility;
+                                });
+                              },
+                              icon: const Icon(Icons.auto_fix_high),
+                              label: Text(
+                                'Use default for ${_formatClassName(className)}',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () async {
+                    final abilityToSave = enabled
+                        ? (selectedAbility ?? defaultAbility ?? 'INT')
+                        : null;
+
+                    await _saveSpellcastingAbility(
+                      context,
+                      char,
+                      className,
+                      abilityToSave,
+                    );
+
+                    if (!dialogContext.mounted) return;
+                    Navigator.pop(dialogContext);
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  String? _normalizedSpellcastingAbilityForClass(
+    Character char,
+    String className,
+  ) {
+    final raw = char.spellcastingAbilityForClass(className)?.trim();
+    if (raw == null || raw.isEmpty) return null;
+
+    switch (raw.toUpperCase()) {
+      case 'STR':
+      case 'DEX':
+      case 'CON':
+      case 'INT':
+      case 'WIS':
+      case 'CHA':
+        return raw.toUpperCase();
+      default:
+        return null;
+    }
+  }
+
+  String? _normalizedSpellcastingAbility(Character char) {
+    return _normalizedSpellcastingAbilityForClass(char, char.charClass);
+  }
+
+  int _spellcastingAbilityModifierForClass(
+    Character char,
+    String className,
+    EquipmentProvider equipmentProvider,
+    CompendiumProvider compendiumProvider,
+  ) {
+    final ability = _normalizedSpellcastingAbilityForClass(char, className);
+    if (ability == null) return 0;
+
+    final score = _getCurrentAbilityScore(
+      char,
+      ability,
+      equipmentProvider: equipmentProvider,
+      compendiumProvider: compendiumProvider,
+    );
+
+    return _getAbilityModifier(score);
+  }
+
+  int _spellcastingAbilityModifier(
+    Character char,
+    EquipmentProvider equipmentProvider,
+    CompendiumProvider compendiumProvider,
+  ) {
+    return _spellcastingAbilityModifierForClass(
+      char,
+      char.charClass,
+      equipmentProvider,
+      compendiumProvider,
+    );
+  }
+
+  int _spellSaveDcForClass(
+    Character char,
+    String className,
+    EquipmentProvider equipmentProvider,
+    CompendiumProvider compendiumProvider,
+  ) {
+    final ability = _normalizedSpellcastingAbilityForClass(char, className);
+    if (ability == null) return 0;
+
+    final passiveBonus = CharacterEquipmentEffects.getPassiveSpellSaveDcBonus(
+      char: char,
+      equipmentItems: equipmentProvider.items,
+      compendiumEntries: compendiumProvider.entries,
+    );
+
+    return 8 +
+        _proficiencyBonus(char.level) +
+        _spellcastingAbilityModifierForClass(
+          char,
+          className,
+          equipmentProvider,
+          compendiumProvider,
+        ) +
+        passiveBonus;
+  }
+
+  int _spellSaveDc(
+    Character char,
+    EquipmentProvider equipmentProvider,
+    CompendiumProvider compendiumProvider,
+  ) {
+    return _spellSaveDcForClass(
+      char,
+      char.charClass,
+      equipmentProvider,
+      compendiumProvider,
+    );
+  }
+
+  int _spellAttackBonusForClass(
+    Character char,
+    String className,
+    EquipmentProvider equipmentProvider,
+    CompendiumProvider compendiumProvider,
+  ) {
+    final ability = _normalizedSpellcastingAbilityForClass(char, className);
+    if (ability == null) return 0;
+
+    final passiveBonus = CharacterEquipmentEffects.getPassiveSpellAttackBonus(
+      char: char,
+      equipmentItems: equipmentProvider.items,
+      compendiumEntries: compendiumProvider.entries,
+    );
+
+    final rawMainHand =
+        _findInventoryItemById(char, char.equippedMainHandItemId);
+    final rawOffHand = _findInventoryItemById(char, char.equippedOffHandItemId);
+
+    final resolvedMainHand = rawMainHand == null
+        ? null
+        : _resolveInventoryItem(
+            rawMainHand,
+            equipmentProvider,
+            compendiumProvider,
+          );
+
+    final resolvedOffHand = rawOffHand == null
+        ? null
+        : _resolveInventoryItem(
+            rawOffHand,
+            equipmentProvider,
+            compendiumProvider,
+          );
+
+    final infusedSpellAttackBonus =
+        CharacterOptionEffects.getInfusedSpellAttackBonus(
+      character: char,
+      mainHandItem: resolvedMainHand?.effectiveItem,
+      offHandItem: resolvedOffHand?.effectiveItem,
+      mainHandEquipmentItem: resolvedMainHand?.equipmentItem,
+      offHandEquipmentItem: resolvedOffHand?.equipmentItem,
+    );
+
+    return _proficiencyBonus(char.level) +
+        _spellcastingAbilityModifierForClass(
+          char,
+          className,
+          equipmentProvider,
+          compendiumProvider,
+        ) +
+        passiveBonus +
+        infusedSpellAttackBonus;
+  }
+
+  int _spellAttackBonus(
+    Character char,
+    EquipmentProvider equipmentProvider,
+    CompendiumProvider compendiumProvider,
+  ) {
+    return _spellAttackBonusForClass(
+      char,
+      char.charClass,
+      equipmentProvider,
+      compendiumProvider,
+    );
+  }
+
+  int _knownSpellLimitForClass(Character char, String className) {
+    return SpellcastingRules.knownSpellsForClass(
+      className: className,
+      classLevel: _levelForSpellcastingClass(char, className),
+      subclassName: char.subclassForClass(className),
+    );
+  }
+
+  int _knownCantripLimitForClass(Character char, String className) {
+    return SpellcastingRules.knownCantripsForClass(
+      className: className,
+      classLevel: _levelForSpellcastingClass(char, className),
+      subclassName: char.subclassForClass(className),
+    );
+  }
+
+  int _preparedSpellLimitForClass(Character char, String className) {
+    return SpellcastingRules.preparedSpellLimitForClass(
+      className: className,
+      classLevel: _levelForSpellcastingClass(char, className),
+      getAbilityScore: (ability) => _getCurrentAbilityScore(char, ability),
+      getAbilityModifier: _getAbilityModifier,
+    );
+  }
+
+  List<CharacterSpellcastingClassSummary> _buildSpellcastingClassSummaries({
+    required Character char,
+    required SpellProvider spellProvider,
+    required EquipmentProvider equipmentProvider,
+    required CompendiumProvider compendiumProvider,
+    required String activeClassName,
+  }) {
+    final summaries = <CharacterSpellcastingClassSummary>[];
+
+    for (final className in _spellcastingClassNames(char)) {
+      final classLevel = _levelForSpellcastingClass(char, className);
+      final knownSpellIds = _knownSpellIdsForClass(char, className);
+      final preparedSpellIds = _preparedSpellIdsForClass(char, className);
+      final spells = knownSpellIds
+          .map((id) => spellProvider.getById(id))
+          .whereType<Spell>()
+          .toList();
+
+      final cantripsKnown = spells.where((spell) => spell.level == 0).length;
+      final nonCantripKnown = spells.where((spell) => spell.level > 0).length;
+      final subclassName = char.subclassForClass(className);
+      final usesKnownCantrips =
+          SpellcastingRules.usesKnownCantripsForClassAndSubclass(
+        className: className,
+        subclassName: subclassName,
+      );
+      final usesKnownSpells =
+          SpellcastingRules.usesKnownSpellsForClassAndSubclass(
+        className: className,
+        subclassName: subclassName,
+      );
+      final usesPreparedSpells =
+          SpellcastingRules.usesPreparedSpellsForClass(className);
+      final usesPreparedLimit =
+          SpellcastingRules.usesPreparedSpellLimitForClass(className);
+      final ability = _normalizedSpellcastingAbilityForClass(char, className);
+
+      summaries.add(
+        CharacterSpellcastingClassSummary(
+          className: className,
+          subclassName: subclassName,
+          classLevel: classLevel,
+          ability: ability,
+          abilityModifier: ability == null
+              ? 0
+              : _spellcastingAbilityModifierForClass(
+                  char,
+                  className,
+                  equipmentProvider,
+                  compendiumProvider,
+                ),
+          saveDc: ability == null
+              ? 0
+              : _spellSaveDcForClass(
+                  char,
+                  className,
+                  equipmentProvider,
+                  compendiumProvider,
+                ),
+          attackBonus: ability == null
+              ? 0
+              : _spellAttackBonusForClass(
+                  char,
+                  className,
+                  equipmentProvider,
+                  compendiumProvider,
+                ),
+          selectedSpells: spells.length,
+          cantripsKnown: usesKnownCantrips ? cantripsKnown : null,
+          cantripLimit: usesKnownCantrips
+              ? _knownCantripLimitForClass(char, className)
+              : null,
+          knownSpells: usesKnownSpells ? nonCantripKnown : null,
+          knownSpellLimit: usesKnownSpells
+              ? _knownSpellLimitForClass(char, className)
+              : null,
+          preparedSpells: usesPreparedSpells ? preparedSpellIds.length : null,
+          preparedSpellLimit: usesPreparedLimit
+              ? _preparedSpellLimitForClass(char, className)
+              : null,
+          isActive:
+              _spellClassKey(className) == _spellClassKey(activeClassName),
+        ),
+      );
+    }
+
+    return summaries;
+  }
+
+  String? _defaultSpellcastingAbilityForClassName(String className) {
+    switch (className.toLowerCase().trim()) {
       case 'wizard':
       case 'artificer':
+      case 'fighter':
+      case 'rogue':
         return 'INT';
 
       case 'cleric':
@@ -814,7 +1230,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 color: const Color(0xFF1B1B24),
                 borderRadius: BorderRadius.circular(24),
                 border: Border.all(
-                  color: Colors.deepPurpleAccent.withOpacity(0.22),
+                  color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
                 ),
               ),
               child: Padding(
@@ -858,7 +1274,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                             ? option.description!.trim()
                             : 'No description available.',
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.86),
+                          color: Colors.white.withValues(alpha: 0.86),
                           fontSize: 14,
                           height: 1.45,
                         ),
@@ -868,7 +1284,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         Text(
                           'Tags',
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.95),
+                            color: Colors.white.withValues(alpha: 0.95),
                             fontSize: 15,
                             fontWeight: FontWeight.w700,
                           ),
@@ -959,7 +1375,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 color: const Color(0xFF1B1B24),
                 borderRadius: BorderRadius.circular(24),
                 border: Border.all(
-                  color: Colors.deepPurpleAccent.withOpacity(0.22),
+                  color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
                 ),
               ),
               child: Padding(
@@ -1006,7 +1422,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                             ? feat.description.trim()
                             : 'No description available.',
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.86),
+                          color: Colors.white.withValues(alpha: 0.86),
                           fontSize: 14,
                           height: 1.45,
                         ),
@@ -1044,10 +1460,12 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
   Future<void> _showReplaceKnownSpellDialog(
     BuildContext context,
     Character char,
+    String className,
   ) async {
     final spellProvider = context.read<SpellProvider>();
 
-    final currentSpells = char.spellIds
+    final currentSpellIds = _knownSpellIdsForClass(char, className);
+    final currentSpells = currentSpellIds
         .map((id) => spellProvider.getById(id))
         .whereType<Spell>()
         .where((spell) => spell.level > 0)
@@ -1065,14 +1483,24 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
     List<Spell> getReplacementOptions() {
       const includeClassVariants = false;
+      final subclassName = char.subclassForClass(className);
 
-      return SpellcastingRules.spellsForCharacterClassAndLevel(
-        char,
-        spellProvider.spells,
+      return SpellcastingRules.spellsForClassAndLevel(
+        className: className,
+        classLevel: _levelForSpellcastingClass(char, className),
+        maxSlotLevel: SpellcastingRules.maxSpellLevelForClassLevel(
+          className: className,
+          classLevel: _levelForSpellcastingClass(char, className),
+          subclassName: subclassName,
+        ),
+        spells: spellProvider.spells,
+        subclassName: subclassName,
         includeClassVariants: includeClassVariants,
+        currentKnownSpells: currentSpells,
+        replacingSpellId: spellToRemove?.id,
       ).where((spell) {
         return spell.level > 0 &&
-            !char.spellIds.contains(spell.id) &&
+            !currentSpellIds.contains(spell.id) &&
             spell.id != spellToRemove?.id;
       }).toList()
         ..sort((a, b) {
@@ -1105,9 +1533,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Your ${char.charClass} leveled up. You can replace one known spell.',
+                        'Your ${_formatClassName(className)} leveled up. You can replace one known spell.',
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.85),
+                          color: Colors.white.withValues(alpha: 0.85),
                         ),
                       ),
                       const SizedBox(height: 16),
@@ -1119,7 +1547,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         items: currentSpells.map((spell) {
                           return DropdownMenuItem<Spell>(
                             value: spell,
-                            child: Text('Lv ${spell.level} • ${spell.name}'),
+                            child: Text('Lv ${spell.level} - ${spell.name}'),
                           );
                         }).toList(),
                         onChanged: (value) {
@@ -1138,7 +1566,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         items: replacementOptions.map((spell) {
                           return DropdownMenuItem<Spell>(
                             value: spell,
-                            child: Text('Lv ${spell.level} • ${spell.name}'),
+                            child: Text('Lv ${spell.level} - ${spell.name}'),
                           );
                         }).toList(),
                         onChanged: (value) {
@@ -1151,7 +1579,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       Text(
                         'Only non-cantrip spells are shown here.',
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.6),
+                          color: Colors.white.withValues(alpha: 0.6),
                           fontSize: 12,
                         ),
                       ),
@@ -1171,12 +1599,14 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                           await context
                               .read<CharacterProvider>()
                               .updateCharacterById(char.id, (ch) {
-                            ch.spellIds.remove(spellToRemove!.id);
-                            ch.preparedSpellIds.remove(spellToRemove!.id);
-
-                            if (!ch.spellIds.contains(spellToAdd!.id)) {
-                              ch.spellIds.add(spellToAdd!.id);
-                            }
+                            ch.removeKnownSpellForClass(
+                              className,
+                              spellToRemove!.id,
+                            );
+                            ch.addKnownSpellForClass(
+                              className,
+                              spellToAdd!.id,
+                            );
                           });
 
                           if (!dialogContext.mounted) return;
@@ -1202,556 +1632,27 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final failures = char.deathSaveFailures.clamp(0, 3);
     final isActive = _isAtZeroHp(char) && !_isDeathSaveFinished(char);
 
-    Widget buildDots(int filled, Color color) {
-      return Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: List.generate(3, (index) {
-          final active = index < filled;
-          return Container(
-            width: 14,
-            height: 14,
-            margin: const EdgeInsets.symmetric(horizontal: 4),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: active ? color : Colors.white.withOpacity(0.08),
-              border: Border.all(
-                color: active ? color : Colors.white.withOpacity(0.12),
-              ),
-              boxShadow: active
-                  ? [
-                      BoxShadow(
-                        color: color.withOpacity(0.22),
-                        blurRadius: 6,
-                        spreadRadius: 1,
-                      ),
-                    ]
-                  : null,
-            ),
-          );
-        }),
-      );
-    }
-
-    Widget buildStateCard({
-      required String title,
-      required int value,
-      required Color color,
-    }) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-        decoration: BoxDecoration(
-          color: const Color(0xFF262632),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: color.withOpacity(0.22),
-          ),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-                fontSize: 14,
-              ),
-            ),
-            const SizedBox(height: 10),
-            buildDots(value, color),
-          ],
-        ),
-      );
-    }
-
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.28),
-        ),
-      ),
-      child: Column(
-        children: [
-          InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: () {
-              setState(() {
-                _deathSavesExpanded = !_deathSavesExpanded;
-              });
-            },
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Death Saves',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: isTablet ? 16 : 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  Text(
-                    _deathSavesExpanded ? 'Hide' : 'Show',
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.6),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Icon(
-                    _deathSavesExpanded ? Icons.expand_less : Icons.expand_more,
-                    color: Colors.white70,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (_deathSavesExpanded) ...[
-            const Divider(height: 1, color: Colors.white12),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Text(
-                    isActive
-                        ? 'At 0 HP: roll death saves.'
-                        : 'Inactive while above 0 HP.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.72),
-                      height: 1.35,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  GridView.count(
-                    crossAxisCount: isLargeTablet ? 2 : 1,
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
-                    childAspectRatio: isLargeTablet ? 3.2 : 4.4,
-                    children: [
-                      buildStateCard(
-                        title: 'Successes',
-                        value: successes,
-                        color: Colors.greenAccent,
-                      ),
-                      buildStateCard(
-                        title: 'Failures',
-                        value: failures,
-                        color: Colors.redAccent,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  Wrap(
-                    alignment: WrapAlignment.center,
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      FilledButton(
-                        onPressed: isActive
-                            ? () => _rollDeathSave(context, char)
-                            : null,
-                        child: const Text('Roll Death Save'),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: isActive
-                            ? () => _markDeathSaveSuccess(context, char)
-                            : null,
-                        icon: const Icon(Icons.check_circle_outline),
-                        label: const Text('Success'),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: isActive
-                            ? () => _markDeathSaveFailure(context, char)
-                            : null,
-                        icon: const Icon(Icons.cancel_outlined),
-                        label: const Text('Failure'),
-                      ),
-                      TextButton.icon(
-                        onPressed: () => _resetDeathSaves(context, char),
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('Reset'),
-                      ),
-                    ],
-                  ),
-                  if (successes >= 3) ...[
-                    const SizedBox(height: 12),
-                    const Text(
-                      'Stable: 3 successes reached.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.greenAccent,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                  if (failures >= 3) ...[
-                    const SizedBox(height: 12),
-                    const Text(
-                      'Dead: 3 failures reached.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.redAccent,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Future<void> _saveSpellcastingAbility(
-    BuildContext context,
-    Character char,
-    String? ability,
-  ) async {
-    final provider = context.read<CharacterProvider>();
-
-    await provider.updateCharacterById(char.id, (ch) {
-      ch.spellcastingAbility = ability?.trim().isEmpty ?? true ? null : ability;
-    });
-
-    if (!context.mounted) return;
-
-    final updatedChar = context
-        .read<CharacterProvider>()
-        .characters
-        .firstWhere((c) => c.id == char.id);
-
-    await _clearPreparedSpellsIfUnsupported(context, updatedChar);
-
-    if ((ability != null && ability.trim().isNotEmpty) &&
-        SpellcastingRules.isAutoSlotClass(updatedChar)) {
-      await _applyAutoSpellSlots(
-        context,
-        updatedChar,
-        preserveUsed: true,
-      );
-    }
-  }
-
-  Future<void> _showSpellcastingConfigDialog(
-    BuildContext context,
-    Character char,
-  ) async {
-    bool enabled = (char.spellcastingAbility?.trim().isNotEmpty ?? false);
-    String? selectedAbility = _normalizedSpellcastingAbility(char) ??
-        _defaultSpellcastingAbilityForClass(char);
-
-    const availableAbilities = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'];
-
-    await showDialog(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            final defaultAbility = _defaultSpellcastingAbilityForClass(char);
-
-            return AlertDialog(
-              title: Text(
-                enabled ? 'Edit Spellcasting' : 'Enable Spellcasting',
-              ),
-              content: SingleChildScrollView(
-                child: SizedBox(
-                  width: 360,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Character can cast spells'),
-                        subtitle: const Text(
-                          'Enable spellcasting calculations for this character',
-                        ),
-                        value: enabled,
-                        onChanged: (value) {
-                          setDialogState(() {
-                            enabled = value;
-                            if (enabled && selectedAbility == null) {
-                              selectedAbility = defaultAbility ?? 'INT';
-                            }
-                          });
-                        },
-                      ),
-                      if (enabled) ...[
-                        const SizedBox(height: 12),
-                        if (defaultAbility != null)
-                          Container(
-                            width: double.infinity,
-                            margin: const EdgeInsets.only(bottom: 12),
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: Colors.deepPurpleAccent.withOpacity(0.08),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color:
-                                    Colors.deepPurpleAccent.withOpacity(0.22),
-                              ),
-                            ),
-                            child: Text(
-                              'Suggested for ${char.charClass}: $defaultAbility',
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        DropdownButtonFormField<String>(
-                          value: selectedAbility,
-                          decoration: const InputDecoration(
-                            labelText: 'Spellcasting Ability',
-                          ),
-                          items: availableAbilities.map((ability) {
-                            final score = _getCurrentAbilityScore(
-                              char,
-                              ability,
-                              equipmentProvider:
-                                  context.read<EquipmentProvider>(),
-                              compendiumProvider:
-                                  context.read<CompendiumProvider>(),
-                            );
-                            final mod = _getAbilityModifier(score);
-
-                            return DropdownMenuItem<String>(
-                              value: ability,
-                              child: Text(
-                                '$ability • $score (${_formatSigned(mod)})',
-                              ),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            setDialogState(() {
-                              selectedAbility = value;
-                            });
-                          },
-                        ),
-                        if (defaultAbility != null) ...[
-                          const SizedBox(height: 10),
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: TextButton.icon(
-                              onPressed: () {
-                                setDialogState(() {
-                                  selectedAbility = defaultAbility;
-                                });
-                              },
-                              icon: const Icon(Icons.auto_fix_high),
-                              label: Text('Use default for ${char.charClass}'),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () async {
-                    final abilityToSave = enabled
-                        ? (selectedAbility ?? defaultAbility ?? 'INT')
-                        : null;
-
-                    await _saveSpellcastingAbility(
-                      context,
-                      char,
-                      abilityToSave,
-                    );
-
-                    if (!dialogContext.mounted) return;
-                    Navigator.pop(dialogContext);
-                  },
-                  child: const Text('Save'),
-                ),
-              ],
-            );
-          },
-        );
+    return CharacterDeathSavesSection(
+      successes: successes,
+      failures: failures,
+      isActive: isActive,
+      isExpanded: _deathSavesExpanded,
+      isTablet: isTablet,
+      onToggleExpanded: () {
+        setState(() {
+          _deathSavesExpanded = !_deathSavesExpanded;
+        });
       },
-    );
-  }
-
-  String? _normalizedSpellcastingAbility(Character char) {
-    final raw = char.spellcastingAbility?.trim();
-    if (raw == null || raw.isEmpty) return null;
-
-    switch (raw.toUpperCase()) {
-      case 'STR':
-      case 'DEX':
-      case 'CON':
-      case 'INT':
-      case 'WIS':
-      case 'CHA':
-        return raw.toUpperCase();
-      default:
-        return null;
-    }
-  }
-
-  int _spellcastingAbilityModifier(
-    Character char,
-    EquipmentProvider equipmentProvider,
-    CompendiumProvider compendiumProvider,
-  ) {
-    final ability = _normalizedSpellcastingAbility(char);
-    if (ability == null) return 0;
-
-    final score = _getCurrentAbilityScore(
-      char,
-      ability,
-      equipmentProvider: equipmentProvider,
-      compendiumProvider: compendiumProvider,
-    );
-
-    return _getAbilityModifier(score);
-  }
-
-  int _spellSaveDc(
-    Character char,
-    EquipmentProvider equipmentProvider,
-    CompendiumProvider compendiumProvider,
-  ) {
-    final ability = _normalizedSpellcastingAbility(char);
-    if (ability == null) return 0;
-
-    final passiveBonus = CharacterEquipmentEffects.getPassiveSpellSaveDcBonus(
-      char: char,
-      equipmentItems: equipmentProvider.items,
-      compendiumEntries: compendiumProvider.entries,
-    );
-
-    return 8 +
-        _proficiencyBonus(char.level) +
-        _spellcastingAbilityModifier(
-          char,
-          equipmentProvider,
-          compendiumProvider,
-        ) +
-        passiveBonus;
-  }
-
-  int _spellAttackBonus(
-    Character char,
-    EquipmentProvider equipmentProvider,
-    CompendiumProvider compendiumProvider,
-  ) {
-    final ability = _normalizedSpellcastingAbility(char);
-    if (ability == null) return 0;
-
-    final passiveBonus = CharacterEquipmentEffects.getPassiveSpellAttackBonus(
-      char: char,
-      equipmentItems: equipmentProvider.items,
-      compendiumEntries: compendiumProvider.entries,
-    );
-
-    final rawMainHand =
-        _findInventoryItemById(char, char.equippedMainHandItemId);
-    final rawOffHand = _findInventoryItemById(char, char.equippedOffHandItemId);
-
-    final resolvedMainHand = rawMainHand == null
-        ? null
-        : _resolveInventoryItem(
-            rawMainHand,
-            equipmentProvider,
-            compendiumProvider,
-          );
-
-    final resolvedOffHand = rawOffHand == null
-        ? null
-        : _resolveInventoryItem(
-            rawOffHand,
-            equipmentProvider,
-            compendiumProvider,
-          );
-
-    final infusedSpellAttackBonus =
-        CharacterOptionEffects.getInfusedSpellAttackBonus(
-      character: char,
-      mainHandItem: resolvedMainHand?.effectiveItem,
-      offHandItem: resolvedOffHand?.effectiveItem,
-      mainHandEquipmentItem: resolvedMainHand?.equipmentItem,
-      offHandEquipmentItem: resolvedOffHand?.equipmentItem,
-    );
-
-    return _proficiencyBonus(char.level) +
-        _spellcastingAbilityModifier(
-          char,
-          equipmentProvider,
-          compendiumProvider,
-        ) +
-        passiveBonus +
-        infusedSpellAttackBonus;
-  }
-
-  int _knownSpellLimit(Character char) {
-    return SpellcastingRules.knownSpells(char);
-  }
-
-  int _knownCantripLimit(Character char) {
-    return SpellcastingRules.knownCantrips(char);
-  }
-
-  int _preparedSpellLimit(Character char) {
-    return SpellcastingRules.preparedSpellLimit(
-      char,
-      (ability) => _getCurrentAbilityScore(char, ability),
-      _getAbilityModifier,
+      onRoll: isActive ? () => _rollDeathSave(context, char) : null,
+      onMarkSuccess:
+          isActive ? () => _markDeathSaveSuccess(context, char) : null,
+      onMarkFailure:
+          isActive ? () => _markDeathSaveFailure(context, char) : null,
+      onReset: () => _resetDeathSaves(context, char),
     );
   }
 
   String _formatSigned(int value) => value >= 0 ? '+$value' : '$value';
-  int _getHitDice(String charClass) {
-    switch (charClass.toLowerCase()) {
-      case 'barbarian':
-        return 12;
-      case 'fighter':
-      case 'paladin':
-      case 'ranger':
-        return 10;
-      case 'cleric':
-      case 'druid':
-      case 'rogue':
-      case 'bard':
-      case 'warlock':
-      case 'monk':
-      case 'artificer':
-        return 8;
-      case 'wizard':
-      case 'sorcerer':
-        return 6;
-      default:
-        return 8;
-    }
-  }
-
-  static const Map<String, List<String>> _skillsByAbility = {
-    'STR': ['Athletics'],
-    'DEX': ['Acrobatics', 'Sleight of Hand', 'Stealth'],
-    'INT': ['Arcana', 'History', 'Investigation', 'Nature', 'Religion'],
-    'WIS': ['Animal Handling', 'Insight', 'Medicine', 'Perception', 'Survival'],
-    'CHA': ['Deception', 'Intimidation', 'Performance', 'Persuasion'],
-  };
 
   static const Map<String, String> _skillAbilityMap = {
     'Acrobatics': 'DEX',
@@ -1773,15 +1674,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     'Stealth': 'DEX',
     'Survival': 'WIS',
   };
-
-  static const List<String> _savingThrowAbilities = [
-    'STR',
-    'DEX',
-    'CON',
-    'INT',
-    'WIS',
-    'CHA',
-  ];
 
   bool _isSavingThrowProficient(Character char, String ability) {
     final className = char.charClass.toLowerCase().trim();
@@ -2215,226 +2107,29 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     required bool isTablet,
     required bool isLargeTablet,
   }) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.28),
-        ),
-      ),
-      child: Column(
-        children: [
-          InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: () {
-              setState(() {
-                _savingThrowsExpanded = !_savingThrowsExpanded;
-              });
-            },
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Saving Throws',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: isTablet ? 16 : 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  Text(
-                    _savingThrowsExpanded ? 'Hide' : 'Show',
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.6),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Icon(
-                    _savingThrowsExpanded
-                        ? Icons.expand_less
-                        : Icons.expand_more,
-                    color: Colors.white70,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (_savingThrowsExpanded) ...[
-            const Divider(height: 1, color: Colors.white12),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-              child: GridView.builder(
-                itemCount: _savingThrowAbilities.length,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: isLargeTablet ? 3 : 2,
-                  crossAxisSpacing: 10,
-                  mainAxisSpacing: 10,
-                  mainAxisExtent: 184,
-                ),
-                itemBuilder: (_, index) {
-                  final ability = _savingThrowAbilities[index];
-                  final bonus = _getSavingThrowBonus(
-                    char,
-                    ability,
-                    context.read<EquipmentProvider>(),
-                    context.read<CompendiumProvider>(),
-                  );
-                  final proficient = _isSavingThrowProficient(char, ability);
+    final equipmentProvider = context.read<EquipmentProvider>();
+    final compendiumProvider = context.read<CompendiumProvider>();
 
-                  return _buildSavingThrowCard(
-                    ability: ability,
-                    bonus: bonus,
-                    isProficient: proficient,
-                    onRoll: () => _rollFromSheet(
-                      label: '$ability Save',
-                      modifier: bonus,
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ],
+    return CharacterSavingThrowsSection(
+      character: char,
+      isExpanded: _savingThrowsExpanded,
+      isTablet: isTablet,
+      isLargeTablet: isLargeTablet,
+      onToggleExpanded: () {
+        setState(() {
+          _savingThrowsExpanded = !_savingThrowsExpanded;
+        });
+      },
+      getSavingThrowBonus: (character, ability) => _getSavingThrowBonus(
+        character,
+        ability,
+        equipmentProvider,
+        compendiumProvider,
       ),
-    );
-  }
-
-  Widget _buildSavingThrowCard({
-    required String ability,
-    required int bonus,
-    required bool isProficient,
-    required VoidCallback onRoll,
-  }) {
-    final abilityLabel = _getAbilityLabel(ability);
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(18),
-        onTap: onRoll,
-        child: Ink(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Color(0xFF2A2A38),
-                Color(0xFF22222E),
-              ],
-            ),
-            border: Border.all(
-              color: isProficient
-                  ? Colors.deepPurpleAccent.withOpacity(0.45)
-                  : Colors.white.withOpacity(0.08),
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.16),
-                blurRadius: 12,
-                offset: const Offset(0, 6),
-              ),
-              if (isProficient)
-                BoxShadow(
-                  color: Colors.deepPurpleAccent.withOpacity(0.10),
-                  blurRadius: 12,
-                  spreadRadius: 1,
-                ),
-            ],
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: isProficient
-                      ? Colors.deepPurpleAccent.withOpacity(0.20)
-                      : Colors.white.withOpacity(0.05),
-                  border: Border.all(
-                    color: isProficient
-                        ? Colors.deepPurpleAccent.withOpacity(0.35)
-                        : Colors.white.withOpacity(0.08),
-                  ),
-                ),
-                alignment: Alignment.center,
-                child: Icon(
-                  isProficient ? Icons.check_rounded : Icons.circle_outlined,
-                  size: isProficient ? 18 : 14,
-                  color: Colors.white70,
-                ),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                ability,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.92),
-                  fontSize: 14,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.4,
-                  height: 1.1,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                abilityLabel,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.48),
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  height: 1.1,
-                ),
-              ),
-              const SizedBox(height: 14),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(999),
-                  color: isProficient
-                      ? Colors.deepPurpleAccent.withOpacity(0.18)
-                      : Colors.white.withOpacity(0.05),
-                  border: Border.all(
-                    color: isProficient
-                        ? Colors.deepPurpleAccent.withOpacity(0.28)
-                        : Colors.white.withOpacity(0.10),
-                  ),
-                ),
-                child: Text(
-                  _formatSigned(bonus),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    height: 1,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+      isSavingThrowProficient: _isSavingThrowProficient,
+      getAbilityLabel: _getAbilityLabel,
+      formatSigned: _formatSigned,
+      onRoll: _rollFromSheet,
     );
   }
 
@@ -2444,228 +2139,29 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     required bool isTablet,
     required bool isLargeTablet,
   }) {
-    final totalSkills = _skillAbilityMap.length;
-    final double expandedBodyHeight = isLargeTablet ? 440 : 395;
-    debugPrint('classSkills => ${char.classSkills}');
-    debugPrint('savingThrows => ${char.savingThrows}');
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.28),
-        ),
-      ),
-      child: Column(
-        children: [
-          InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: () {
-              setState(() {
-                _skillsExpanded = !_skillsExpanded;
-              });
-            },
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.auto_awesome_motion_outlined,
-                    color: Colors.white70,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Skills ($totalSkills)',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: isTablet ? 16 : 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  Text(
-                    _skillsExpanded ? 'Hide' : 'Show',
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.6),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Icon(
-                    _skillsExpanded ? Icons.expand_less : Icons.expand_more,
-                    color: Colors.white70,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (_skillsExpanded) ...[
-            const Divider(height: 1, color: Colors.white12),
-            SizedBox(
-              height: expandedBodyHeight,
-              child: Scrollbar(
-                thumbVisibility: true,
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: _skillsByAbility.entries.map((entry) {
-                      final ability = entry.key;
-                      final skills = entry.value;
+    final equipmentProvider = context.read<EquipmentProvider>();
+    final compendiumProvider = context.read<CompendiumProvider>();
 
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 16),
-                        child: _buildSkillGroup(
-                          context,
-                          char,
-                          ability: ability,
-                          skills: skills,
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ],
+    return CharacterSkillsSection(
+      character: char,
+      isExpanded: _skillsExpanded,
+      isTablet: isTablet,
+      isLargeTablet: isLargeTablet,
+      scrollController: _skillsScrollController,
+      onToggleExpanded: () {
+        setState(() {
+          _skillsExpanded = !_skillsExpanded;
+        });
+      },
+      getSkillBonus: (character, skillName) => _getSkillBonus(
+        character,
+        skillName,
+        equipmentProvider,
+        compendiumProvider,
       ),
-    );
-  }
-
-  Widget _buildSkillGroup(
-    BuildContext context,
-    Character char, {
-    required String ability,
-    required List<String> skills,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: Colors.deepPurpleAccent.withOpacity(0.16),
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Text(
-            ability,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
-              fontSize: 12,
-            ),
-          ),
-        ),
-        const SizedBox(height: 10),
-        ...skills.map((skillName) {
-          final bonus = _getSkillBonus(
-            char,
-            skillName,
-            context.read<EquipmentProvider>(),
-            context.read<CompendiumProvider>(),
-          );
-          final proficient = _isSkillProficient(char, skillName);
-
-          return _buildRollableStatRow(
-            label: skillName,
-            subtitle: proficient ? 'Proficient' : 'Normal',
-            value: _formatSigned(bonus),
-            isProficient: proficient,
-            onRoll: () => _rollFromSheet(
-              label: skillName,
-              modifier: bonus,
-            ),
-          );
-        }),
-      ],
-    );
-  }
-
-  Widget _buildRollableStatRow({
-    required String label,
-    required String subtitle,
-    required String value,
-    required bool isProficient,
-    required VoidCallback onRoll,
-  }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF262632),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: isProficient
-              ? Colors.deepPurpleAccent.withOpacity(0.32)
-              : Colors.white.withOpacity(0.08),
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 28,
-            height: 28,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: isProficient
-                  ? Colors.deepPurpleAccent.withOpacity(0.22)
-                  : Colors.white.withOpacity(0.05),
-            ),
-            alignment: Alignment.center,
-            child: Icon(
-              isProficient ? Icons.check : Icons.circle_outlined,
-              size: isProficient ? 15 : 12,
-              color: Colors.white70,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.55),
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            value,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(width: 6),
-          IconButton(
-            tooltip: 'Roll',
-            onPressed: onRoll,
-            icon: const Icon(
-              Icons.casino_outlined,
-              color: Colors.white70,
-            ),
-          ),
-        ],
-      ),
+      isSkillProficient: _isSkillProficient,
+      formatSigned: _formatSigned,
+      onRoll: _rollFromSheet,
     );
   }
 
@@ -2673,18 +2169,21 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     BuildContext context,
     Character char,
     String spellId,
+    String className,
   ) async {
     final provider = context.read<CharacterProvider>();
 
-    if (!SpellcastingRules.usesPreparedSpells(char)) {
+    if (!SpellcastingRules.usesPreparedSpellsForClass(className)) {
       return;
     }
 
-    final isAlreadyPrepared = char.preparedSpellIds.contains(spellId);
+    final preparedSpellIds = _preparedSpellIdsForClass(char, className);
+    final isAlreadyPrepared = preparedSpellIds.contains(spellId);
 
-    if (!isAlreadyPrepared && SpellcastingRules.usesPreparedSpellLimit(char)) {
-      final limit = _preparedSpellLimit(char);
-      final currentPreparedCount = char.preparedSpellIds.length;
+    if (!isAlreadyPrepared &&
+        SpellcastingRules.usesPreparedSpellLimitForClass(className)) {
+      final limit = _preparedSpellLimitForClass(char, className);
+      final currentPreparedCount = preparedSpellIds.length;
 
       if (currentPreparedCount >= limit) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2699,13 +2198,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     }
 
     await provider.updateCharacterById(char.id, (ch) {
-      if (!ch.spellIds.contains(spellId)) return;
-
-      if (ch.preparedSpellIds.contains(spellId)) {
-        ch.preparedSpellIds.remove(spellId);
-      } else {
-        ch.preparedSpellIds.add(spellId);
-      }
+      ch.togglePreparedSpellForClass(className, spellId);
     });
   }
 
@@ -2713,11 +2206,16 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     BuildContext context,
     Character char,
   ) async {
-    if (SpellcastingRules.usesPreparedSpells(char)) return;
+    final hasPreparedSpellClass = _spellcastingClassNames(char).any(
+      SpellcastingRules.usesPreparedSpellsForClass,
+    );
+    if (hasPreparedSpellClass) return;
     if (char.preparedSpellIds.isEmpty) return;
 
     await context.read<CharacterProvider>().updateCharacterById(char.id, (ch) {
       ch.preparedSpellIds.clear();
+      ch.preparedSpells.clear();
+      ch.preparedSpellIdsByClass.clear();
     });
   }
 
@@ -2725,43 +2223,29 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     BuildContext context,
     Character char,
     String spellId,
+    String className,
   ) async {
     final provider = context.read<CharacterProvider>();
 
     await provider.updateCharacterById(char.id, (ch) {
-      ch.spellIds.remove(spellId);
-      ch.preparedSpellIds.remove(spellId);
+      ch.removeKnownSpellForClass(className, spellId);
     });
   }
 
   int _slotMaxForLevel(Character char, int level) {
-    final maxKey = '${level}_max';
-    final legacyKey = '$level';
-
-    if (char.spellSlots.containsKey(maxKey)) {
-      return char.spellSlots[maxKey] ?? 0;
-    }
-
-    return char.spellSlots[legacyKey] ?? 0;
+    return CharacterSpellSlotService.slotMaxForLevel(char, level);
   }
 
   int _slotUsedForLevel(Character char, int level) {
-    final usedKey = '${level}_used';
-    return char.spellSlots[usedKey] ?? 0;
+    return CharacterSpellSlotService.slotUsedForLevel(char, level);
   }
 
-  int _slotRemainingForLevel(Character char, int level) {
-    final max = _slotMaxForLevel(char, level);
-    final used = _slotUsedForLevel(char, level);
-    final remaining = max - used;
-    return remaining < 0 ? 0 : remaining;
+  int _pactMagicSlotMaxForLevel(Character char, int level) {
+    return CharacterSpellSlotService.pactMagicSlotMaxForLevel(char, level);
   }
 
-  bool _hasAnySpellSlots(Character char) {
-    for (var level = 1; level <= 9; level++) {
-      if (_slotMaxForLevel(char, level) > 0) return true;
-    }
-    return false;
+  int _pactMagicSlotUsedForLevel(Character char, int level) {
+    return CharacterSpellSlotService.pactMagicSlotUsedForLevel(char, level);
   }
 
   Future<void> _spendSpellSlot(
@@ -2772,18 +2256,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final provider = context.read<CharacterProvider>();
 
     await provider.updateCharacterById(char.id, (ch) {
-      final max = _slotMaxForLevel(ch, level);
-      final currentUsed = _slotUsedForLevel(ch, level);
-
-      if (max <= 0) return;
-      if (currentUsed >= max) return;
-
-      ch.spellSlots['${level}_max'] = max;
-      ch.spellSlots['${level}_used'] = currentUsed + 1;
-
-      if (ch.spellSlots.containsKey('$level')) {
-        ch.spellSlots.remove('$level');
-      }
+      CharacterSpellSlotService.spendSlot(ch, level);
     });
   }
 
@@ -2795,18 +2268,31 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final provider = context.read<CharacterProvider>();
 
     await provider.updateCharacterById(char.id, (ch) {
-      final max = _slotMaxForLevel(ch, level);
-      final currentUsed = _slotUsedForLevel(ch, level);
+      CharacterSpellSlotService.recoverSlot(ch, level);
+    });
+  }
 
-      if (max <= 0) return;
+  Future<void> _spendPactMagicSlot(
+    BuildContext context,
+    Character char,
+    int level,
+  ) async {
+    final provider = context.read<CharacterProvider>();
 
-      final newUsed = currentUsed - 1;
-      ch.spellSlots['${level}_max'] = max;
-      ch.spellSlots['${level}_used'] = newUsed < 0 ? 0 : newUsed;
+    await provider.updateCharacterById(char.id, (ch) {
+      CharacterSpellSlotService.spendPactMagicSlot(ch, level);
+    });
+  }
 
-      if (ch.spellSlots.containsKey('$level')) {
-        ch.spellSlots.remove('$level');
-      }
+  Future<void> _recoverPactMagicSlot(
+    BuildContext context,
+    Character char,
+    int level,
+  ) async {
+    final provider = context.read<CharacterProvider>();
+
+    await provider.updateCharacterById(char.id, (ch) {
+      CharacterSpellSlotService.recoverPactMagicSlot(ch, level);
     });
   }
 
@@ -2817,17 +2303,18 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final provider = context.read<CharacterProvider>();
 
     await provider.updateCharacterById(char.id, (ch) {
-      for (var level = 1; level <= 9; level++) {
-        final max = _slotMaxForLevel(ch, level);
-        if (max > 0) {
-          ch.spellSlots['${level}_max'] = max;
-          ch.spellSlots['${level}_used'] = 0;
-        }
+      CharacterSpellSlotService.recoverAllSlots(ch);
+    });
+  }
 
-        if (ch.spellSlots.containsKey('$level')) {
-          ch.spellSlots.remove('$level');
-        }
-      }
+  Future<void> _recoverAllPactMagicSlots(
+    BuildContext context,
+    Character char,
+  ) async {
+    final provider = context.read<CharacterProvider>();
+
+    await provider.updateCharacterById(char.id, (ch) {
+      CharacterSpellSlotService.recoverAllPactMagicSlots(ch);
     });
   }
 
@@ -2840,29 +2327,11 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final provider = context.read<CharacterProvider>();
 
     await provider.updateCharacterById(char.id, (ch) {
-      final keysToRemove = ch.spellSlots.keys
-          .where(
-            (key) =>
-                RegExp(r'^\d+$').hasMatch(key) ||
-                RegExp(r'^\d+_max$').hasMatch(key) ||
-                RegExp(r'^\d+_used$').hasMatch(key),
-          )
-          .toList();
-
-      for (final key in keysToRemove) {
-        ch.spellSlots.remove(key);
-      }
-
-      for (var level = 1; level <= 9; level++) {
-        final max = maxByLevel[level] ?? 0;
-        final rawUsed = usedByLevel[level] ?? 0;
-        final safeUsed = rawUsed.clamp(0, max);
-
-        if (max > 0) {
-          ch.spellSlots['${level}_max'] = max;
-          ch.spellSlots['${level}_used'] = safeUsed;
-        }
-      }
+      CharacterSpellSlotService.applyManualSlotState(
+        ch,
+        maxByLevel: maxByLevel,
+        usedByLevel: usedByLevel,
+      );
     });
   }
 
@@ -2938,9 +2407,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(12),
-                          color: Colors.white.withOpacity(0.04),
+                          color: Colors.white.withValues(alpha: 0.04),
                           border: Border.all(
-                            color: Colors.white.withOpacity(0.08),
+                            color: Colors.white.withValues(alpha: 0.08),
                           ),
                         ),
                         child: Column(
@@ -3036,503 +2505,63 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final provider = context.read<CharacterProvider>();
 
     await provider.updateCharacterById(char.id, (ch) {
-      final autoState = SpellcastingRules.buildAutoSpellSlotState(
-        char: ch,
+      CharacterSpellSlotService.applyAutoSlotState(
+        ch,
         preserveUsed: preserveUsed,
       );
-
-      final keysToRemove = ch.spellSlots.keys
-          .where(
-            (key) =>
-                RegExp(r'^\d+$').hasMatch(key) ||
-                RegExp(r'^\d+_max$').hasMatch(key) ||
-                RegExp(r'^\d+_used$').hasMatch(key),
-          )
-          .toList();
-
-      for (final key in keysToRemove) {
-        ch.spellSlots.remove(key);
-      }
-
-      ch.spellSlots.addAll(autoState);
     });
   }
 
-  Future<void> _levelUpCharacter(
+  Future<void> _setCharacterHp(
     BuildContext context,
     Character char,
-    int hpGain,
   ) async {
     final provider = context.read<CharacterProvider>();
-    final currentLevel = char.level;
-    final newLevel = currentLevel + 1;
-    final safeHpGain = hpGain < 1 ? 1 : hpGain;
-
-    await provider.updateCharacterById(char.id, (ch) {
-      ch.level = newLevel;
-      ch.maxHp = (ch.maxHp ?? 0) + safeHpGain;
-      ch.currentHp = (ch.currentHp ?? 0) + safeHpGain;
-    });
-
-    await provider.syncFeaturesAndResources(char.id);
-
-    if (!context.mounted) return;
-
-    final updatedChar = context
-        .read<CharacterProvider>()
-        .characters
-        .firstWhere((c) => c.id == char.id);
-
-    if (SpellcastingRules.isAutoSlotClass(updatedChar)) {
-      await _applyAutoSpellSlots(
-        context,
-        updatedChar,
-        preserveUsed: true,
-      );
-    }
-  }
-
-  int _calculateLevelUpHpGain(Character char) {
-    final hitDice = _getHitDice(char.charClass);
-    final conScore =
-        (char.stats['CON'] ?? 10) + (char.racialBonuses['CON'] ?? 0);
-    final conModifier = _abilityMod(conScore);
-
-    final hpGain = ((hitDice / 2).floor() + 1) + conModifier;
-    return hpGain < 1 ? 1 : hpGain;
-  }
-
-  int _rollLevelUpHpGain(Character char) {
-    final hitDice = _getHitDice(char.charClass);
-    final conScore =
-        (char.stats['CON'] ?? 10) + (char.racialBonuses['CON'] ?? 0);
-    final conModifier = _abilityMod(conScore);
-
-    final rolledValue = 1 + (DateTime.now().microsecondsSinceEpoch % hitDice);
-    final hpGain = rolledValue + conModifier;
-
-    return hpGain < 1 ? 1 : hpGain;
-  }
-
-  bool _levelGrantsAbilityScoreImprovement(int level) {
-    return level == 4 ||
-        level == 8 ||
-        level == 12 ||
-        level == 16 ||
-        level == 19;
-  }
-
-  Future<void> _applyAbilityScoreImprovement(
-    BuildContext context,
-    Character char, {
-    required Map<String, int> increases,
-  }) async {
-    final provider = context.read<CharacterProvider>();
-
-    await provider.updateCharacterById(char.id, (ch) {
-      for (final entry in increases.entries) {
-        final abilityKey = entry.key;
-        final increase = entry.value;
-
-        final currentValue = ch.stats[abilityKey] ?? 10;
-        final newValue = currentValue + increase;
-
-        ch.stats[abilityKey] = newValue > 20 ? 20 : newValue;
-      }
-    });
-  }
-
-  Future<void> _showAbilityScoreImprovementDialog(
-    BuildContext context,
-    Character char,
-  ) async {
-    String selectedMode = 'plus2';
-    String selectedAbility = 'STR';
-    String firstAbility = 'STR';
-    String secondAbility = 'DEX';
-
-    List<DropdownMenuItem<String>> buildAbilityOptions() {
-      return [
-        'STR',
-        'DEX',
-        'CON',
-        'INT',
-        'WIS',
-        'CHA',
-      ].map((ability) {
-        final score = _getCurrentAbilityScore(char, ability);
-        final modifier = _getAbilityModifier(score);
-        final label = _getAbilityLabel(ability);
-
-        return DropdownMenuItem<String>(
-          value: ability,
-          child: Text(
-            '$label ($score) (${_formatModifier(modifier)})',
-          ),
-        );
-      }).toList();
-    }
-
-    Map<String, int> buildPreviewIncreases() {
-      if (selectedMode == 'plus2') {
-        return {selectedAbility: 2};
-      }
-
-      if (firstAbility == secondAbility) {
-        return {};
-      }
-
-      return {
-        firstAbility: 1,
-        secondAbility: 1,
-      };
-    }
-
-    await showDialog(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            final duplicateSelection =
-                selectedMode == 'plus1plus1' && firstAbility == secondAbility;
-
-            final previewIncreases = buildPreviewIncreases();
-
-            return AlertDialog(
-              title: const Text('Ability Score Improvement'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Choose how to apply this improvement.',
-                    ),
-                    const SizedBox(height: 16),
-                    RadioListTile<String>(
-                      contentPadding: EdgeInsets.zero,
-                      value: 'plus2',
-                      groupValue: selectedMode,
-                      title: const Text('+2 to one ability'),
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setDialogState(() {
-                          selectedMode = value;
-                        });
-                      },
-                    ),
-                    if (selectedMode == 'plus2') ...[
-                      const SizedBox(height: 8),
-                      DropdownButtonFormField<String>(
-                        value: selectedAbility,
-                        decoration: const InputDecoration(
-                          labelText: 'Ability Score',
-                        ),
-                        items: buildAbilityOptions(),
-                        onChanged: (value) {
-                          if (value == null) return;
-                          setDialogState(() {
-                            selectedAbility = value;
-                          });
-                        },
-                      ),
-                    ],
-                    const SizedBox(height: 10),
-                    RadioListTile<String>(
-                      contentPadding: EdgeInsets.zero,
-                      value: 'plus1plus1',
-                      groupValue: selectedMode,
-                      title: const Text('+1 to two different abilities'),
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setDialogState(() {
-                          selectedMode = value;
-                        });
-                      },
-                    ),
-                    if (selectedMode == 'plus1plus1') ...[
-                      const SizedBox(height: 8),
-                      DropdownButtonFormField<String>(
-                        value: firstAbility,
-                        decoration: const InputDecoration(
-                          labelText: 'First ability',
-                        ),
-                        items: buildAbilityOptions(),
-                        onChanged: (value) {
-                          if (value == null) return;
-                          setDialogState(() {
-                            firstAbility = value;
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        value: secondAbility,
-                        decoration: const InputDecoration(
-                          labelText: 'Second ability',
-                        ),
-                        items: buildAbilityOptions(),
-                        onChanged: (value) {
-                          if (value == null) return;
-                          setDialogState(() {
-                            secondAbility = value;
-                          });
-                        },
-                      ),
-                      if (duplicateSelection) ...[
-                        const SizedBox(height: 10),
-                        const Text(
-                          'Choose two different abilities.',
-                          style: TextStyle(
-                            color: Colors.redAccent,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ],
-                    const SizedBox(height: 18),
-                    const Divider(),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Preview',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    if (previewIncreases.isEmpty && duplicateSelection)
-                      const Text(
-                        'Select two different abilities to see the preview.',
-                        style: TextStyle(fontSize: 13),
-                      )
-                    else
-                      ...previewIncreases.entries.map((entry) {
-                        final ability = entry.key;
-                        final increase = entry.value;
-                        final current = _getCurrentAbilityScore(char, ability);
-                        final updated = current + increase;
-                        final currentMod = _getAbilityModifier(current);
-                        final updatedMod = _getAbilityModifier(updated);
-
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Text(
-                            '${_getAbilityLabel(ability)}: '
-                            '$current (${_formatModifier(currentMod)})'
-                            ' → '
-                            '$updated (${_formatModifier(updatedMod)})',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        );
-                      }),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: duplicateSelection
-                      ? null
-                      : () async {
-                          final increases = buildPreviewIncreases();
-
-                          await _applyAbilityScoreImprovement(
-                            context,
-                            char,
-                            increases: increases,
-                          );
-
-                          if (!dialogContext.mounted) return;
-                          Navigator.pop(dialogContext);
-                        },
-                  child: const Text('Apply'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Future<void> _showLevelUpDialog(
-    BuildContext context,
-    Character char,
-  ) async {
-    final currentLevel = char.level;
-    final newLevel = currentLevel + 1;
-    final grantsAsi = _levelGrantsAbilityScoreImprovement(newLevel);
-
-    await showDialog(
-      context: context,
-      builder: (dialogContext) {
-        String selectedMethod = 'average';
-        int hpGain = _calculateLevelUpHpGain(char);
-        bool rollLocked = false;
-
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Level Up'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Current Level: $currentLevel'),
-                  const SizedBox(height: 8),
-                  Text('New Level: $newLevel'),
-                  if (grantsAsi) ...[
-                    const SizedBox(height: 8),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: Colors.orange.withOpacity(0.35),
-                        ),
-                      ),
-                      child: const Text(
-                        'This level grants an Ability Score Improvement. '
-                        'After leveling up, you should assign your stat increase.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.orange,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 16),
-                  const Text(
-                    'HP Method',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  RadioListTile<String>(
-                    contentPadding: EdgeInsets.zero,
-                    value: 'average',
-                    groupValue: selectedMethod,
-                    title: const Text('Take Average'),
-                    onChanged: rollLocked
-                        ? null
-                        : (value) {
-                            if (value == null) return;
-                            setDialogState(() {
-                              selectedMethod = value;
-                              hpGain = _calculateLevelUpHpGain(char);
-                            });
-                          },
-                  ),
-                  RadioListTile<String>(
-                    contentPadding: EdgeInsets.zero,
-                    value: 'roll',
-                    groupValue: selectedMethod,
-                    title: const Text('Roll Hit Die'),
-                    onChanged: rollLocked
-                        ? null
-                        : (value) {
-                            if (value == null) return;
-                            setDialogState(() {
-                              selectedMethod = value;
-                              hpGain = _rollLevelUpHpGain(char);
-                              rollLocked = true;
-                            });
-                          },
-                  ),
-                  const SizedBox(height: 8),
-                  Text('HP Gain: +$hpGain'),
-                  if (rollLocked) ...[
-                    const SizedBox(height: 10),
-                    const Text(
-                      'Hit die rolled. This choice is now locked.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.orange,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () async {
-                    Navigator.pop(dialogContext);
-
-                    await _levelUpCharacter(context, char, hpGain);
-
-                    if (!context.mounted) return;
-
-                    final updatedChar = context
-                        .read<CharacterProvider>()
-                        .characters
-                        .firstWhere((c) => c.id == char.id);
-
-                    if (_levelGrantsAbilityScoreImprovement(newLevel)) {
-                      await _showAbilityScoreImprovementDialog(
-                        context,
-                        updatedChar,
-                      );
-                    }
-
-                    if (!context.mounted) return;
-
-                    final refreshedChar = context
-                        .read<CharacterProvider>()
-                        .characters
-                        .firstWhere((c) => c.id == char.id);
-
-                    if (SpellcastingRules.canReplaceKnownSpellOnLevelUp(
-                          refreshedChar,
-                        ) &&
-                        refreshedChar.spellIds.isNotEmpty) {
-                      await _showReplaceKnownSpellDialog(
-                        context,
-                        refreshedChar,
-                      );
-                    }
-                  },
-                  child: const Text('Confirm'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Future<void> _updateCharacterHp(
-    BuildContext context,
-    Character char,
-    int delta,
-  ) async {
-    final provider = context.read<CharacterProvider>();
-
     final maxHp = (char.maxHp ?? 0) <= 0 ? 1 : char.maxHp!;
     final currentHp = (char.currentHp ?? 0).clamp(0, maxHp);
-    final newHp = (currentHp + delta).clamp(0, maxHp);
 
-    await provider.updateCharacterById(char.id, (ch) {
-      ch.currentHp = newHp;
+    await _editQuickStatDialog(
+      context: context,
+      char: char,
+      title: 'Set Hit Points',
+      initialValue: currentHp,
+      suffix: 'HP',
+      onSave: (value) async {
+        final newHp = value.clamp(0, maxHp);
 
-      if (newHp > 0) {
-        ch.deathSaveSuccesses = 0;
-        ch.deathSaveFailures = 0;
-      }
-    });
+        await provider.updateCharacterById(char.id, (ch) {
+          ch.currentHp = newHp;
+
+          if (newHp > 0) {
+            ch.deathSaveSuccesses = 0;
+            ch.deathSaveFailures = 0;
+          }
+        });
+      },
+    );
+  }
+
+  Future<void> _setCharacterTempHp(
+    BuildContext context,
+    Character char,
+  ) async {
+    final provider = context.read<CharacterProvider>();
+    final currentTempHp = (char.tempHp ?? 0).clamp(0, 999);
+
+    await _editQuickStatDialog(
+      context: context,
+      char: char,
+      title: 'Set Temporary HP',
+      initialValue: currentTempHp,
+      suffix: 'temp HP',
+      onSave: (value) async {
+        final newTempHp = value < 0 ? 0 : value;
+
+        await provider.updateCharacterById(char.id, (ch) {
+          ch.tempHp = newTempHp;
+        });
+      },
+    );
   }
 
   Future<void> _longRest(BuildContext context, Character char) async {
@@ -3541,20 +2570,11 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
     await provider.updateCharacterById(char.id, (ch) {
       ch.currentHp = maxHp;
+      ch.tempHp = 0;
       ch.deathSaveSuccesses = 0;
       ch.deathSaveFailures = 0;
 
-      for (var level = 1; level <= 9; level++) {
-        final max = _slotMaxForLevel(ch, level);
-        if (max > 0) {
-          ch.spellSlots['${level}_max'] = max;
-          ch.spellSlots['${level}_used'] = 0;
-        }
-
-        if (ch.spellSlots.containsKey('$level')) {
-          ch.spellSlots.remove('$level');
-        }
-      }
+      CharacterSpellSlotService.recoverAllSlots(ch);
 
       for (final resource in ch.resources) {
         final isShortRest = resource.rechargeType == 'shortRest';
@@ -3614,67 +2634,38 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     );
   }
 
-  Future<void> _editArmorClass(
-    BuildContext context,
-    Character char,
-  ) async {
-    await _editQuickStatDialog(
-      context: context,
-      char: char,
-      title: 'Edit Armor Class',
-      initialValue: char.armorClass ?? 0,
-      onSave: (value) async {
-        final safeValue = value < 0 ? 0 : value;
-
-        await context.read<CharacterProvider>().updateCharacterById(char.id,
-            (ch) {
-          ch.armorClass = safeValue;
-        });
-      },
-    );
-  }
-
   Future<void> _editSpeed(
     BuildContext context,
     Character char,
   ) async {
+    final provider = context.read<CharacterProvider>();
+    final race = await RaceSyncService.getRaceForCharacter(char);
+    final subrace = race != null
+        ? RaceSyncService.getSubraceForCharacter(char, race)
+        : null;
+    if (!context.mounted) return;
+
+    final effectiveSpeed = RuleEngine.getEffectiveSpeed(
+      manualSpeed: char.speed,
+      raceSpeed: race?.speed,
+      subraceSpeed: subrace?.speed,
+      featSpeedBonus: char.featSpeedBonus,
+    );
+
     await _editQuickStatDialog(
       context: context,
       char: char,
       title: 'Edit Speed',
-      initialValue: char.speed ?? 0,
+      initialValue: effectiveSpeed,
       suffix: 'ft',
       onSave: (value) async {
         final safeValue = value < 0 ? 0 : value;
 
-        await context.read<CharacterProvider>().updateCharacterById(char.id,
-            (ch) {
+        await provider.updateCharacterById(char.id, (ch) {
           ch.speed = safeValue;
         });
       },
     );
-  }
-
-  String _inventorySourceLabel(InventoryItemSourceType sourceType) {
-    switch (sourceType) {
-      case InventoryItemSourceType.equipmentCompendium:
-        return 'Armory';
-      case InventoryItemSourceType.campaignCompendium:
-        return 'Campaign Compendium';
-      case InventoryItemSourceType.manual:
-      default:
-        return 'Manual';
-    }
-  }
-
-  bool _isAssetPath(String path) {
-    return path.startsWith('assets/');
-  }
-
-  bool _hasDisplayableImage(String? path) {
-    if (path == null || path.trim().isEmpty) return false;
-    if (_isAssetPath(path)) return true;
-    return File(path).existsSync();
   }
 
   Widget _buildResolvedImage(
@@ -3683,59 +2674,12 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     required double height,
     BoxFit fit = BoxFit.cover,
   }) {
-    if (_isAssetPath(path)) {
-      return Image.asset(
-        path,
-        width: width,
-        height: height,
-        fit: fit,
-      );
-    }
-
-    return Image.file(
-      File(path),
+    return buildImageFromPath(
+      path,
       width: width,
       height: height,
       fit: fit,
     );
-  }
-
-  EquipmentCompendiumItem? _resolveEquipmentCompendiumItem(
-    CharacterInventoryItem item,
-    EquipmentProvider equipmentProvider,
-  ) {
-    if (item.sourceType != InventoryItemSourceType.equipmentCompendium) {
-      return null;
-    }
-
-    final compendiumEntryId = item.compendiumEntryId;
-    if (compendiumEntryId == null || compendiumEntryId.trim().isEmpty) {
-      return null;
-    }
-
-    return equipmentProvider.getById(compendiumEntryId);
-  }
-
-  CompendiumEntry? _resolveCampaignCompendiumEntry(
-    CharacterInventoryItem item,
-    CompendiumProvider compendiumProvider,
-  ) {
-    if (item.sourceType != InventoryItemSourceType.campaignCompendium) {
-      return null;
-    }
-
-    final compendiumEntryId = item.compendiumEntryId;
-    if (compendiumEntryId == null || compendiumEntryId.trim().isEmpty) {
-      return null;
-    }
-
-    try {
-      return compendiumProvider.entries.firstWhere(
-        (entry) => entry.id == compendiumEntryId,
-      );
-    } catch (_) {
-      return null;
-    }
   }
 
   List<CharacterOptionDefinition> _getValidInfusionsForItem(
@@ -3767,6 +2711,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     Character char,
     CharacterInventoryItem inventoryItem,
   ) async {
+    final characterProvider = context.read<CharacterProvider>();
     final equipmentProvider = context.read<EquipmentProvider>();
     final activeInfusedCount = getActiveInfusedItemsCount(char);
     final activeInfusedLimit = getArtificerActiveInfusedItemsLimit(char);
@@ -3774,8 +2719,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final targetAlreadyInfused =
         (inventoryItem.appliedInfusionId ?? '').trim().isNotEmpty;
 
-    final canApplyNewInfusion =
-        targetAlreadyInfused || activeInfusedCount < activeInfusedLimit;
     final infusionLimitReached =
         !targetAlreadyInfused && activeInfusedCount >= activeInfusedLimit;
     final validInfusions = _getValidInfusionsForItem(
@@ -3792,7 +2735,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) {
+      builder: (sheetContext) {
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
@@ -3802,7 +2745,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 color: const Color(0xFF1B1B24),
                 borderRadius: BorderRadius.circular(24),
                 border: Border.all(
-                  color: Colors.deepPurpleAccent.withOpacity(0.22),
+                  color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
                 ),
               ),
               child: Column(
@@ -3842,7 +2785,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                               ? 'Choose a new infusion or remove the current one'
                               : '${validInfusions.length} compatible infusion option${validInfusions.length == 1 ? '' : 's'}',
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.68),
+                            color: Colors.white.withValues(alpha: 0.68),
                             fontSize: 13,
                           ),
                         ),
@@ -3850,7 +2793,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         Text(
                           'Active infused items: $activeInfusedCount / $activeInfusedLimit',
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.68),
+                            color: Colors.white.withValues(alpha: 0.68),
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
                           ),
@@ -3860,7 +2803,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                           Text(
                             'You have reached your active infusion limit. Remove an infusion from another item before applying a new one.',
                             style: TextStyle(
-                              color: Colors.orangeAccent.withOpacity(0.95),
+                              color:
+                                  Colors.orangeAccent.withValues(alpha: 0.95),
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
                               height: 1.35,
@@ -3879,24 +2823,23 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         child: InkWell(
                           borderRadius: BorderRadius.circular(14),
                           onTap: () async {
-                            await context
-                                .read<CharacterProvider>()
+                            await characterProvider
                                 .removeInfusionFromCharacterItem(
-                                  char.id,
-                                  inventoryItem.id,
-                                );
+                              char.id,
+                              inventoryItem.id,
+                            );
 
-                            if (!context.mounted) return;
-                            Navigator.pop(context);
+                            if (!sheetContext.mounted) return;
+                            Navigator.pop(sheetContext);
                           },
                           child: Container(
                             width: double.infinity,
                             padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(
-                              color: Colors.redAccent.withOpacity(0.10),
+                              color: Colors.redAccent.withValues(alpha: 0.10),
                               borderRadius: BorderRadius.circular(14),
                               border: Border.all(
-                                color: Colors.redAccent.withOpacity(0.35),
+                                color: Colors.redAccent.withValues(alpha: 0.35),
                               ),
                             ),
                             child: Row(
@@ -3910,7 +2853,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                   child: Text(
                                     'Remove current infusion',
                                     style: TextStyle(
-                                      color: Colors.white.withOpacity(0.95),
+                                      color:
+                                          Colors.white.withValues(alpha: 0.95),
                                       fontSize: 14,
                                       fontWeight: FontWeight.w700,
                                     ),
@@ -3934,7 +2878,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                 'No selected infusions can be applied to this item.',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
-                                  color: Colors.white.withOpacity(0.72),
+                                  color: Colors.white.withValues(alpha: 0.72),
                                   fontSize: 14,
                                 ),
                               ),
@@ -3966,25 +2910,23 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                                       '')
                                                   .trim()
                                                   .isNotEmpty) {
-                                            await context
-                                                .read<CharacterProvider>()
+                                            await characterProvider
                                                 .removeInfusionFromCharacterItem(
-                                                  char.id,
-                                                  inventoryItem.id,
-                                                );
+                                              char.id,
+                                              inventoryItem.id,
+                                            );
                                           }
 
-                                          await context
-                                              .read<CharacterProvider>()
+                                          await characterProvider
                                               .applyInfusionToCharacterItem(
-                                                char.id,
-                                                inventoryItem.id,
-                                                infusion,
-                                                equipmentProvider.items,
-                                              );
+                                            char.id,
+                                            inventoryItem.id,
+                                            infusion,
+                                            equipmentProvider.items,
+                                          );
 
-                                          if (!context.mounted) return;
-                                          Navigator.pop(context);
+                                          if (!sheetContext.mounted) return;
+                                          Navigator.pop(sheetContext);
                                         },
                                   child: AnimatedContainer(
                                     duration: const Duration(milliseconds: 180),
@@ -3992,20 +2934,21 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                     decoration: BoxDecoration(
                                       color: isDisabled
                                           ? const Color(0xFF202028)
-                                              .withOpacity(0.45)
+                                              .withValues(alpha: 0.45)
                                           : isCurrent
                                               ? Colors.deepPurpleAccent
-                                                  .withOpacity(0.18)
+                                                  .withValues(alpha: 0.18)
                                               : const Color(0xFF202028),
                                       borderRadius: BorderRadius.circular(14),
                                       border: Border.all(
                                         color: isDisabled
-                                            ? Colors.white.withOpacity(0.05)
+                                            ? Colors.white
+                                                .withValues(alpha: 0.05)
                                             : isCurrent
                                                 ? Colors.deepPurpleAccent
-                                                    .withOpacity(0.95)
+                                                    .withValues(alpha: 0.95)
                                                 : Colors.white
-                                                    .withOpacity(0.08),
+                                                    .withValues(alpha: 0.08),
                                       ),
                                     ),
                                     child: Row(
@@ -4017,7 +2960,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                           height: 42,
                                           decoration: BoxDecoration(
                                             color: Colors.deepPurpleAccent
-                                                .withOpacity(0.18),
+                                                .withValues(alpha: 0.18),
                                             borderRadius:
                                                 BorderRadius.circular(12),
                                           ),
@@ -4036,8 +2979,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                                 infusion.name,
                                                 style: TextStyle(
                                                   color: isDisabled
-                                                      ? Colors.white
-                                                          .withOpacity(0.45)
+                                                      ? Colors.white.withValues(
+                                                          alpha: 0.45)
                                                       : Colors.white,
                                                   fontSize: 15,
                                                   fontWeight: FontWeight.w700,
@@ -4065,7 +3008,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                                       TextOverflow.ellipsis,
                                                   style: TextStyle(
                                                     color: Colors.white
-                                                        .withOpacity(0.72),
+                                                        .withValues(
+                                                            alpha: 0.72),
                                                     fontSize: 13,
                                                     height: 1.35,
                                                   ),
@@ -4102,130 +3046,19 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     );
   }
 
-  EquipItemType _mapCompendiumTypeToInventoryType(
-    EquipmentCompendiumItem item,
-  ) {
-    if (item.isWeapon) return EquipItemType.weapon;
-    if (item.isArmor) return EquipItemType.armor;
-    if (item.isShield) return EquipItemType.shield;
-    if (item.isAccessory) return EquipItemType.accessory;
-    return EquipItemType.generic;
-  }
-
   bool _isHandHeldFocus(EquipmentCompendiumItem item) {
-    final name = item.name.trim().toLowerCase();
-    final subtype = item.subtype.trim().toLowerCase();
-    final displayCategory = item.displayCategory.trim().toLowerCase();
-
-    return name.contains('rod') ||
-        name.contains('wand') ||
-        name.contains('staff') ||
-        subtype.contains('rod') ||
-        subtype.contains('wand') ||
-        subtype.contains('staff') ||
-        displayCategory.contains('rod') ||
-        displayCategory.contains('wand') ||
-        displayCategory.contains('staff');
+    return CharacterInventoryService.isHandHeldFocus(item);
   }
 
-  List<EquipSlot> _mapAllowedSlotsFromCompendium(
-    EquipmentCompendiumItem item,
-  ) {
-    final slots = item.allowedSlots.map((slotName) {
-      switch (slotName) {
-        case 'weaponMainHand':
-          return EquipSlot.weaponMainHand;
-        case 'weaponOffHand':
-          return EquipSlot.weaponOffHand;
-        case 'armor':
-          return EquipSlot.armor;
-        case 'shield':
-          return EquipSlot.shield;
-        case 'accessory':
-        default:
-          return EquipSlot.accessory;
-      }
-    }).toList();
-
-    if (_isHandHeldFocus(item)) {
-      if (!slots.contains(EquipSlot.weaponMainHand)) {
-        slots.add(EquipSlot.weaponMainHand);
-      }
-      if (!slots.contains(EquipSlot.weaponOffHand)) {
-        slots.add(EquipSlot.weaponOffHand);
-      }
-    }
-
-    return slots;
-  }
-
-  CharacterInventoryItem _inventoryItemWithCompendiumData(
-    CharacterInventoryItem inventoryItem,
-    EquipmentCompendiumItem? compendiumItem,
-  ) {
-    if (compendiumItem == null) return inventoryItem;
-
-    return inventoryItem.copyWith(
-      isEquippable: compendiumItem.isEquippable,
-      itemType: _mapCompendiumTypeToInventoryType(compendiumItem),
-      allowedSlots: _mapAllowedSlotsFromCompendium(compendiumItem),
-      damageDice: compendiumItem.damageDiceOneHanded,
-      damageType: compendiumItem.damageType,
-      isFinesse: compendiumItem.isFinesse,
-      isRanged: compendiumItem.isRanged,
-      isTwoHanded: compendiumItem.isTwoHanded,
-      armorClassBonus: compendiumItem.armorClassBonus,
-      baseArmorClass: compendiumItem.baseArmorClass,
-      allowsDexBonus: compendiumItem.allowsDexBonus,
-      maxDexBonus: compendiumItem.maxDexBonus,
-    );
-  }
-
-  _ResolvedInventoryItem _resolveInventoryItem(
+  ResolvedInventoryItem _resolveInventoryItem(
     CharacterInventoryItem inventoryItem,
     EquipmentProvider equipmentProvider,
     CompendiumProvider compendiumProvider,
   ) {
-    final equipmentItem = _resolveEquipmentCompendiumItem(
-      inventoryItem,
-      equipmentProvider,
-    );
-
-    final campaignEntry = _resolveCampaignCompendiumEntry(
-      inventoryItem,
-      compendiumProvider,
-    );
-
-    final effectiveItem = _inventoryItemWithCompendiumData(
-      inventoryItem,
-      equipmentItem,
-    );
-
-    final resolvedDescription =
-        equipmentItem?.description?.trim().isNotEmpty == true
-            ? equipmentItem!.description!.trim()
-            : campaignEntry?.description.trim().isNotEmpty == true
-                ? campaignEntry!.description.trim()
-                : inventoryItem.description?.trim().isNotEmpty == true
-                    ? inventoryItem.description!.trim()
-                    : null;
-
-    final resolvedImagePath = _hasDisplayableImage(equipmentItem?.imagePath)
-        ? equipmentItem!.imagePath
-        : _hasDisplayableImage(campaignEntry?.imagePath)
-            ? campaignEntry!.imagePath
-            : _hasDisplayableImage(inventoryItem.imagePath)
-                ? inventoryItem.imagePath
-                : null;
-
-    return _ResolvedInventoryItem(
-      originalItem: inventoryItem,
-      effectiveItem: effectiveItem,
-      equipmentItem: equipmentItem,
-      campaignEntry: campaignEntry,
-      sourceLabel: _inventorySourceLabel(inventoryItem.sourceType),
-      resolvedDescription: resolvedDescription,
-      resolvedImagePath: resolvedImagePath,
+    return CharacterInventoryService.resolveInventoryItem(
+      inventoryItem: inventoryItem,
+      equipmentItems: equipmentProvider.items,
+      compendiumEntries: compendiumProvider.entries,
     );
   }
 
@@ -4315,9 +3148,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
         if (compendiumItem.allowsDexBonus) {
           if (compendiumItem.maxDexBonus != null) {
-            armorLabel += ' • DEX max +${compendiumItem.maxDexBonus}';
+            armorLabel += ' - DEX max +${compendiumItem.maxDexBonus}';
           } else {
-            armorLabel += ' • +DEX';
+            armorLabel += ' - +DEX';
           }
         }
 
@@ -4346,9 +3179,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
         if (item.allowsDexBonus) {
           if (item.maxDexBonus != null) {
-            armorLabel += ' • DEX max +${item.maxDexBonus}';
+            armorLabel += ' - DEX max +${item.maxDexBonus}';
           } else {
-            armorLabel += ' • +DEX';
+            armorLabel += ' - +DEX';
           }
         }
 
@@ -4360,18 +3193,18 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       }
     }
 
-    return parts.join(' • ');
+    return parts.join(' - ');
   }
 
   String? _buildEquipmentDescription(
-    _ResolvedInventoryItem resolvedItem,
+    ResolvedInventoryItem resolvedItem,
   ) {
     final description = resolvedItem.resolvedDescription?.trim();
     if (description == null || description.isEmpty) return null;
     return description;
   }
 
-  _ResolvedInventoryItem? _resolveEquippedMainHandItem(
+  ResolvedInventoryItem? _resolveEquippedMainHandItem(
     Character char,
     EquipmentProvider equipmentProvider,
     CompendiumProvider compendiumProvider,
@@ -4397,64 +3230,16 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
   }
 
   bool _isMainHandWeapon(
-    _ResolvedInventoryItem? item,
+    ResolvedInventoryItem? item,
   ) {
     return item?.effectiveItem.itemType == EquipItemType.weapon;
   }
 
   bool _isMainHandFocus(
-    _ResolvedInventoryItem? item,
+    ResolvedInventoryItem? item,
   ) {
     return item?.equipmentItem != null &&
         _isHandHeldFocus(item!.equipmentItem!);
-  }
-
-  int _getWeaponAttackAbilityModifier(
-    Character char,
-    CharacterInventoryItem weaponItem,
-    EquipmentProvider equipmentProvider,
-    CompendiumProvider compendiumProvider,
-  ) {
-    final strMod = _getAbilityModifier(
-      _getCurrentAbilityScore(
-        char,
-        'STR',
-        equipmentProvider: equipmentProvider,
-        compendiumProvider: compendiumProvider,
-      ),
-    );
-
-    final dexMod = _getAbilityModifier(
-      _getCurrentAbilityScore(
-        char,
-        'DEX',
-        equipmentProvider: equipmentProvider,
-        compendiumProvider: compendiumProvider,
-      ),
-    );
-
-    final chaMod = _getAbilityModifier(
-      _getCurrentAbilityScore(
-        char,
-        'CHA',
-        equipmentProvider: equipmentProvider,
-        compendiumProvider: compendiumProvider,
-      ),
-    );
-
-    if (weaponItem.isPactWeapon && char.hasPactOfTheBlade) {
-      return chaMod;
-    }
-
-    if (weaponItem.isRanged) {
-      return dexMod;
-    }
-
-    if (weaponItem.isFinesse) {
-      return dexMod > strMod ? dexMod : strMod;
-    }
-
-    return strMod;
   }
 
   String _getWeaponAttackAbilityLabel(
@@ -4463,88 +3248,17 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     EquipmentProvider equipmentProvider,
     CompendiumProvider compendiumProvider,
   ) {
-    final strMod = _getAbilityModifier(
-      _getCurrentAbilityScore(
+    return CharacterWeaponAttackService.attackAbilityLabel(
+      character: char,
+      weaponItem: weaponItem,
+      getAbilityScore: (ability) => _getCurrentAbilityScore(
         char,
-        'STR',
+        ability,
         equipmentProvider: equipmentProvider,
         compendiumProvider: compendiumProvider,
       ),
+      getAbilityModifier: _getAbilityModifier,
     );
-
-    final dexMod = _getAbilityModifier(
-      _getCurrentAbilityScore(
-        char,
-        'DEX',
-        equipmentProvider: equipmentProvider,
-        compendiumProvider: compendiumProvider,
-      ),
-    );
-
-    if (weaponItem.isPactWeapon && char.hasPactOfTheBlade) {
-      return 'CHA';
-    }
-
-    if (weaponItem.isRanged) {
-      return 'DEX';
-    }
-
-    if (weaponItem.isFinesse) {
-      return dexMod > strMod ? 'DEX' : 'STR';
-    }
-
-    return 'STR';
-  }
-
-  bool _isProficientWithWeapon(
-    Character char,
-    CharacterInventoryItem weaponItem,
-    EquipmentCompendiumItem? equipmentItem,
-  ) {
-    if (weaponItem.isPactWeapon && char.hasPactOfTheBlade) {
-      return true;
-    }
-
-    final weaponCategory = equipmentItem?.weaponCategory?.trim().toLowerCase();
-
-    if (weaponCategory == null || weaponCategory.isEmpty) {
-      return true; // fallback temporal
-    }
-
-    final isSimple = weaponCategory == 'simple';
-    final isMartial = weaponCategory == 'martial';
-
-    final className = char.charClass.trim().toLowerCase();
-
-    switch (className) {
-      case 'barbarian':
-      case 'fighter':
-      case 'paladin':
-      case 'ranger':
-        return isSimple || isMartial;
-
-      case 'bard':
-      case 'cleric':
-      case 'druid':
-      case 'monk':
-      case 'sorcerer':
-      case 'warlock':
-      case 'wizard':
-      case 'artificer':
-        return isSimple;
-
-      case 'rogue':
-        if (isSimple) return true;
-
-        final weaponName = weaponItem.name.trim().toLowerCase();
-        return weaponName == 'hand crossbow' ||
-            weaponName == 'longsword' ||
-            weaponName == 'rapier' ||
-            weaponName == 'shortsword';
-
-      default:
-        return true;
-    }
   }
 
   int? _calculateMainHandAttackBonus(
@@ -4560,51 +3274,18 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
     if (resolvedWeapon == null) return null;
 
-    final weaponItem = resolvedWeapon.effectiveItem;
-    final abilityMod = _getWeaponAttackAbilityModifier(
-      char,
-      weaponItem,
-      equipmentProvider,
-      compendiumProvider,
-    );
-    final proficiency = _isProficientWithWeapon(
-      char,
-      weaponItem,
-      resolvedWeapon.equipmentItem,
-    )
-        ? _getProficiencyBonusFromEngine(char)
-        : 0;
-
-    final itemAttackBonus = resolvedWeapon.equipmentItem?.attackBonus ?? 0;
-
-    final optionAttackBonus =
-        CharacterOptionEffects.getMainHandAttackBonusFromOptions(
+    return CharacterWeaponAttackService.mainHandAttackBonus(
       character: char,
-      isRangedWeapon: weaponItem.isRanged,
+      resolvedWeapon: resolvedWeapon,
+      getAbilityScore: (ability) => _getCurrentAbilityScore(
+        char,
+        ability,
+        equipmentProvider: equipmentProvider,
+        compendiumProvider: compendiumProvider,
+      ),
+      getAbilityModifier: _getAbilityModifier,
+      proficiencyBonus: _getProficiencyBonusFromEngine(char),
     );
-    final pactAttackBonus = CharacterOptionEffects.getPactWeaponAttackBonus(
-      character: char,
-      weaponItem: weaponItem,
-      equipmentItem: resolvedWeapon.equipmentItem,
-    );
-    final infusedWeaponAttackBonus =
-        CharacterOptionEffects.getInfusedWeaponAttackBonus(
-      character: char,
-      weaponItem: weaponItem,
-    );
-    print('--- ATTACK BONUS DEBUG ---');
-    print('Weapon: ${weaponItem.name}');
-    print('isRangedWeapon: ${weaponItem.isRanged}');
-    print('Selected fighting styles: '
-        '${CharacterOptionEffects.getSelectedFightingStyleIds(char)}');
-    print('Option attack bonus: $optionAttackBonus');
-
-    return abilityMod +
-        proficiency +
-        itemAttackBonus +
-        optionAttackBonus +
-        pactAttackBonus +
-        infusedWeaponAttackBonus;
   }
 
   int? _calculateMainHandDamageBonus(
@@ -4620,74 +3301,23 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
     if (resolvedWeapon == null) return null;
 
-    final weaponItem = resolvedWeapon.effectiveItem;
-
-    final abilityMod = _getWeaponAttackAbilityModifier(
-      char,
-      weaponItem,
-      equipmentProvider,
-      compendiumProvider,
-    );
-
-    final itemDamageBonus = resolvedWeapon.equipmentItem?.damageBonus ?? 0;
-
-    final conditionalDamageBonus =
-        CharacterEquipmentEffects.getMainHandConditionalDamageBonus(
-      char: char,
-      equipmentItems: equipmentProvider.items,
-      compendiumEntries: compendiumProvider.entries,
-    );
-
     final hasOffHandWeaponEquipped = char.equippedOffHandItemId != null &&
         char.equippedOffHandItemId!.trim().isNotEmpty;
 
-    final isMeleeWeapon = !weaponItem.isRanged;
-    final isOneHandedMeleeWeapon =
-        !weaponItem.isTwoHanded && !weaponItem.isRanged;
-
-    final optionDamageBonus =
-        CharacterOptionEffects.getMainHandDamageBonusFromOptions(
+    return CharacterWeaponAttackService.mainHandDamageBonus(
       character: char,
-      isMeleeWeapon: isMeleeWeapon,
-      isOneHandedMeleeWeapon: isOneHandedMeleeWeapon,
+      resolvedWeapon: resolvedWeapon,
       hasOffHandWeaponEquipped: hasOffHandWeaponEquipped,
-    );
-
-    final chaMod = _getAbilityModifier(
-      _getCurrentAbilityScore(
+      equipmentItems: equipmentProvider.items,
+      compendiumEntries: compendiumProvider.entries,
+      getAbilityScore: (ability) => _getCurrentAbilityScore(
         char,
-        'CHA',
+        ability,
         equipmentProvider: equipmentProvider,
         compendiumProvider: compendiumProvider,
       ),
+      getAbilityModifier: _getAbilityModifier,
     );
-
-    final pactDamageBonus = CharacterOptionEffects.getPactWeaponDamageBonus(
-      character: char,
-      weaponItem: weaponItem,
-      equipmentItem: resolvedWeapon.equipmentItem,
-      charismaModifier: chaMod,
-    );
-    final infusedWeaponDamageBonus =
-        CharacterOptionEffects.getInfusedWeaponDamageBonus(
-      character: char,
-      weaponItem: weaponItem,
-    );
-    print('--- DAMAGE BONUS DEBUG ---');
-    print('Weapon: ${weaponItem.name}');
-    print('Ability mod: $abilityMod');
-    print('Item damage bonus: $itemDamageBonus');
-    print('Conditional damage bonus: $conditionalDamageBonus');
-    print('Option damage bonus: $optionDamageBonus');
-    print('CHA mod: $chaMod');
-    print('Pact damage bonus: $pactDamageBonus');
-
-    return abilityMod +
-        itemDamageBonus +
-        conditionalDamageBonus +
-        optionDamageBonus +
-        pactDamageBonus +
-        infusedWeaponDamageBonus;
   }
 
   String _buildMainHandDamageText(
@@ -4701,13 +3331,13 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       compendiumProvider,
     );
 
-    if (resolvedWeapon == null) return '—';
+    if (resolvedWeapon == null) return '-';
 
     final weaponItem = resolvedWeapon.effectiveItem;
     final damageDice = weaponItem.damageDice?.trim();
 
     if (damageDice == null || damageDice.isEmpty) {
-      return '—';
+      return '-';
     }
 
     final damageBonus = _calculateMainHandDamageBonus(
@@ -4717,16 +3347,11 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         ) ??
         0;
 
-    final damageType = weaponItem.damageType?.trim();
-    final bonusText = damageBonus == 0
-        ? ''
-        : (damageBonus > 0 ? ' + $damageBonus' : ' - ${damageBonus.abs()}');
-
-    if (damageType != null && damageType.isNotEmpty) {
-      return '$damageDice$bonusText $damageType';
-    }
-
-    return '$damageDice$bonusText';
+    return CharacterWeaponAttackService.damageText(
+      weaponItem: weaponItem,
+      damageBonus: damageBonus,
+      fallback: '-',
+    );
   }
 
   Future<void> _rollMainHandAttack(
@@ -4757,19 +3382,11 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
   }
 
   int _parseDiceSides(String damageDice) {
-    final normalized = damageDice.trim().toLowerCase();
-    final match = RegExp(r'^(\d+)d(\d+)$').firstMatch(normalized);
-
-    if (match == null) return 0;
-    return int.tryParse(match.group(2) ?? '') ?? 0;
+    return CharacterWeaponAttackService.parseDiceSides(damageDice);
   }
 
   int _parseDiceCount(String damageDice) {
-    final normalized = damageDice.trim().toLowerCase();
-    final match = RegExp(r'^(\d+)d(\d+)$').firstMatch(normalized);
-
-    if (match == null) return 0;
-    return int.tryParse(match.group(1) ?? '') ?? 0;
+    return CharacterWeaponAttackService.parseDiceCount(damageDice);
   }
 
   Future<void> _rollMainHandDamage(
@@ -4823,29 +3440,60 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final compendiumProvider = context.watch<CompendiumProvider>();
     final roleProvider = context.watch<AppRoleProvider>();
     final spellProvider = context.watch<SpellProvider>();
-    final isDm = roleProvider.isDm;
     final equipmentProvider = context.watch<EquipmentProvider>();
+    final authProvider = context.watch<AuthProvider>();
+    final campaignProvider = context.watch<CampaignProvider>();
+
+    final currentUserId = authProvider.userId;
+
+    final allVisibleCharacters = <Character>[
+      ...provider.characters,
+      ...provider.campaignCharacters,
+    ];
+
     Character? foundCharacter;
     try {
-      foundCharacter =
-          provider.characters.firstWhere((c) => c.id == widget.characterId);
+      foundCharacter = allVisibleCharacters.firstWhere(
+        (c) => c.id == widget.characterId,
+      );
     } catch (_) {
       foundCharacter = null;
     }
 
     if (foundCharacter == null) {
       return const Scaffold(
-        backgroundColor: Color(0xFF15151A),
-        body: Center(
-          child: Text(
-            "Character not found",
-            style: TextStyle(color: Colors.white),
+        backgroundColor: StitchCodexPalette.ground,
+        body: StitchCodexBackground(
+          child: Center(
+            child: Text(
+              'Character not found',
+              style: TextStyle(
+                color: StitchCodexPalette.textMuted,
+                fontFamily: StitchTypography.body,
+              ),
+            ),
           ),
         ),
       );
     }
 
     final char = foundCharacter;
+
+    final isOwnedByCurrentUser = currentUserId != null &&
+        char.userId != null &&
+        char.userId == currentUserId;
+    final matchingCampaigns = char.campaignId == null
+        ? []
+        : campaignProvider.campaigns
+            .where((campaign) => campaign.id == char.campaignId)
+            .toList();
+    final characterCampaign =
+        matchingCampaigns.isEmpty ? null : matchingCampaigns.first;
+    final isCampaignDm = currentUserId != null &&
+        characterCampaign != null &&
+        characterCampaign.ownerUserId == currentUserId;
+    final isDm = roleProvider.isDm || isCampaignDm;
+    final canManageInventory = isOwnedByCurrentUser || isCampaignDm;
 
     final characterJournalEntries = journalProvider
         .getEntriesByCharacter(char.id)
@@ -4867,97 +3515,314 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     }
 
     return DefaultTabController(
-      length: 5,
+      length: 6,
       child: Scaffold(
-        backgroundColor: const Color(0xFF15151A),
-        appBar: AppBar(
-          backgroundColor: const Color(0xFF121214),
-          elevation: 4,
+        backgroundColor: StitchCodexPalette.ground,
+        appBar: StitchAppBar(
+          showBrand: false,
+          backgroundColor: StitchCodexPalette.ground,
+          elevation: 0,
           title: Text(
-            char.name.isEmpty ? "Unnamed Character" : char.name,
-            style: const TextStyle(fontWeight: FontWeight.bold),
+            (char.name.isEmpty ? 'Unnamed Character' : char.name).toUpperCase(),
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: StitchCodexPalette.textPrimary,
+              fontFamily: StitchTypography.display,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 1.15,
+            ),
           ),
-          centerTitle: true,
           actions: [
+            // Go to campaign is always available.
             if (char.campaignId != null)
               IconButton(
-                icon: const Icon(Icons.flag_outlined, color: Colors.white),
+                icon: const Icon(
+                  Icons.flag_outlined,
+                  color: StitchCodexPalette.bronze,
+                ),
                 tooltip: 'Go to campaign',
-                onPressed: () {
+                onPressed: () async {
+                  final campaignId = char.campaignId;
+                  if (campaignId == null || campaignId.trim().isEmpty) return;
+
+                  final campaignProvider = context.read<CampaignProvider>();
+
+                  final matchingCampaigns = campaignProvider.campaigns
+                      .where((c) => c.id == campaignId)
+                      .toList();
+
+                  if (matchingCampaigns.isEmpty) return;
+
+                  final campaign = matchingCampaigns.first;
+
+                  await campaignProvider.setActiveCampaign(campaign);
+
+                  if (!context.mounted) return;
                   context.go('/campaign-detail');
                 },
               ),
-            IconButton(
-              icon: const Icon(Icons.edit, color: Colors.white),
-              onPressed: () {
-                context.push('/edit-character/${char.id}');
-              },
-            ),
-            IconButton(
-              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-              tooltip: 'Delete character',
-              onPressed: () async {
-                final confirm = await showDialog<bool>(
-                  context: context,
-                  builder: (_) => AlertDialog(
-                    title: const Text('Delete Character'),
-                    content: const Text(
-                      'Are you sure you want to delete this character?',
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context, false),
-                        child: const Text('Cancel'),
+
+            // Owner actions.
+            if (isOwnedByCurrentUser)
+              IconButton(
+                tooltip: 'Edit character',
+                icon: const Icon(
+                  Icons.edit_outlined,
+                  color: StitchCodexPalette.textSecondary,
+                ),
+                onPressed: () {
+                  context.push('/edit-character/${char.id}');
+                },
+              ),
+
+            if (isOwnedByCurrentUser)
+              IconButton(
+                icon: const Icon(
+                  Icons.delete_outline,
+                  color: StitchCodexPalette.crimsonBright,
+                ),
+                tooltip: 'Delete character',
+                onPressed: () async {
+                  final characterProvider = context.read<CharacterProvider>();
+                  final confirm = await showDialog<bool>(
+                    context: context,
+                    builder: (dialogContext) => AlertDialog(
+                      backgroundColor: StitchCodexPalette.surface,
+                      shape: stitchCodexDialogShape(),
+                      title: const Text(
+                        'Delete Character',
+                        style: stitchCodexDialogTitleStyle,
                       ),
-                      TextButton(
-                        onPressed: () => Navigator.pop(context, true),
-                        child: const Text(
-                          'Delete',
-                          style: TextStyle(color: Colors.red),
+                      content: const Text(
+                        'Remove this character from the archive? This cannot be undone.',
+                        style: TextStyle(
+                          color: StitchCodexPalette.textMuted,
+                          fontFamily: StitchTypography.body,
+                          fontSize: 15,
                         ),
                       ),
-                    ],
-                  ),
-                );
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(dialogContext, false),
+                          child: const Text('Cancel'),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.pop(dialogContext, true),
+                          child: const Text(
+                            'Delete',
+                            style: TextStyle(
+                              color: StitchCodexPalette.crimsonBright,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
 
-                if (confirm != true) return;
+                  if (confirm != true) return;
 
-                final deletedCharacter = char;
+                  final deletedCharacter = char;
 
-                await context
-                    .read<CharacterProvider>()
-                    .deleteCharacterById(deletedCharacter.id);
+                  await characterProvider.deleteCharacterById(
+                    deletedCharacter.id,
+                  );
 
-                if (!context.mounted) return;
+                  if (!context.mounted) return;
 
-                if (deletedCharacter.campaignId != null) {
-                  context.go('/campaign-characters');
-                } else {
-                  context.go('/characters');
-                }
-              },
-            ),
+                  if (deletedCharacter.campaignId != null) {
+                    context.go('/campaign-characters');
+                  } else {
+                    context.go('/characters');
+                  }
+                },
+              ),
           ],
-          bottom: const TabBar(
-            isScrollable: true,
-            indicatorColor: Colors.deepPurpleAccent,
-            tabs: [
-              Tab(text: "Overview"),
-              Tab(text: "Inventory"),
-              Tab(text: "Spells"),
-              Tab(text: "Features"),
-              Tab(text: "Notes / Journal"),
-            ],
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(54),
+            child: Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: StitchCodexPalette.surfaceMuted,
+                border: Border(
+                  top: BorderSide(
+                    color:
+                        StitchCodexPalette.bronze.withValues(alpha: 0.12),
+                  ),
+                  bottom: BorderSide(
+                    color:
+                        StitchCodexPalette.bronze.withValues(alpha: 0.22),
+                  ),
+                ),
+              ),
+              child: const TabBar(
+                isScrollable: true,
+                tabAlignment: TabAlignment.start,
+                dividerColor: Colors.transparent,
+                indicatorColor: StitchCodexPalette.bronze,
+                indicatorWeight: 2,
+                labelColor: StitchCodexPalette.textPrimary,
+                unselectedLabelColor: StitchCodexPalette.textMuted,
+                labelStyle: TextStyle(
+                  fontFamily: StitchTypography.data,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.6,
+                ),
+                tabs: [
+                  Tab(icon: Icon(Icons.dashboard_outlined), text: 'OVERVIEW'),
+                  Tab(icon: Icon(Icons.inventory_2_outlined), text: 'INVENTORY'),
+                  Tab(icon: Icon(Icons.auto_awesome_outlined), text: 'SPELLS'),
+                  Tab(icon: Icon(Icons.workspace_premium_outlined), text: 'FEATURES'),
+                  Tab(icon: Icon(Icons.history_edu_outlined), text: 'STORY'),
+                  Tab(icon: Icon(Icons.edit_note_outlined), text: 'JOURNAL'),
+                ],
+              ),
+            ),
           ),
         ),
-        body: TabBarView(
-          children: [
-            _buildOverviewTab(
-              context,
-              char,
-              getStat,
-              equipmentProvider,
-              compendiumProvider,
+        body: StitchCodexBackground(
+          child: TabBarView(
+            children: [
+            CharacterOverviewTab(
+              header: CharacterSheetHeader(character: char),
+              char: char,
+              equipmentProvider: equipmentProvider,
+              compendiumProvider: compendiumProvider,
+              getStat: getStat,
+              buildHpQuickActionsCard: ({
+                required context,
+                required char,
+                required isTablet,
+                required isLargeTablet,
+              }) =>
+                  _hpQuickActionsCard(
+                context,
+                char,
+                isTablet: isTablet,
+                isLargeTablet: isLargeTablet,
+              ),
+              buildSummaryCard: ({
+                required label,
+                required value,
+                required icon,
+                required isTablet,
+                required isLargeTablet,
+              }) =>
+                  _summaryCard(
+                label: label,
+                value: value,
+                icon: icon,
+                isTablet: isTablet,
+                isLargeTablet: isLargeTablet,
+              ),
+              buildInteractiveSummaryCard: ({
+                required label,
+                required value,
+                required icon,
+                required isTablet,
+                required isLargeTablet,
+                required onTap,
+              }) =>
+                  _interactiveSummaryCard(
+                label: label,
+                value: value,
+                icon: icon,
+                isTablet: isTablet,
+                isLargeTablet: isLargeTablet,
+                onTap: onTap,
+              ),
+              buildAbilityCard: _ability,
+              buildRecentDiceRolls: ({
+                required isTablet,
+                required isLargeTablet,
+              }) =>
+                  _buildRecentDiceRolls(
+                isTablet: isTablet,
+                isLargeTablet: isLargeTablet,
+              ),
+              buildSavingThrowsSection: _buildSavingThrowsSection,
+              buildSkillsSection: _buildSkillsSection,
+              buildDeathSavesSection: _buildDeathSavesSection,
+              onOpenDiceRoller: _openDiceRoller,
+              onOpenCombatMode: () {
+                context.push('/combat-mode/${char.id}');
+              },
+              onLevelUp: () async {
+                if (!isOwnedByCurrentUser) return;
+                await context.push('/level-up/${char.id}');
+              },
+              onGoToCampaign: () async {
+                final campaignId = char.campaignId;
+                if (campaignId == null || campaignId.trim().isEmpty) return;
+
+                final campaignProvider = context.read<CampaignProvider>();
+
+                final matchingCampaigns = campaignProvider.campaigns
+                    .where((campaign) => campaign.id == campaignId)
+                    .toList();
+
+                if (matchingCampaigns.isEmpty) return;
+
+                await campaignProvider
+                    .setActiveCampaign(matchingCampaigns.first);
+
+                if (!context.mounted) return;
+                context.go('/campaign-detail');
+              },
+              onManageCampaign: () async {
+                if (!isOwnedByCurrentUser) return;
+                await _showManageCampaignSheet(context, char);
+              },
+              onEditSpeed: () async {
+                if (!isOwnedByCurrentUser) return;
+                await _editSpeed(context, char);
+              },
+              onRollFromSheet: ({
+                required label,
+                required modifier,
+              }) =>
+                  _rollFromSheet(
+                label: label,
+                modifier: modifier,
+              ),
+              getEffectiveSpeed: (char) async {
+                final race = await RaceSyncService.getRaceForCharacter(char);
+                final subrace = race != null
+                    ? RaceSyncService.getSubraceForCharacter(char, race)
+                    : null;
+
+                final subraceSpeedOverride =
+                    RaceSyncService.getSubraceSpeedOverride(subrace);
+
+                return RuleEngine.getEffectiveSpeed(
+                  manualSpeed: char.speed,
+                  raceSpeed: race?.speed,
+                  subraceSpeed: subraceSpeedOverride,
+                  featSpeedBonus: char.featSpeedBonus,
+                );
+              },
+              getProficiencyBonus: _getProficiencyBonusFromEngine,
+              getInitiative: _initiative,
+              getPassivePerception: _passivePerception,
+              getEffectiveArmorClass: _calculateEffectiveArmorClass,
+              getSpellSaveDc: _spellSaveDc,
+              getSpellAttackBonus: _spellAttackBonus,
+              getNormalizedSpellcastingAbility: _normalizedSpellcastingAbility,
+              getSpellcastingAbilityModifier: _spellcastingAbilityModifier,
+              formatSigned: _formatSigned,
+              resolveEquippedMainHandItem: _resolveEquippedMainHandItem,
+              isMainHandWeapon: (item) => _isMainHandWeapon(item),
+              isMainHandFocus: (item) => _isMainHandFocus(item),
+              findInventoryItemById: _findInventoryItemById,
+              resolveInventoryItem: _resolveInventoryItem,
+              calculateMainHandAttackBonus: _calculateMainHandAttackBonus,
+              buildMainHandDamageText: _buildMainHandDamageText,
+              getWeaponAttackAbilityLabel: _getWeaponAttackAbilityLabel,
+              computeSpellAttackBonus: _spellAttackBonus,
+              normalizedSpellcastingAbility: _normalizedSpellcastingAbility,
+              rollMainHandAttack: _rollMainHandAttack,
+              rollMainHandDamage: _rollMainHandDamage,
             ),
             _buildInventoryTab(
               context,
@@ -4965,586 +3830,20 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               compendiumProvider,
               equipmentProvider,
               isDm,
+              canManageInventory,
             ),
             _buildSpellsTab(context, char, spellProvider),
             _buildFeaturesTab(context, char),
+            CharacterStoryTab(
+              character: char,
+              classIdentityLabel: buildCharacterClassIdentityLabel(char),
+            ),
             _buildNotesTab(
               context,
               char,
               characterJournalEntries,
               campaignSessions,
             ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildOverviewTab(
-    BuildContext context,
-    Character char,
-    int Function(String) getStat,
-    EquipmentProvider equipmentProvider,
-    CompendiumProvider compendiumProvider,
-  ) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isTablet = screenWidth >= 600;
-    final isLargeTablet = screenWidth >= 900;
-
-    final maxContentWidth = isLargeTablet ? 1100.0 : 900.0;
-    final pagePadding = isLargeTablet ? 28.0 : (isTablet ? 24.0 : 16.0);
-    final cardPadding = isLargeTablet ? 24.0 : (isTablet ? 20.0 : 16.0);
-    final avatarRadius = isLargeTablet ? 56.0 : (isTablet ? 48.0 : 38.0);
-    final titleSize = isLargeTablet ? 30.0 : (isTablet ? 26.0 : 22.0);
-    final subtitleSize = isLargeTablet ? 16.0 : (isTablet ? 15.0 : 14.0);
-    final smallSubtitleSize = isLargeTablet ? 15.0 : (isTablet ? 14.0 : 13.0);
-    final sectionTitleSize = isLargeTablet ? 22.0 : (isTablet ? 20.0 : 18.0);
-
-    final str = getStat("STR");
-    final dex = getStat("DEX");
-    final con = getStat("CON");
-    final intScore = getStat("INT");
-    final wis = getStat("WIS");
-    final cha = getStat("CHA");
-
-    final proficiency = _getProficiencyBonusFromEngine(char);
-    final initiative = _initiative(dex);
-    final passivePerception = _passivePerception(char, wis);
-
-    final hpText = (char.currentHp != null && char.maxHp != null)
-        ? '${char.currentHp}/${char.maxHp}'
-        : (char.maxHp != null ? '${char.maxHp}' : '—');
-
-    final liveArmorClass = _calculateEffectiveArmorClass(
-      char,
-      equipmentProvider,
-      compendiumProvider,
-    );
-    final acText = '$liveArmorClass';
-    final speedText = char.speed != null ? '${char.speed} ft' : '—';
-    final spellAbilityKey = _normalizedSpellcastingAbility(char);
-    final spellAbilityModifier = _spellcastingAbilityModifier(
-      char,
-      equipmentProvider,
-      compendiumProvider,
-    );
-    final spellSaveDc = _spellSaveDc(
-      char,
-      equipmentProvider,
-      compendiumProvider,
-    );
-
-    final spellAttackBonus = _spellAttackBonus(
-      char,
-      equipmentProvider,
-      compendiumProvider,
-    );
-    final passiveArmorBonus =
-        CharacterEquipmentEffects.getPassiveArmorClassBonus(
-      char: char,
-      equipmentItems: equipmentProvider.items,
-      compendiumEntries: compendiumProvider.entries,
-    );
-
-    final passiveSaveBonus =
-        CharacterEquipmentEffects.getPassiveSavingThrowBonus(
-      char: char,
-      equipmentItems: equipmentProvider.items,
-      compendiumEntries: compendiumProvider.entries,
-    );
-
-    final passiveSpellAttackBonus =
-        CharacterEquipmentEffects.getPassiveSpellAttackBonus(
-      char: char,
-      equipmentItems: equipmentProvider.items,
-      compendiumEntries: compendiumProvider.entries,
-    );
-
-    final passiveSpellSaveDcBonus =
-        CharacterEquipmentEffects.getPassiveSpellSaveDcBonus(
-      char: char,
-      equipmentItems: equipmentProvider.items,
-      compendiumEntries: compendiumProvider.entries,
-    );
-    final spellAbilityText = spellAbilityKey == null
-        ? '—'
-        : '$spellAbilityKey (${_formatSigned(spellAbilityModifier)})';
-    final statColumns = isLargeTablet ? 6 : 3;
-    final statAspectRatio = isLargeTablet ? 1.12 : (isTablet ? 0.98 : 0.88);
-
-    final summaryCards = <Widget>[
-      _hpQuickActionsCard(
-        context,
-        char,
-        isTablet: isTablet,
-        isLargeTablet: isLargeTablet,
-      ),
-      _summaryCard(
-        label: 'AC',
-        value: acText,
-        icon: Icons.shield_outlined,
-        isTablet: isTablet,
-        isLargeTablet: isLargeTablet,
-      ),
-      _interactiveSummaryCard(
-        label: 'Speed',
-        value: speedText,
-        icon: Icons.directions_run_outlined,
-        isTablet: isTablet,
-        isLargeTablet: isLargeTablet,
-        onTap: () => _editSpeed(context, char),
-      ),
-      _summaryCard(
-        label: 'Prof.',
-        value: _formatSigned(proficiency),
-        icon: Icons.military_tech_outlined,
-        isTablet: isTablet,
-        isLargeTablet: isLargeTablet,
-      ),
-      _interactiveSummaryCard(
-        label: 'Initiative',
-        value: _formatSigned(initiative),
-        icon: Icons.bolt_outlined,
-        isTablet: isTablet,
-        isLargeTablet: isLargeTablet,
-        onTap: () => _rollFromSheet(
-          label: 'Initiative',
-          modifier: initiative,
-        ),
-      ),
-      _summaryCard(
-        label: 'Passive Perception',
-        value: '$passivePerception',
-        icon: Icons.visibility_outlined,
-        isTablet: isTablet,
-        isLargeTablet: isLargeTablet,
-      ),
-      _summaryCard(
-        label: 'Spell Save DC',
-        value: spellAbilityKey == null ? '—' : '$spellSaveDc',
-        icon: Icons.shield_moon_outlined,
-        isTablet: isTablet,
-        isLargeTablet: isLargeTablet,
-      ),
-      _summaryCard(
-        label: 'Spell Attack',
-        value: spellAbilityKey == null ? '—' : _formatSigned(spellAttackBonus),
-        icon: Icons.bolt_outlined,
-        isTablet: isTablet,
-        isLargeTablet: isLargeTablet,
-      ),
-    ];
-    return SingleChildScrollView(
-      padding: EdgeInsets.all(pagePadding),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: maxContentWidth),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: EdgeInsets.all(cardPadding),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF2D1B4C), Color(0xFF171821)],
-                  ),
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(
-                    color: Colors.deepPurpleAccent.withOpacity(0.6),
-                  ),
-                ),
-                child: isTablet
-                    ? Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          CircleAvatar(
-                            radius: avatarRadius,
-                            backgroundColor: Colors.deepPurpleAccent,
-                            backgroundImage: (char.portraitPath != null &&
-                                    char.portraitPath!.isNotEmpty &&
-                                    File(char.portraitPath!).existsSync())
-                                ? FileImage(File(char.portraitPath!))
-                                : null,
-                            child: (char.portraitPath == null ||
-                                    char.portraitPath!.isEmpty ||
-                                    !File(char.portraitPath!).existsSync())
-                                ? const Icon(
-                                    Icons.person,
-                                    size: 42,
-                                    color: Colors.white,
-                                  )
-                                : null,
-                          ),
-                          const SizedBox(width: 20),
-                          Expanded(
-                            child: _buildHeaderTextBlock(
-                              char,
-                              titleSize: titleSize,
-                              subtitleSize: subtitleSize,
-                              smallSubtitleSize: smallSubtitleSize,
-                              isCentered: false,
-                            ),
-                          ),
-                        ],
-                      )
-                    : Column(
-                        children: [
-                          CircleAvatar(
-                            radius: avatarRadius,
-                            backgroundColor: Colors.deepPurpleAccent,
-                            backgroundImage: (char.portraitPath != null &&
-                                    char.portraitPath!.isNotEmpty &&
-                                    File(char.portraitPath!).existsSync())
-                                ? FileImage(File(char.portraitPath!))
-                                : null,
-                            child: (char.portraitPath == null ||
-                                    char.portraitPath!.isEmpty ||
-                                    !File(char.portraitPath!).existsSync())
-                                ? const Icon(
-                                    Icons.person,
-                                    size: 36,
-                                    color: Colors.white,
-                                  )
-                                : null,
-                          ),
-                          const SizedBox(height: 16),
-                          _buildHeaderTextBlock(
-                            char,
-                            titleSize: titleSize,
-                            subtitleSize: subtitleSize,
-                            smallSubtitleSize: smallSubtitleSize,
-                            isCentered: true,
-                          ),
-                        ],
-                      ),
-              ),
-              if (char.campaignId != null) ...[
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    GestureDetector(
-                      onTap: () {
-                        context.go('/campaign-detail');
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.deepPurpleAccent.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(999),
-                          border: Border.all(
-                            color: Colors.deepPurpleAccent.withOpacity(0.25),
-                          ),
-                        ),
-                        child: Text(
-                          "View Campaign",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: isTablet ? 14 : 13,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      "Combat & Core",
-                      style: TextStyle(
-                        fontSize: sectionTitleSize,
-                        color: Colors.white.withOpacity(0.95),
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      ElevatedButton.icon(
-                        onPressed: _openDiceRoller,
-                        icon: const Icon(Icons.casino_outlined),
-                        label: const Text('Dice Roller'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor:
-                              Colors.deepPurpleAccent.withOpacity(0.25),
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 10,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      ),
-                      ElevatedButton.icon(
-                        onPressed: () => _showLevelUpDialog(context, char),
-                        icon: const Icon(Icons.arrow_upward),
-                        label: const Text('Level Up'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor:
-                              Colors.deepPurpleAccent.withOpacity(0.25),
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 10,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              GridView.builder(
-                itemCount: summaryCards.length,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: isLargeTablet ? 4 : (isTablet ? 3 : 2),
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  childAspectRatio:
-                      isLargeTablet ? 1.15 : (isTablet ? 1.05 : 0.92),
-                ),
-                itemBuilder: (_, index) => summaryCards[index],
-              ),
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF202028),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: Colors.deepPurpleAccent.withOpacity(0.22),
-                  ),
-                ),
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    if (passiveArmorBonus != 0)
-                      _buildFeatureMetaChip('Equipment AC +$passiveArmorBonus'),
-                    if (passiveSaveBonus != 0)
-                      _buildFeatureMetaChip(
-                          'Equipment Saves +$passiveSaveBonus'),
-                    if (passiveSpellAttackBonus != 0)
-                      _buildFeatureMetaChip(
-                        'Spell Attack +$passiveSpellAttackBonus',
-                      ),
-                    if (passiveSpellSaveDcBonus != 0)
-                      _buildFeatureMetaChip(
-                        'Spell Save DC +$passiveSpellSaveDcBonus',
-                      ),
-                    if (passiveArmorBonus == 0 &&
-                        passiveSaveBonus == 0 &&
-                        passiveSpellAttackBonus == 0 &&
-                        passiveSpellSaveDcBonus == 0)
-                      Text(
-                        'No passive equipment bonuses active.',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.65),
-                          fontSize: 13,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-              _buildCombatSummarySection(
-                context,
-                char,
-                equipmentProvider,
-                compendiumProvider,
-                isTablet: isTablet,
-                isLargeTablet: isLargeTablet,
-              ),
-              const SizedBox(height: 24),
-              Text(
-                "Ability Scores",
-                style: TextStyle(
-                  fontSize: sectionTitleSize,
-                  color: Colors.white.withOpacity(0.95),
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 12),
-              GridView.count(
-                crossAxisCount: statColumns,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-                childAspectRatio: statAspectRatio,
-                children: [
-                  _ability(
-                    char,
-                    "STR",
-                    str,
-                    isTablet: isTablet,
-                    isLargeTablet: isLargeTablet,
-                  ),
-                  _ability(
-                    char,
-                    "DEX",
-                    dex,
-                    isTablet: isTablet,
-                    isLargeTablet: isLargeTablet,
-                  ),
-                  _ability(
-                    char,
-                    "CON",
-                    con,
-                    isTablet: isTablet,
-                    isLargeTablet: isLargeTablet,
-                  ),
-                  _ability(
-                    char,
-                    "INT",
-                    intScore,
-                    isTablet: isTablet,
-                    isLargeTablet: isLargeTablet,
-                  ),
-                  _ability(
-                    char,
-                    "WIS",
-                    wis,
-                    isTablet: isTablet,
-                    isLargeTablet: isLargeTablet,
-                  ),
-                  _ability(
-                    char,
-                    "CHA",
-                    cha,
-                    isTablet: isTablet,
-                    isLargeTablet: isLargeTablet,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              Text(
-                "Recent Rolls",
-                style: TextStyle(
-                  fontSize: sectionTitleSize,
-                  color: Colors.white.withOpacity(0.95),
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 12),
-              _buildRecentDiceRolls(
-                isTablet: isTablet,
-                isLargeTablet: isLargeTablet,
-              ),
-              const SizedBox(height: 24),
-              if (isLargeTablet)
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: _buildSavingThrowsSection(
-                        context,
-                        char,
-                        isTablet: isTablet,
-                        isLargeTablet: isLargeTablet,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildSkillsSection(
-                        context,
-                        char,
-                        isTablet: isTablet,
-                        isLargeTablet: isLargeTablet,
-                      ),
-                    ),
-                  ],
-                )
-              else ...[
-                _buildSavingThrowsSection(
-                  context,
-                  char,
-                  isTablet: isTablet,
-                  isLargeTablet: isLargeTablet,
-                ),
-                const SizedBox(height: 12),
-                _buildSkillsSection(
-                  context,
-                  char,
-                  isTablet: isTablet,
-                  isLargeTablet: isLargeTablet,
-                ),
-              ],
-              const SizedBox(height: 24),
-              _buildDeathSavesSection(
-                context,
-                char,
-                isTablet: isTablet,
-                isLargeTablet: isLargeTablet,
-              ),
-              const SizedBox(height: 24),
-              Text(
-                "Narrative",
-                style: TextStyle(
-                  fontSize: sectionTitleSize,
-                  color: Colors.white.withOpacity(0.95),
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 12),
-              if (isLargeTablet)
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: _narrativeCard(
-                        title: 'Backstory',
-                        content: (char.backstory ?? '').trim().isEmpty
-                            ? 'No backstory yet.'
-                            : char.backstory!.trim(),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _narrativeCard(
-                        title: 'Notes',
-                        content: (char.notes ?? '').trim().isEmpty
-                            ? 'No notes yet.'
-                            : char.notes!.trim(),
-                      ),
-                    ),
-                  ],
-                )
-              else ...[
-                _narrativeCard(
-                  title: 'Backstory',
-                  content: (char.backstory ?? '').trim().isEmpty
-                      ? 'No backstory yet.'
-                      : char.backstory!.trim(),
-                ),
-                const SizedBox(height: 12),
-                _narrativeCard(
-                  title: 'Notes',
-                  content: (char.notes ?? '').trim().isEmpty
-                      ? 'No notes yet.'
-                      : char.notes!.trim(),
-                ),
-              ],
             ],
           ),
         ),
@@ -5560,157 +3859,18 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
   }) {
     final currentHp = char.currentHp ?? 0;
     final maxHp = (char.maxHp ?? 0) <= 0 ? 1 : char.maxHp!;
-    final hpPercent = (currentHp.clamp(0, maxHp)) / maxHp;
+    final rawTempHp = char.tempHp ?? 0;
+    final tempHp = rawTempHp < 0 ? 0 : rawTempHp;
 
-    Color hpColor;
-    if (hpPercent > 0.6) {
-      hpColor = Colors.green;
-    } else if (hpPercent > 0.3) {
-      hpColor = Colors.orange;
-    } else {
-      hpColor = Colors.redAccent;
-    }
-
-    final labelSize = isLargeTablet ? 14.0 : (isTablet ? 13.0 : 12.0);
-    final valueSize = isLargeTablet ? 24.0 : (isTablet ? 22.0 : 20.0);
-
-    Widget quickButton(String text, int delta) {
-      return Expanded(
-        child: OutlinedButton(
-          onPressed: () => _updateCharacterHp(context, char, delta),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: Colors.white,
-            side: BorderSide(color: Colors.white.withOpacity(0.15)),
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-          ),
-          child: Text(text),
-        ),
-      );
-    }
-
-    return Container(
-      padding: EdgeInsets.all(isLargeTablet ? 18 : 16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.35),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.favorite, color: hpColor, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                'Hit Points',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: labelSize,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const Spacer(),
-              Text(
-                '$currentHp / $maxHp',
-                style: TextStyle(
-                  color: hpColor,
-                  fontSize: valueSize,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: LinearProgressIndicator(
-              value: hpPercent.clamp(0.0, 1.0),
-              minHeight: 10,
-              backgroundColor: Colors.white.withOpacity(0.08),
-              valueColor: AlwaysStoppedAnimation<Color>(hpColor),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              quickButton('-1', -1),
-              const SizedBox(width: 8),
-              quickButton('-5', -5),
-              const SizedBox(width: 8),
-              quickButton('+1', 1),
-              const SizedBox(width: 8),
-              quickButton('+5', 5),
-            ],
-          ),
-          const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () => _longRest(context, char),
-              icon: const Icon(Icons.hotel_outlined),
-              label: const Text('Long Rest'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.deepPurpleAccent.withOpacity(0.25),
-                foregroundColor: Colors.white,
-                elevation: 0,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHeaderTextBlock(
-    Character char, {
-    required double titleSize,
-    required double subtitleSize,
-    required double smallSubtitleSize,
-    required bool isCentered,
-  }) {
-    return Column(
-      crossAxisAlignment:
-          isCentered ? CrossAxisAlignment.center : CrossAxisAlignment.start,
-      children: [
-        Text(
-          char.name.isEmpty ? "Unnamed Character" : char.name,
-          textAlign: isCentered ? TextAlign.center : TextAlign.start,
-          style: TextStyle(
-            fontSize: titleSize,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          "${char.race}${char.subrace != null ? ' (${char.subrace})' : ''} · ${char.charClass}${char.subclass != null ? ' / ${char.subclass}' : ''} · Level ${char.level}",
-          textAlign: isCentered ? TextAlign.center : TextAlign.start,
-          style: TextStyle(
-            fontSize: subtitleSize,
-            color: Colors.white.withOpacity(0.82),
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          "${char.background.name} · ${char.alignment ?? 'True Neutral'}",
-          textAlign: isCentered ? TextAlign.center : TextAlign.start,
-          style: TextStyle(
-            fontSize: smallSubtitleSize,
-            color: Colors.white.withOpacity(0.7),
-          ),
-        ),
-      ],
+    return CharacterHpPanel(
+      currentHp: currentHp,
+      maxHp: maxHp,
+      tempHp: tempHp,
+      isTablet: isTablet,
+      isLargeTablet: isLargeTablet,
+      onSetHp: () => _setCharacterHp(context, char),
+      onSetTempHp: () => _setCharacterTempHp(context, char),
+      onLongRest: () => _longRest(context, char),
     );
   }
 
@@ -5721,48 +3881,68 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     required bool isTablet,
     required bool isLargeTablet,
   }) {
-    final labelSize = isLargeTablet ? 14.0 : (isTablet ? 13.0 : 12.0);
-    final valueSize = isLargeTablet ? 24.0 : (isTablet ? 22.0 : 20.0);
-    final iconSize = isLargeTablet ? 22.0 : 20.0;
+    final labelSize = isLargeTablet ? 12.0 : 11.0;
+    final valueSize = isLargeTablet ? 22.0 : 19.0;
+    final iconSize = isLargeTablet ? 19.0 : 17.0;
 
-    return Container(
-      padding: EdgeInsets.all(isLargeTablet ? 18 : 16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.35),
-        ),
-      ),
-      child: Column(
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 82),
+      child: StitchCodexPanel(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+        child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
-        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, color: Colors.white70, size: iconSize),
-          const SizedBox(height: 10),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: valueSize,
-              fontWeight: FontWeight.bold,
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: StitchCodexPalette.bronze.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(2),
+              border: Border.all(
+                color: StitchCodexPalette.bronze.withValues(alpha: 0.28),
+              ),
+            ),
+            child: Icon(
+              icon,
+              color: StitchCodexPalette.bronze,
+              size: iconSize,
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white70,
-              fontSize: labelSize,
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: StitchCodexPalette.textPrimary,
+                    fontFamily: StitchTypography.data,
+                    fontSize: valueSize,
+                    fontWeight: FontWeight.w700,
+                    height: 1.05,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: StitchCodexPalette.textMuted,
+                    fontFamily: StitchTypography.body,
+                    fontSize: labelSize,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -5775,66 +3955,84 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     required bool isLargeTablet,
     required VoidCallback onTap,
   }) {
-    final labelSize = isLargeTablet ? 14.0 : (isTablet ? 13.0 : 12.0);
-    final valueSize = isLargeTablet ? 24.0 : (isTablet ? 22.0 : 20.0);
-    final iconSize = isLargeTablet ? 22.0 : 20.0;
+    final accent = label == 'Initiative'
+        ? StitchCodexPalette.cold
+        : StitchCodexPalette.crimsonBright;
+    final labelSize = isLargeTablet ? 12.0 : 11.0;
+    final valueSize = isLargeTablet ? 20.0 : 18.0;
+    final iconSize = isLargeTablet ? 20.0 : 18.0;
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(2),
         onTap: onTap,
         child: Ink(
-          padding: EdgeInsets.all(isLargeTablet ? 18 : 16),
+          height: 82,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
-            color: const Color(0xFF202028),
-            borderRadius: BorderRadius.circular(16),
+            color: StitchCodexPalette.surfaceMuted,
+            borderRadius: BorderRadius.circular(2),
             border: Border.all(
-              color: Colors.deepPurpleAccent.withOpacity(0.35),
+              color: accent.withValues(alpha: 0.30),
             ),
           ),
-          child: Stack(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Positioned(
-                top: 0,
-                right: 0,
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(2),
+                  border: Border.all(
+                    color: accent.withValues(alpha: 0.30),
+                  ),
+                ),
                 child: Icon(
-                  Icons.edit_outlined,
-                  color: Colors.white38,
-                  size: isLargeTablet ? 18 : 16,
+                  icon,
+                  color: accent,
+                  size: iconSize,
                 ),
               ),
-              Center(
+              const SizedBox(width: 10),
+              Expanded(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(icon, color: Colors.white70, size: iconSize),
-                    const SizedBox(height: 10),
                     Text(
                       value,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
                       style: TextStyle(
-                        color: Colors.white,
+                        color: StitchCodexPalette.textPrimary,
+                        fontFamily: StitchTypography.data,
                         fontSize: valueSize,
-                        fontWeight: FontWeight.bold,
+                        fontWeight: FontWeight.w700,
+                        height: 1.05,
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 3),
                     Text(
                       label,
-                      maxLines: 2,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
                       style: TextStyle(
-                        color: Colors.white70,
+                        color: StitchCodexPalette.textMuted,
+                        fontFamily: StitchTypography.body,
                         fontSize: labelSize,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
                 ),
+              ),
+              Icon(
+                Icons.edit_outlined,
+                color: StitchCodexPalette.textFaint,
+                size: isLargeTablet ? 16 : 14,
               ),
             ],
           ),
@@ -5852,37 +4050,60 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(16),
+        color: StitchCodexPalette.surfaceMuted,
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.28),
+          color: StitchCodexPalette.bronze.withValues(alpha: 0.22),
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 14,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Column(
         children: [
           InkWell(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(2),
             onTap: () {
               setState(() {
                 _recentRollsExpanded = !_recentRollsExpanded;
               });
             },
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               child: Row(
                 children: [
-                  const Icon(
-                    Icons.history,
-                    color: Colors.white70,
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color:
+                          StitchCodexPalette.bronze.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(2),
+                      border: Border.all(
+                        color:
+                            StitchCodexPalette.bronze.withValues(alpha: 0.26),
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.history,
+                      color: StitchCodexPalette.bronze,
+                      size: 18,
+                    ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Recent Rolls (${_diceLog.length})',
+                      'RECENT ROLLS (${_diceLog.length})',
                       style: TextStyle(
-                        color: Colors.white,
-                        fontSize: isTablet ? 16 : 15,
-                        fontWeight: FontWeight.w700,
+                        color: StitchCodexPalette.bronze,
+                        fontFamily: StitchTypography.data,
+                        fontSize: isTablet ? 12 : 11,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0,
                       ),
                     ),
                   ),
@@ -5901,14 +4122,17 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     _recentRollsExpanded
                         ? Icons.expand_less
                         : Icons.expand_more,
-                    color: Colors.white70,
+                    color: StitchCodexPalette.textMuted,
                   ),
                 ],
               ),
             ),
           ),
           if (_recentRollsExpanded) ...[
-            const Divider(height: 1, color: Colors.white12),
+            Divider(
+              height: 1,
+              color: StitchCodexPalette.bronze.withValues(alpha: 0.12),
+            ),
             if (_diceLog.isEmpty)
               const Padding(
                 padding: EdgeInsets.all(16),
@@ -5916,7 +4140,10 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                   alignment: Alignment.centerLeft,
                   child: Text(
                     'No rolls yet.',
-                    style: TextStyle(color: Colors.white70),
+                    style: TextStyle(
+                      color: StitchCodexPalette.textMuted,
+                      fontFamily: StitchTypography.body,
+                    ),
                   ),
                 ),
               )
@@ -5931,10 +4158,11 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         margin: const EdgeInsets.only(bottom: 10),
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF262632),
-                          borderRadius: BorderRadius.circular(14),
+                          color: StitchCodexPalette.surface,
+                          borderRadius: BorderRadius.circular(2),
                           border: Border.all(
-                            color: Colors.deepPurpleAccent.withOpacity(0.22),
+                            color: StitchCodexPalette.bronze
+                                .withValues(alpha: 0.18),
                           ),
                         ),
                         child: Row(
@@ -5943,7 +4171,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                               child: Text(
                                 roll.summaryText,
                                 style: TextStyle(
-                                  color: Colors.white,
+                                  color: StitchCodexPalette.textPrimary,
+                                  fontFamily: StitchTypography.body,
                                   fontSize: isTablet ? 14 : 13,
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -5956,14 +4185,19 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                 vertical: 8,
                               ),
                               decoration: BoxDecoration(
-                                color:
-                                    Colors.deepPurpleAccent.withOpacity(0.22),
-                                borderRadius: BorderRadius.circular(999),
+                                color: StitchCodexPalette.bronze
+                                    .withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(2),
+                                border: Border.all(
+                                  color: StitchCodexPalette.bronze
+                                      .withValues(alpha: 0.30),
+                                ),
                               ),
                               child: Text(
                                 '${roll.total}',
                                 style: const TextStyle(
-                                  color: Colors.white,
+                                  color: StitchCodexPalette.bronze,
+                                  fontFamily: StitchTypography.data,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
@@ -5980,7 +4214,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                           child: Text(
                             'Showing the last 5 rolls.',
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.6),
+                              color: StitchCodexPalette.textMuted,
+                              fontFamily: StitchTypography.body,
                               fontSize: 12,
                             ),
                           ),
@@ -5995,44 +4230,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     );
   }
 
-  Widget _narrativeCard({
-    required String title,
-    required String content,
-  }) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.28),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
-              fontSize: 16,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            content,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.86),
-              height: 1.45,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _ability(
     Character char,
     String label,
@@ -6041,58 +4238,91 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     bool isLargeTablet = false,
   }) {
     final mod = _abilityMod(score);
-    final labelSize = isLargeTablet ? 18.0 : (isTablet ? 17.0 : 16.0);
-    final scoreSize = isLargeTablet ? 28.0 : (isTablet ? 24.0 : 22.0);
-    final verticalPadding = isLargeTablet ? 16.0 : (isTablet ? 14.0 : 12.0);
+    final labelSize = isLargeTablet ? 11.0 : 10.0;
+    final modSize = isLargeTablet ? 24.0 : (isTablet ? 23.0 : 21.0);
+    final scoreSize = isLargeTablet ? 15.0 : 13.0;
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(2),
         onTap: () => _rollAbilityCheck(char, label),
         child: Ink(
           decoration: BoxDecoration(
-            color: const Color(0xFF202028),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: Colors.deepPurpleAccent.withOpacity(0.5),
+            gradient: const LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                StitchCodexPalette.surfaceRaised,
+                StitchCodexPalette.surface,
+              ],
             ),
+            borderRadius: BorderRadius.circular(2),
+            border: Border.all(
+              color: StitchCodexPalette.bronze.withValues(alpha: 0.26),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.18),
+                blurRadius: 10,
+                offset: const Offset(0, 6),
+              ),
+            ],
           ),
-          padding: EdgeInsets.symmetric(vertical: verticalPadding),
+          padding: const EdgeInsets.fromLTRB(8, 7, 8, 7),
           child: Center(
-            // 👈 CLAVE: esto centra TODO el contenido
             child: Column(
-              mainAxisSize: MainAxisSize.min, // 👈 evita que se estire raro
+              mainAxisSize: MainAxisSize.min,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
                   label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: labelSize,
-                    color: Colors.white70,
+                    color: StitchCodexPalette.textMuted,
+                    fontFamily: StitchTypography.data,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0,
                   ),
                 ),
+                const SizedBox(height: 2),
                 Text(
-                  "$score",
+                  _formatSigned(mod),
                   style: TextStyle(
-                    fontSize: scoreSize,
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
+                    fontSize: modSize,
+                    color: StitchCodexPalette.textPrimary,
+                    fontFamily: StitchTypography.display,
+                    fontWeight: FontWeight.w900,
+                    height: 1,
                   ),
                 ),
+                const SizedBox(height: 5),
                 Container(
-                  margin: const EdgeInsets.only(top: 6),
+                  constraints: const BoxConstraints(minWidth: 38),
                   padding: const EdgeInsets.symmetric(
-                    vertical: 4,
+                    vertical: 3,
                     horizontal: 10,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.deepPurpleAccent.withOpacity(0.3),
-                    borderRadius: BorderRadius.circular(999),
+                    color: StitchCodexPalette.ground.withValues(alpha: 0.72),
+                    borderRadius: BorderRadius.circular(2),
+                    border: Border.all(
+                      color:
+                          StitchCodexPalette.bronze.withValues(alpha: 0.24),
+                    ),
                   ),
                   child: Text(
-                    _formatSigned(mod),
-                    style: const TextStyle(color: Colors.white),
+                    "$score",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: StitchCodexPalette.bronze,
+                      fontFamily: StitchTypography.data,
+                      fontSize: scoreSize,
+                      fontWeight: FontWeight.w800,
+                      height: 1,
+                    ),
                   ),
                 ),
               ],
@@ -6115,21 +4345,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         return 'Shield';
       case EquipSlot.accessory:
         return 'Accessory';
-    }
-  }
-
-  String? _equippedItemIdForSlot(Character char, EquipSlot slot) {
-    switch (slot) {
-      case EquipSlot.weaponMainHand:
-        return char.equippedMainHandItemId;
-      case EquipSlot.weaponOffHand:
-        return char.equippedOffHandItemId;
-      case EquipSlot.armor:
-        return char.equippedArmorItemId;
-      case EquipSlot.shield:
-        return char.equippedShieldItemId;
-      case EquipSlot.accessory:
-        return char.equippedAccessory1ItemId;
     }
   }
 
@@ -6161,13 +4376,14 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     CharacterInventoryItem item,
   ) async {
     if (!item.isEquippable || item.allowedSlots.isEmpty) return;
+    final provider = context.read<CharacterProvider>();
 
     if (item.allowedSlots.length == 1) {
-      await context.read<CharacterProvider>().equipItemToCharacter(
-            char.id,
-            item.id,
-            item.allowedSlots.first,
-          );
+      await provider.equipItemToCharacter(
+        char.id,
+        item.id,
+        item.allowedSlots.first,
+      );
       return;
     }
 
@@ -6205,13 +4421,11 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 ),
                 FilledButton(
                   onPressed: () async {
-                    await context
-                        .read<CharacterProvider>()
-                        .equipItemToCharacter(
-                          char.id,
-                          item.id,
-                          selectedSlot,
-                        );
+                    await provider.equipItemToCharacter(
+                      char.id,
+                      item.id,
+                      selectedSlot,
+                    );
 
                     if (!dialogContext.mounted) return;
                     Navigator.pop(dialogContext);
@@ -6231,44 +4445,44 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     Character char,
     CharacterInventoryItem item,
   ) async {
+    final provider = context.read<CharacterProvider>();
+
     if (char.equippedMainHandItemId == item.id) {
-      await context.read<CharacterProvider>().unequipItemFromCharacter(
-            char.id,
-            EquipSlot.weaponMainHand,
-          );
+      await provider.unequipItemFromCharacter(
+        char.id,
+        EquipSlot.weaponMainHand,
+      );
     }
 
     if (char.equippedOffHandItemId == item.id) {
-      await context.read<CharacterProvider>().unequipItemFromCharacter(
-            char.id,
-            EquipSlot.weaponOffHand,
-          );
+      await provider.unequipItemFromCharacter(
+        char.id,
+        EquipSlot.weaponOffHand,
+      );
     }
 
     if (char.equippedArmorItemId == item.id) {
-      await context.read<CharacterProvider>().unequipItemFromCharacter(
-            char.id,
-            EquipSlot.armor,
-          );
+      await provider.unequipItemFromCharacter(
+        char.id,
+        EquipSlot.armor,
+      );
     }
 
     if (char.equippedShieldItemId == item.id) {
-      await context.read<CharacterProvider>().unequipItemFromCharacter(
-            char.id,
-            EquipSlot.shield,
-          );
+      await provider.unequipItemFromCharacter(
+        char.id,
+        EquipSlot.shield,
+      );
     }
 
     if (char.equippedAccessory1ItemId == item.id) {
-      await context.read<CharacterProvider>().updateCharacterById(char.id,
-          (ch) {
+      await provider.updateCharacterById(char.id, (ch) {
         ch.equippedAccessory1ItemId = null;
       });
     }
 
     if (char.equippedAccessory2ItemId == item.id) {
-      await context.read<CharacterProvider>().updateCharacterById(char.id,
-          (ch) {
+      await provider.updateCharacterById(char.id, (ch) {
         ch.equippedAccessory2ItemId = null;
       });
     }
@@ -6295,11 +4509,11 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         color: const Color(0xFF202028),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.32),
+          color: Colors.deepPurpleAccent.withValues(alpha: 0.32),
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.deepPurpleAccent.withOpacity(0.08),
+            color: Colors.deepPurpleAccent.withValues(alpha: 0.08),
             blurRadius: 14,
             spreadRadius: 1,
           ),
@@ -6314,7 +4528,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 width: 42,
                 height: 42,
                 decoration: BoxDecoration(
-                  color: Colors.deepPurpleAccent.withOpacity(0.18),
+                  color: Colors.deepPurpleAccent.withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Icon(
@@ -6341,7 +4555,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                           ? selectedBaseItem.name
                           : 'No pact weapon selected yet',
                       style: TextStyle(
-                        color: Colors.white.withOpacity(0.75),
+                        color: Colors.white.withValues(alpha: 0.75),
                         fontSize: 13,
                       ),
                     ),
@@ -6407,7 +4621,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 color: const Color(0xFF1B1B24),
                 borderRadius: BorderRadius.circular(24),
                 border: Border.all(
-                  color: Colors.deepPurpleAccent.withOpacity(0.22),
+                  color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
                 ),
               ),
               child: Column(
@@ -6478,14 +4692,15 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                               padding: const EdgeInsets.all(14),
                               decoration: BoxDecoration(
                                 color: isSelected
-                                    ? Colors.deepPurpleAccent.withOpacity(0.18)
+                                    ? Colors.deepPurpleAccent
+                                        .withValues(alpha: 0.18)
                                     : const Color(0xFF202028),
                                 borderRadius: BorderRadius.circular(14),
                                 border: Border.all(
                                   color: isSelected
                                       ? Colors.deepPurpleAccent
-                                          .withOpacity(0.95)
-                                      : Colors.white.withOpacity(0.08),
+                                          .withValues(alpha: 0.95)
+                                      : Colors.white.withValues(alpha: 0.08),
                                 ),
                               ),
                               child: Row(
@@ -6495,7 +4710,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                     height: 42,
                                     decoration: BoxDecoration(
                                       color: Colors.deepPurpleAccent
-                                          .withOpacity(0.18),
+                                          .withValues(alpha: 0.18),
                                       borderRadius: BorderRadius.circular(12),
                                     ),
                                     child: const Icon(
@@ -6519,11 +4734,11 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                         ),
                                         const SizedBox(height: 4),
                                         Text(
-                                          '${item.displayCategory} • ${item.damageDiceOneHanded ?? '—'} ${item.damageType ?? ''}'
+                                          '${item.displayCategory} - ${item.damageDiceOneHanded ?? '-'} ${item.damageType ?? ''}'
                                               .trim(),
                                           style: TextStyle(
-                                            color:
-                                                Colors.white.withOpacity(0.7),
+                                            color: Colors.white
+                                                .withValues(alpha: 0.7),
                                             fontSize: 12,
                                           ),
                                         ),
@@ -6564,557 +4779,65 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     required bool isTablet,
     required bool isLargeTablet,
   }) {
-    final rawMainHand =
-        _findInventoryItemById(char, char.equippedMainHandItemId);
-    final rawOffHand = _findInventoryItemById(char, char.equippedOffHandItemId);
-    final rawArmor = _findInventoryItemById(char, char.equippedArmorItemId);
-    final rawShield = _findInventoryItemById(char, char.equippedShieldItemId);
-    final rawAccessory1 =
-        _findInventoryItemById(char, char.equippedAccessory1ItemId);
-    final rawAccessory2 =
-        _findInventoryItemById(char, char.equippedAccessory2ItemId);
-
-    final equippedMainHand = rawMainHand == null
-        ? null
-        : _resolveInventoryItem(
-            rawMainHand,
-            equipmentProvider,
-            compendiumProvider,
-          );
-
-    final equippedOffHand = rawOffHand == null
-        ? null
-        : _resolveInventoryItem(
-            rawOffHand,
-            equipmentProvider,
-            compendiumProvider,
-          );
-
-    final equippedArmor = rawArmor == null
-        ? null
-        : _resolveInventoryItem(
-            rawArmor,
-            equipmentProvider,
-            compendiumProvider,
-          );
-
-    final equippedShield = rawShield == null
-        ? null
-        : _resolveInventoryItem(
-            rawShield,
-            equipmentProvider,
-            compendiumProvider,
-          );
-
-    final equippedAccessory1 = rawAccessory1 == null
-        ? null
-        : _resolveInventoryItem(
-            rawAccessory1,
-            equipmentProvider,
-            compendiumProvider,
-          );
-
-    final equippedAccessory2 = rawAccessory2 == null
-        ? null
-        : _resolveInventoryItem(
-            rawAccessory2,
-            equipmentProvider,
-            compendiumProvider,
-          );
-
-    Widget buildSlotCard({
-      required String label,
-      required _ResolvedInventoryItem? item,
-      VoidCallback? onUnequip,
-    }) {
-      final metaLabel = item == null
-          ? ''
-          : _buildEquipmentMetaLabel(
-              item.effectiveItem,
-              item.equipmentItem,
-            );
-
-      final description =
-          item == null ? null : _buildEquipmentDescription(item);
-
-      return Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: const Color(0xFF202028),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: Colors.deepPurpleAccent.withOpacity(0.28),
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.72),
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              item?.effectiveItem.name ?? 'Empty',
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: isTablet ? 15 : 14,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            if (item != null) ...[
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.deepPurpleAccent.withOpacity(0.18),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      item.sourceLabel,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              if (metaLabel.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Text(
-                  metaLabel,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.68),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-              if (description != null) ...[
-                const SizedBox(height: 8),
-                Expanded(
-                  child: Text(
-                    description,
-                    maxLines: 4,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.78),
-                      fontSize: 12,
-                      height: 1.35,
-                    ),
-                  ),
-                ),
-              ],
-            ],
-            const Spacer(),
-            if (item != null && onUnequip != null) ...[
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: onUnequip,
-                  icon: const Icon(Icons.close),
-                  label: const Text('Unequip'),
-                ),
-              ),
-            ],
-          ],
-        ),
+    ResolvedInventoryItem? resolveEquipped(String? itemId) {
+      final rawItem = _findInventoryItemById(char, itemId);
+      if (rawItem == null) return null;
+      return _resolveInventoryItem(
+        rawItem,
+        equipmentProvider,
+        compendiumProvider,
       );
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Equipment',
-          style: TextStyle(
-            color: Colors.white.withOpacity(0.95),
-            fontSize: isLargeTablet ? 22 : (isTablet ? 20 : 18),
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 12),
-        if (char.hasPactOfTheBlade) ...[
-          _buildPactWeaponSection(
-            context,
-            char,
-            equipmentProvider,
-          ),
-          const SizedBox(height: 16),
-        ],
-        GridView.builder(
-          itemCount: 6,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: isLargeTablet ? 3 : (isTablet ? 2 : 1),
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            mainAxisExtent: isLargeTablet ? 238 : (isTablet ? 226 : 214),
-          ),
-          itemBuilder: (_, index) {
-            switch (index) {
-              case 0:
-                return buildSlotCard(
-                  label: 'Main Hand',
-                  item: equippedMainHand,
-                  onUnequip: equippedMainHand == null
-                      ? null
-                      : () => _unequipInventoryItem(
-                            context,
-                            char,
-                            equippedMainHand.originalItem,
-                          ),
-                );
-              case 1:
-                return buildSlotCard(
-                  label: 'Off Hand',
-                  item: equippedOffHand,
-                  onUnequip: equippedOffHand == null
-                      ? null
-                      : () => _unequipInventoryItem(
-                            context,
-                            char,
-                            equippedOffHand.originalItem,
-                          ),
-                );
-              case 2:
-                return buildSlotCard(
-                  label: 'Armor',
-                  item: equippedArmor,
-                  onUnequip: equippedArmor == null
-                      ? null
-                      : () => _unequipInventoryItem(
-                            context,
-                            char,
-                            equippedArmor.originalItem,
-                          ),
-                );
-              case 3:
-                return buildSlotCard(
-                  label: 'Shield',
-                  item: equippedShield,
-                  onUnequip: equippedShield == null
-                      ? null
-                      : () => _unequipInventoryItem(
-                            context,
-                            char,
-                            equippedShield.originalItem,
-                          ),
-                );
-              case 4:
-                return buildSlotCard(
-                  label: 'Accessory 1',
-                  item: equippedAccessory1,
-                  onUnequip: equippedAccessory1 == null
-                      ? null
-                      : () => _unequipInventoryItem(
-                            context,
-                            char,
-                            equippedAccessory1.originalItem,
-                          ),
-                );
-              default:
-                return buildSlotCard(
-                  label: 'Accessory 2',
-                  item: equippedAccessory2,
-                  onUnequip: equippedAccessory2 == null
-                      ? null
-                      : () => _unequipInventoryItem(
-                            context,
-                            char,
-                            equippedAccessory2.originalItem,
-                          ),
-                );
-            }
-          },
-        ),
+    CharacterEquipmentSlotViewData buildSlotData({
+      required String label,
+      required ResolvedInventoryItem? item,
+    }) {
+      return CharacterEquipmentSlotViewData(
+        label: label,
+        item: item,
+        metaLabel: item == null
+            ? ''
+            : _buildEquipmentMetaLabel(
+                item.effectiveItem,
+                item.equipmentItem,
+              ),
+        onUnequip: item == null
+            ? null
+            : () => _unequipInventoryItem(
+                  context,
+                  char,
+                  item.originalItem,
+                ),
+      );
+    }
+
+    final equippedMainHand = resolveEquipped(char.equippedMainHandItemId);
+    final equippedOffHand = resolveEquipped(char.equippedOffHandItemId);
+    final equippedArmor = resolveEquipped(char.equippedArmorItemId);
+    final equippedShield = resolveEquipped(char.equippedShieldItemId);
+    final equippedAccessory1 = resolveEquipped(char.equippedAccessory1ItemId);
+    final equippedAccessory2 = resolveEquipped(char.equippedAccessory2ItemId);
+
+    return CharacterEquipmentSection(
+      isTablet: isTablet,
+      isLargeTablet: isLargeTablet,
+      pactWeaponSection: char.hasPactOfTheBlade
+          ? _buildPactWeaponSection(
+              context,
+              char,
+              equipmentProvider,
+            )
+          : null,
+      buildDescription: _buildEquipmentDescription,
+      slots: [
+        buildSlotData(label: 'Main Hand', item: equippedMainHand),
+        buildSlotData(label: 'Off Hand', item: equippedOffHand),
+        buildSlotData(label: 'Armor', item: equippedArmor),
+        buildSlotData(label: 'Shield', item: equippedShield),
+        buildSlotData(label: 'Accessory 1', item: equippedAccessory1),
+        buildSlotData(label: 'Accessory 2', item: equippedAccessory2),
       ],
-    );
-  }
-
-  Widget _buildCombatSummarySection(
-    BuildContext context,
-    Character char,
-    EquipmentProvider equipmentProvider,
-    CompendiumProvider compendiumProvider, {
-    required bool isTablet,
-    required bool isLargeTablet,
-  }) {
-    final resolvedMainHand = _resolveEquippedMainHandItem(
-      char,
-      equipmentProvider,
-      compendiumProvider,
-    );
-
-    final isWeapon = _isMainHandWeapon(resolvedMainHand);
-    final isFocus = _isMainHandFocus(resolvedMainHand);
-
-    final rawArmor = _findInventoryItemById(char, char.equippedArmorItemId);
-    final rawShield = _findInventoryItemById(char, char.equippedShieldItemId);
-
-    final resolvedArmor = rawArmor == null
-        ? null
-        : _resolveInventoryItem(
-            rawArmor,
-            equipmentProvider,
-            compendiumProvider,
-          );
-
-    final resolvedShield = rawShield == null
-        ? null
-        : _resolveInventoryItem(
-            rawShield,
-            equipmentProvider,
-            compendiumProvider,
-          );
-
-    final int? attackBonus = isWeapon
-        ? _calculateMainHandAttackBonus(
-            char,
-            equipmentProvider,
-            compendiumProvider,
-          )
-        : null;
-
-    final String damageText = isWeapon
-        ? _buildMainHandDamageText(
-            char,
-            equipmentProvider,
-            compendiumProvider,
-          )
-        : '—';
-
-    final String attackAbilityLabel = isWeapon && resolvedMainHand != null
-        ? _getWeaponAttackAbilityLabel(
-            char,
-            resolvedMainHand.effectiveItem,
-            equipmentProvider,
-            compendiumProvider,
-          )
-        : '—';
-
-    final int? spellAttackBonus = isFocus
-        ? _spellAttackBonus(
-            char,
-            equipmentProvider,
-            compendiumProvider,
-          )
-        : null;
-
-    final String spellAbility =
-        isFocus ? (_normalizedSpellcastingAbility(char) ?? '—') : '—';
-
-    String armorText = 'Unarmored';
-    if (resolvedArmor != null) {
-      final armor = resolvedArmor.effectiveItem;
-      if (armor.baseArmorClass != null) {
-        armorText =
-            '${resolvedArmor.effectiveItem.name} • AC ${armor.baseArmorClass}';
-      } else {
-        armorText = resolvedArmor.effectiveItem.name;
-      }
-    }
-
-    String shieldText = 'None';
-    if (resolvedShield != null) {
-      final shieldBonus = resolvedShield.effectiveItem.armorClassBonus ?? 0;
-      shieldText = shieldBonus > 0
-          ? '${resolvedShield.effectiveItem.name} • +$shieldBonus AC'
-          : resolvedShield.effectiveItem.name;
-    }
-
-    String mainHandLabel = 'None equipped';
-    if (resolvedMainHand != null) {
-      mainHandLabel = resolvedMainHand.effectiveItem.name;
-    }
-
-    String mainHandTypeText = '—';
-    if (resolvedMainHand != null) {
-      if (isFocus) {
-        final displayCategory =
-            resolvedMainHand.equipmentItem?.displayCategory.trim();
-        mainHandTypeText =
-            (displayCategory != null && displayCategory.isNotEmpty)
-                ? displayCategory
-                : 'Arcane Focus';
-      } else if (isWeapon) {
-        final displayCategory =
-            resolvedMainHand.equipmentItem?.displayCategory.trim();
-        mainHandTypeText =
-            (displayCategory != null && displayCategory.isNotEmpty)
-                ? displayCategory
-                : 'Weapon';
-      }
-    }
-
-    Widget statTile({
-      required String label,
-      required String value,
-      IconData? icon,
-    }) {
-      return Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: const Color(0xFF262632),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: Colors.deepPurpleAccent.withOpacity(0.22),
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (icon != null) ...[
-              Icon(icon, color: Colors.white70, size: 18),
-              const SizedBox(height: 10),
-            ],
-            Text(
-              label,
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.65),
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              value,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: isTablet ? 15 : 14,
-                fontWeight: FontWeight.w700,
-                height: 1.25,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.28),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Combat Summary',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: isLargeTablet ? 18 : 16,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 14),
-          GridView.count(
-            crossAxisCount: isLargeTablet ? 3 : (isTablet ? 2 : 1),
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: isLargeTablet ? 2.2 : 2.5,
-            children: [
-              statTile(
-                label: 'Main Hand',
-                value: mainHandLabel,
-                icon: isFocus ? Icons.auto_awesome : Icons.gavel_outlined,
-              ),
-              statTile(
-                label: 'Type',
-                value: mainHandTypeText,
-                icon: isFocus
-                    ? Icons.menu_book_outlined
-                    : Icons.category_outlined,
-              ),
-              statTile(
-                label: isFocus ? 'Spell Attack' : 'Attack Bonus',
-                value: isFocus
-                    ? (spellAttackBonus == null
-                        ? '—'
-                        : _formatSigned(spellAttackBonus))
-                    : (attackBonus == null ? '—' : _formatSigned(attackBonus)),
-                icon: isFocus
-                    ? Icons.bolt_outlined
-                    : Icons.track_changes_outlined,
-              ),
-              statTile(
-                label: isFocus ? 'Spellcasting Stat' : 'Attack Stat',
-                value: isFocus ? spellAbility : attackAbilityLabel,
-                icon: Icons.fitness_center_outlined,
-              ),
-              statTile(
-                label: isFocus ? 'Weapon Damage' : 'Damage',
-                value: isFocus ? '—' : damageText,
-                icon: Icons.auto_fix_high_outlined,
-              ),
-              statTile(
-                label: 'Armor',
-                value: armorText,
-                icon: Icons.shield_outlined,
-              ),
-              statTile(
-                label: 'Shield',
-                value: shieldText,
-                icon: Icons.security_outlined,
-              ),
-            ],
-          ),
-          if (isWeapon && resolvedMainHand != null) ...[
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                FilledButton.icon(
-                  onPressed: () => _rollMainHandAttack(
-                    char,
-                    equipmentProvider,
-                    compendiumProvider,
-                  ),
-                  icon: const Icon(Icons.casino_outlined),
-                  label: const Text('Roll Attack'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: () => _rollMainHandDamage(
-                    char,
-                    equipmentProvider,
-                    compendiumProvider,
-                  ),
-                  icon: const Icon(Icons.auto_fix_high_outlined),
-                  label: const Text('Roll Damage'),
-                ),
-              ],
-            ),
-          ],
-        ],
-      ),
     );
   }
 
@@ -7124,7 +4847,15 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     required bool isTablet,
     required bool isLargeTablet,
   }) {
+    final authProvider = context.read<AuthProvider>();
+    final currentUserId = authProvider.userId;
+
+    final isOwnedByCurrentUser = currentUserId != null &&
+        char.userId != null &&
+        char.userId == currentUserId;
+
     final selectedIds = char.selectedFeatIds;
+
     final selectedFeats = _allFeats
         .where((feat) => selectedIds.contains(feat.id))
         .toList()
@@ -7134,134 +4865,27 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       return const SizedBox.shrink();
     }
 
-    final featSelections = char.featSelections ?? const <String, dynamic>{};
+    final featSelections = char.featSelections;
+    final featViewData = selectedFeats.map((feat) {
+      final selection = featSelections[feat.id];
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF202028),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.28),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Feats',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: isLargeTablet ? 20 : (isTablet ? 19 : 18),
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '${selectedFeats.length} selected',
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.65),
-              fontSize: 13,
-            ),
-          ),
-          const SizedBox(height: 14),
-          ...selectedFeats.map((feat) {
-            final selection = featSelections[feat.id];
+      return CharacterFeatViewData(
+        feat: feat,
+        selectionLabels: selection is Map
+            ? _getFeatSelectionLabels(
+                context,
+                Map<String, dynamic>.from(selection),
+              )
+            : const <String>[],
+      );
+    }).toList();
 
-            return Container(
-              margin: const EdgeInsets.only(bottom: 10),
-              decoration: BoxDecoration(
-                color: const Color(0xFF262632),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: Colors.deepPurpleAccent.withOpacity(0.22),
-                ),
-              ),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(14),
-                  onTap: () => _showFeatDetailSheet(context, feat),
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          width: 42,
-                          height: 42,
-                          decoration: BoxDecoration(
-                            color: Colors.deepPurpleAccent.withOpacity(0.18),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Icon(
-                            Icons.workspace_premium_outlined,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                feat.name,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: [
-                                  _buildFeatureMetaChip('Feat'),
-                                  _buildFeatureMetaChip(feat.source),
-                                  if (feat.hasChoices)
-                                    _buildFeatureMetaChip('Has choices'),
-                                  if (selection is Map)
-                                    ..._getFeatSelectionLabels(
-                                      context,
-                                      Map<String, dynamic>.from(selection),
-                                    ).map((label) =>
-                                        _buildFeatureMetaChip(label)),
-                                  if (feat.repeatable)
-                                    _buildFeatureMetaChip('Repeatable'),
-                                ],
-                              ),
-                              if (feat.description.trim().isNotEmpty) ...[
-                                const SizedBox(height: 8),
-                                Text(
-                                  feat.description.trim(),
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: Colors.white.withOpacity(0.72),
-                                    fontSize: 13,
-                                    height: 1.35,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        const Icon(
-                          Icons.chevron_right,
-                          color: Colors.white54,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            );
-          }),
-        ],
-      ),
+    return CharacterFeatsSection(
+      isTablet: isTablet,
+      isLargeTablet: isLargeTablet,
+      isOwnedByCurrentUser: isOwnedByCurrentUser,
+      feats: featViewData,
+      onFeatTap: (feat) => _showFeatDetailSheet(context, feat),
     );
   }
 
@@ -7271,6 +4895,13 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     required bool isTablet,
     required bool isLargeTablet,
   }) {
+    final authProvider = context.read<AuthProvider>();
+    final currentUserId = authProvider.userId;
+
+    final isOwnedByCurrentUser = currentUserId != null &&
+        char.userId != null &&
+        char.userId == currentUserId;
+
     final infusions = CharacterOptionEffects.getSelectedInfusions(char);
     final activeInfusedCount = getActiveInfusedItemsCount(char);
     final activeInfusedLimit = getArtificerActiveInfusedItemsLimit(char);
@@ -7286,7 +4917,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         color: const Color(0xFF202028),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.28),
+          color: Colors.deepPurpleAccent.withValues(alpha: 0.28),
         ),
       ),
       child: Column(
@@ -7302,12 +4933,22 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            '${infusions.length} selected • $activeInfusedCount / $activeInfusedLimit active',
+            '${infusions.length} selected - $activeInfusedCount / $activeInfusedLimit active',
             style: TextStyle(
-              color: Colors.white.withOpacity(0.65),
+              color: Colors.white.withValues(alpha: 0.65),
               fontSize: 13,
             ),
           ),
+          if (!isOwnedByCurrentUser) ...[
+            const SizedBox(height: 6),
+            Text(
+              'You can view infusions, but only the owner can modify how they are applied.',
+              style: TextStyle(
+                color: Colors.orangeAccent.withValues(alpha: 0.8),
+                fontSize: 11,
+              ),
+            ),
+          ],
           const SizedBox(height: 14),
           ...infusions.map((infusion) {
             return Container(
@@ -7316,7 +4957,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 color: const Color(0xFF262632),
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(
-                  color: Colors.deepPurpleAccent.withOpacity(0.22),
+                  color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
                 ),
               ),
               child: Material(
@@ -7334,7 +4975,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                           width: 42,
                           height: 42,
                           decoration: BoxDecoration(
-                            color: Colors.deepPurpleAccent.withOpacity(0.18),
+                            color:
+                                Colors.deepPurpleAccent.withValues(alpha: 0.18),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: const Icon(
@@ -7373,7 +5015,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                   maxLines: 3,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                    color: Colors.white.withOpacity(0.72),
+                                    color: Colors.white.withValues(alpha: 0.72),
                                     fontSize: 13,
                                     height: 1.35,
                                   ),
@@ -7405,11 +5047,14 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     CompendiumProvider compendiumProvider,
     EquipmentProvider equipmentProvider,
     bool isDm,
+    bool canManageInventory,
   ) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isTablet = screenWidth >= 600;
-    final isLargeTablet = screenWidth >= 900;
-    final maxWidth = isLargeTablet ? 1100.0 : 900.0;
+    final authProvider = context.read<AuthProvider>();
+    final currentUserId = authProvider.userId;
+
+    final isOwnedByCurrentUser = currentUserId != null &&
+        char.userId != null &&
+        char.userId == currentUserId;
 
     final campaignItemEntries = char.campaignId == null
         ? <CompendiumEntry>[]
@@ -7420,405 +5065,68 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
           ..sort((a, b) =>
               a.title.toLowerCase().compareTo(b.title.toLowerCase())));
 
-    return Column(
-      children: [
-        Padding(
-          padding: EdgeInsets.fromLTRB(
-            isTablet ? 24 : 16,
-            isTablet ? 20 : 16,
-            isTablet ? 24 : 16,
-            8,
-          ),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: maxWidth),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      "Inventory",
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.95),
-                        fontSize: isLargeTablet ? 22 : (isTablet ? 20 : 18),
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  if (isDm)
-                    TextButton.icon(
-                      onPressed: campaignItemEntries.isEmpty
-                          ? null
-                          : () => _showGrantItemDialog(
-                                context,
-                                char,
-                                context.read<EquipmentProvider>().items,
-                                campaignItemEntries,
-                              ),
-                      icon: const Icon(Icons.add),
-                      label: const Text("Add item"),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        Expanded(
-          child: Center(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: maxWidth),
-              child: ListView(
-                padding: EdgeInsets.all(isTablet ? 24 : 16),
-                children: [
-                  _buildEquipmentSection(
-                    context,
-                    char,
-                    equipmentProvider,
-                    compendiumProvider,
-                    isTablet: isTablet,
-                    isLargeTablet: isLargeTablet,
-                  ),
-                  const SizedBox(height: 20),
-                  if (char.inventory.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 24),
-                      child: Center(
-                        child: Text(
-                          isDm
-                              ? "No items yet. Grant one from the compendium."
-                              : "No items yet.",
-                          style: const TextStyle(color: Colors.white70),
-                        ),
-                      ),
-                    )
-                  else
-                    ...char.inventory.map((inventoryItem) {
-                      final resolvedItem = _resolveInventoryItem(
-                        inventoryItem,
-                        equipmentProvider,
-                        compendiumProvider,
-                      );
-
-                      final effectiveItem = resolvedItem.effectiveItem;
-                      final linkedEntry = resolvedItem.campaignEntry;
-                      final isEquipped = _isItemEquipped(char, inventoryItem);
-                      final itemMetaLabel = _buildEquipmentMetaLabel(
-                        effectiveItem,
-                        resolvedItem.equipmentItem,
-                      );
-
-                      final displayImagePath = resolvedItem.resolvedImagePath;
-                      final hasItemImage = displayImagePath != null;
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF202028),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: isEquipped
-                                ? Colors.greenAccent.withOpacity(0.45)
-                                : Colors.deepPurpleAccent.withOpacity(0.35),
-                          ),
-                        ),
-                        padding: EdgeInsets.all(isTablet ? 18 : 14),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                hasItemImage
-                                    ? ClipRRect(
-                                        borderRadius: BorderRadius.circular(12),
-                                        child: _buildResolvedImage(
-                                          displayImagePath!,
-                                          width: isTablet ? 64 : 52,
-                                          height: isTablet ? 64 : 52,
-                                          fit: BoxFit.cover,
-                                        ),
-                                      )
-                                    : CircleAvatar(
-                                        radius: isTablet ? 26 : 20,
-                                        backgroundColor:
-                                            Colors.deepPurpleAccent,
-                                        child: const Icon(
-                                          Icons.inventory_2_outlined,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        effectiveItem.name,
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: isTablet ? 18 : 16,
-                                        ),
-                                      ),
-                                      if (itemMetaLabel.isNotEmpty) ...[
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          itemMetaLabel,
-                                          style: TextStyle(
-                                            color:
-                                                Colors.white.withOpacity(0.68),
-                                            fontSize: isTablet ? 13 : 12,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      ],
-                                      Wrap(
-                                        spacing: 8,
-                                        runSpacing: 8,
-                                        children: [
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 10,
-                                              vertical: 6,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: Colors.deepPurpleAccent
-                                                  .withOpacity(0.2),
-                                              borderRadius:
-                                                  BorderRadius.circular(999),
-                                            ),
-                                            child: Text(
-                                              'x${inventoryItem.quantity}',
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                              ),
-                                            ),
-                                          ),
-                                          if (effectiveItem.isEquippable)
-                                            Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                horizontal: 10,
-                                                vertical: 6,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                color: Colors.blueAccent
-                                                    .withOpacity(0.18),
-                                                borderRadius:
-                                                    BorderRadius.circular(999),
-                                              ),
-                                              child: const Text(
-                                                'Equippable',
-                                                style: TextStyle(
-                                                  color: Colors.white,
-                                                ),
-                                              ),
-                                            ),
-                                          if ((inventoryItem
-                                                      .appliedInfusionName ??
-                                                  '')
-                                              .trim()
-                                              .isNotEmpty)
-                                            Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                horizontal: 10,
-                                                vertical: 6,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                gradient: LinearGradient(
-                                                  colors: [
-                                                    Colors.cyanAccent
-                                                        .withOpacity(0.22),
-                                                    Colors.deepPurpleAccent
-                                                        .withOpacity(0.18),
-                                                  ],
-                                                ),
-                                                borderRadius:
-                                                    BorderRadius.circular(999),
-                                                border: Border.all(
-                                                  color: Colors.cyanAccent
-                                                      .withOpacity(0.25),
-                                                ),
-                                              ),
-                                              child: Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  const Icon(
-                                                    Icons.auto_fix_high,
-                                                    size: 14,
-                                                    color: Colors.white,
-                                                  ),
-                                                  const SizedBox(width: 6),
-                                                  Text(
-                                                    inventoryItem
-                                                        .appliedInfusionName!,
-                                                    style: const TextStyle(
-                                                      color: Colors.white,
-                                                      fontSize: 12,
-                                                      fontWeight:
-                                                          FontWeight.w600,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          if (isEquipped)
-                                            Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                horizontal: 10,
-                                                vertical: 6,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                color: Colors.green
-                                                    .withOpacity(0.20),
-                                                borderRadius:
-                                                    BorderRadius.circular(999),
-                                              ),
-                                              child: const Text(
-                                                'Equipped',
-                                                style: TextStyle(
-                                                  color: Colors.white,
-                                                ),
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                if (isDm)
-                                  IconButton(
-                                    onPressed: () async {
-                                      await context
-                                          .read<CharacterProvider>()
-                                          .removeInventoryItemFromCharacter(
-                                            char.id,
-                                            inventoryItem.id,
-                                          );
-                                    },
-                                    icon: const Icon(
-                                      Icons.delete_outline,
-                                      color: Colors.white70,
-                                    ),
-                                    tooltip: 'Remove item',
-                                  ),
-                              ],
-                            ),
-                            if (hasItemImage) ...[
-                              const SizedBox(height: 12),
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(14),
-                                child: _buildResolvedImage(
-                                  displayImagePath!,
-                                  width: double.infinity,
-                                  height: isTablet ? 220 : 160,
-                                  fit: BoxFit.cover,
-                                ),
-                              ),
-                            ],
-                            if ((resolvedItem.resolvedDescription ?? '')
-                                .trim()
-                                .isNotEmpty) ...[
-                              const SizedBox(height: 12),
-                              Text(
-                                resolvedItem.resolvedDescription!,
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.82),
-                                  fontSize: isTablet ? 14 : 13,
-                                  height: 1.4,
-                                ),
-                              ),
-                            ],
-                            if ((inventoryItem.notes ?? '')
-                                .trim()
-                                .isNotEmpty) ...[
-                              const SizedBox(height: 12),
-                              Text(
-                                inventoryItem.notes!,
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.85),
-                                  fontSize: isTablet ? 15 : 14,
-                                ),
-                              ),
-                            ],
-                            const SizedBox(height: 12),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                Chip(
-                                  label: Text(resolvedItem.sourceLabel),
-                                  visualDensity: VisualDensity.compact,
-                                ),
-                                if (linkedEntry != null)
-                                  ActionChip(
-                                    label: const Text('Open compendium'),
-                                    onPressed: () {
-                                      Navigator.of(context).push(
-                                        MaterialPageRoute(
-                                          builder: (_) =>
-                                              CompendiumEntryDetailScreen(
-                                            entry: linkedEntry!,
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                if (effectiveItem.isEquippable && !isEquipped)
-                                  ActionChip(
-                                    label: const Text('Equip'),
-                                    onPressed: () => _equipInventoryItem(
-                                      context,
-                                      char,
-                                      effectiveItem,
-                                    ),
-                                  ),
-                                if (effectiveItem.isEquippable && isEquipped)
-                                  ActionChip(
-                                    label: const Text('Unequip'),
-                                    onPressed: () => _unequipInventoryItem(
-                                      context,
-                                      char,
-                                      effectiveItem,
-                                    ),
-                                  ),
-                                if (_getValidInfusionsForItem(
-                                      char,
-                                      inventoryItem,
-                                      equipmentProvider,
-                                      compendiumProvider,
-                                    ).isNotEmpty ||
-                                    (inventoryItem.appliedInfusionId ?? '')
-                                        .trim()
-                                        .isNotEmpty)
-                                  ActionChip(
-                                    label: Text(
-                                      (inventoryItem.appliedInfusionId ?? '')
-                                              .trim()
-                                              .isNotEmpty
-                                          ? 'Change Infusion'
-                                          : 'Infuse',
-                                    ),
-                                    onPressed: () => _showInfusionPicker(
-                                      context,
-                                      char,
-                                      inventoryItem,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      );
-                    }),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ],
+    return CharacterInventoryTab(
+      character: char,
+      isDm: isDm,
+      isOwnedByCurrentUser: isOwnedByCurrentUser,
+      canManageInventory: canManageInventory,
+      onAddItem: () => _showGrantItemDialog(
+        context,
+        char,
+        context.read<EquipmentProvider>().items,
+        campaignItemEntries,
+      ),
+      onRemoveItem: (inventoryItem) async {
+        await context
+            .read<CharacterProvider>()
+            .removeInventoryItemFromCharacter(
+              char.id,
+              inventoryItem.id,
+            );
+      },
+      buildEquipmentSection: ({
+        required isTablet,
+        required isLargeTablet,
+      }) =>
+          _buildEquipmentSection(
+        context,
+        char,
+        equipmentProvider,
+        compendiumProvider,
+        isTablet: isTablet,
+        isLargeTablet: isLargeTablet,
+      ),
+      resolveInventoryItem: (inventoryItem) => _resolveInventoryItem(
+        inventoryItem,
+        equipmentProvider,
+        compendiumProvider,
+      ),
+      isItemEquipped: (inventoryItem) => _isItemEquipped(char, inventoryItem),
+      buildEquipmentMetaLabel: _buildEquipmentMetaLabel,
+      buildResolvedImage: _buildResolvedImage,
+      onEquipItem: (effectiveItem) => _equipInventoryItem(
+        context,
+        char,
+        effectiveItem,
+      ),
+      onUnequipItem: (effectiveItem) => _unequipInventoryItem(
+        context,
+        char,
+        effectiveItem,
+      ),
+      hasInfusionOptions: (inventoryItem) =>
+          _getValidInfusionsForItem(
+            char,
+            inventoryItem,
+            equipmentProvider,
+            compendiumProvider,
+          ).isNotEmpty ||
+          (inventoryItem.appliedInfusionId ?? '').trim().isNotEmpty,
+      onShowInfusionPicker: (inventoryItem) => _showInfusionPicker(
+        context,
+        char,
+        inventoryItem,
+      ),
     );
   }
 
@@ -7832,6 +5140,14 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         child: CircularProgressIndicator(),
       );
     }
+
+    final authProvider = context.read<AuthProvider>();
+    final currentUserId = authProvider.userId;
+
+    final isOwnedByCurrentUser = currentUserId != null &&
+        char.userId != null &&
+        char.userId == currentUserId;
+
     final equipmentProvider = context.read<EquipmentProvider>();
     final compendiumProvider = context.read<CompendiumProvider>();
     final screenWidth = MediaQuery.of(context).size.width;
@@ -7839,31 +5155,59 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final isLargeTablet = screenWidth >= 900;
     final maxWidth = isLargeTablet ? 1000.0 : 850.0;
 
-    final hasSpellcasting = _isCaster(char);
-    final spellcastingAbilityKey = _normalizedSpellcastingAbility(char);
-    final spellcastingAbilityModifier = _spellcastingAbilityModifier(
+    final activeSpellcastingClass = _activeSpellcastingClass(char);
+    final activeSpellcastingClassLevel = _levelForSpellcastingClass(
       char,
+      activeSpellcastingClass,
+    );
+    final hasSpellcasting = _isCaster(char);
+    final spellcastingAbilityKey = _normalizedSpellcastingAbilityForClass(
+      char,
+      activeSpellcastingClass,
+    );
+    final spellcastingAbilityModifier = _spellcastingAbilityModifierForClass(
+      char,
+      activeSpellcastingClass,
       equipmentProvider,
       compendiumProvider,
     );
-    final spellSaveDc = _spellSaveDc(
+    final spellSaveDc = _spellSaveDcForClass(
       char,
+      activeSpellcastingClass,
       equipmentProvider,
       compendiumProvider,
     );
 
-    final spellAttackBonus = _spellAttackBonus(
+    final spellAttackBonus = _spellAttackBonusForClass(
       char,
+      activeSpellcastingClass,
       equipmentProvider,
       compendiumProvider,
     );
-    final usesPreparedLimit = SpellcastingRules.usesPreparedSpellLimit(char);
-    final usesPreparedSpells = SpellcastingRules.usesPreparedSpells(char);
-    final preparedSpellLimit =
-        usesPreparedLimit ? _preparedSpellLimit(char) : 0;
+    final usesPreparedLimit = SpellcastingRules.usesPreparedSpellLimitForClass(
+      activeSpellcastingClass,
+    );
+    final usesPreparedSpells = SpellcastingRules.usesPreparedSpellsForClass(
+      activeSpellcastingClass,
+    );
+    final preparedSpellLimit = usesPreparedLimit
+        ? _preparedSpellLimitForClass(char, activeSpellcastingClass)
+        : 0;
     final preparedSpellLimitLabel =
-        SpellcastingRules.preparedSpellLimitLabel(char);
-    final selectedSpells = char.spellIds
+        SpellcastingRules.preparedSpellLimitLabelForClass(
+      activeSpellcastingClass,
+    );
+
+    final selectedSpellIds = _knownSpellIdsForClass(
+      char,
+      activeSpellcastingClass,
+    );
+    final preparedSpellIds = _preparedSpellIdsForClass(
+      char,
+      activeSpellcastingClass,
+    );
+
+    final selectedSpells = selectedSpellIds
         .map((id) => spellProvider.getById(id))
         .whereType<Spell>()
         .toList()
@@ -7872,16 +5216,32 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         if (levelCompare != 0) return levelCompare;
         return a.name.toLowerCase().compareTo(b.name.toLowerCase());
       });
-    final usesKnownSpells = SpellcastingRules.usesKnownSpells(char);
-    final usesKnownCantrips = SpellcastingRules.usesKnownCantrips(char);
-    final knownSpellLimit = usesKnownSpells ? _knownSpellLimit(char) : 0;
-    final knownCantripLimit = usesKnownCantrips ? _knownCantripLimit(char) : 0;
+
+    final activeSpellcastingSubclass =
+        char.subclassForClass(activeSpellcastingClass);
+    final usesKnownSpells =
+        SpellcastingRules.usesKnownSpellsForClassAndSubclass(
+      className: activeSpellcastingClass,
+      subclassName: activeSpellcastingSubclass,
+    );
+    final usesKnownCantrips =
+        SpellcastingRules.usesKnownCantripsForClassAndSubclass(
+      className: activeSpellcastingClass,
+      subclassName: activeSpellcastingSubclass,
+    );
+    final knownSpellLimit = usesKnownSpells
+        ? _knownSpellLimitForClass(char, activeSpellcastingClass)
+        : 0;
+    final knownCantripLimit = usesKnownCantrips
+        ? _knownCantripLimitForClass(char, activeSpellcastingClass)
+        : 0;
 
     final selectedCantrips =
         selectedSpells.where((spell) => spell.level == 0).length;
     final selectedNonCantripSpells =
         selectedSpells.where((spell) => spell.level > 0).length;
-    final preparedSpells = char.preparedSpellIds
+
+    final preparedSpells = preparedSpellIds
         .map((id) => spellProvider.getById(id))
         .whereType<Spell>()
         .toList()
@@ -7891,21 +5251,29 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         return a.name.toLowerCase().compareTo(b.name.toLowerCase());
       });
 
-    final spellsByLevel = <int, List<Spell>>{};
-    for (final spell in selectedSpells) {
-      spellsByLevel.putIfAbsent(spell.level, () => []).add(spell);
-    }
-
-    final preparedByLevel = <int, List<Spell>>{};
-    for (final spell in preparedSpells) {
-      preparedByLevel.putIfAbsent(spell.level, () => []).add(spell);
-    }
-
-    final sortedLevels = spellsByLevel.keys.toList()..sort();
-    final preparedLevels = preparedByLevel.keys.toList()..sort();
-
     final slotLevels = List.generate(9, (index) => index + 1)
         .where((level) => _slotMaxForLevel(char, level) > 0)
+        .toList();
+    final pactMagicSlotLevels = List.generate(5, (index) => index + 1)
+        .where((level) => _pactMagicSlotMaxForLevel(char, level) > 0)
+        .toList();
+    final spellSlotViews = slotLevels
+        .map(
+          (level) => CharacterSpellSlotViewData(
+            level: level,
+            max: _slotMaxForLevel(char, level),
+            used: _slotUsedForLevel(char, level),
+          ),
+        )
+        .toList();
+    final pactMagicSlotViews = pactMagicSlotLevels
+        .map(
+          (level) => CharacterSpellSlotViewData(
+            level: level,
+            max: _pactMagicSlotMaxForLevel(char, level),
+            used: _pactMagicSlotUsedForLevel(char, level),
+          ),
+        )
         .toList();
 
     int totalMaxSlots = 0;
@@ -7916,183 +5284,213 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
           .clamp(0, _slotMaxForLevel(char, level));
     }
     final totalRemainingSlots = totalMaxSlots - totalUsedSlots;
+    var totalPactMagicMaxSlots = 0;
+    var totalPactMagicUsedSlots = 0;
+    for (final level in pactMagicSlotLevels) {
+      totalPactMagicMaxSlots += _pactMagicSlotMaxForLevel(char, level);
+      totalPactMagicUsedSlots += _pactMagicSlotUsedForLevel(char, level)
+          .clamp(0, _pactMagicSlotMaxForLevel(char, level));
+    }
+    final totalPactMagicRemainingSlots =
+        totalPactMagicMaxSlots - totalPactMagicUsedSlots;
+    final spellcastingClassSummaries = _buildSpellcastingClassSummaries(
+      char: char,
+      spellProvider: spellProvider,
+      equipmentProvider: equipmentProvider,
+      compendiumProvider: compendiumProvider,
+      activeClassName: activeSpellcastingClass,
+    );
+    final spellcastingSummaryItems = [
+      CharacterSpellcastingSummaryItem(
+        label: 'Spellcasting Ability',
+        value: spellcastingAbilityKey == null
+            ? '-'
+            : '$spellcastingAbilityKey (${_formatSigned(spellcastingAbilityModifier)})',
+        icon: Icons.psychology_outlined,
+      ),
+      CharacterSpellcastingSummaryItem(
+        label: 'Spell Save DC',
+        value: spellcastingAbilityKey == null ? '-' : '$spellSaveDc',
+        icon: Icons.shield_moon_outlined,
+      ),
+      CharacterSpellcastingSummaryItem(
+        label: 'Spell Attack',
+        value: spellcastingAbilityKey == null
+            ? '-'
+            : _formatSigned(spellAttackBonus),
+        icon: Icons.auto_awesome_outlined,
+      ),
+      CharacterSpellcastingSummaryItem(
+        label: 'Remaining Slots',
+        value: '$totalRemainingSlots',
+        icon: Icons.battery_charging_full_outlined,
+      ),
+      if (totalPactMagicMaxSlots > 0)
+        CharacterSpellcastingSummaryItem(
+          label: 'Pact Slots',
+          value: '$totalPactMagicRemainingSlots / $totalPactMagicMaxSlots',
+          icon: Icons.dark_mode_outlined,
+        ),
+    ];
+    final spellcastingClassName =
+        '${_formatClassName(activeSpellcastingClass)} $activeSpellcastingClassLevel';
 
     String levelLabel(int level) {
       if (level == 0) return 'Cantrips';
       return 'Level $level';
     }
 
-    Widget buildSpellChip(Spell spell) {
-      final isPrepared =
-          usesPreparedSpells && char.preparedSpellIds.contains(spell.id);
-      return ActionChip(
-        label: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (isPrepared) ...[
-              const Icon(
-                Icons.check_circle,
-                size: 16,
-                color: Colors.white,
-              ),
-              const SizedBox(width: 6),
-            ],
-            Flexible(
-              child: Text(
-                spell.name,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
+    void showSpellDetail(Spell spell) {
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: const Color(0xFF202028),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(20),
+          ),
         ),
-        backgroundColor: isPrepared
-            ? Colors.deepPurpleAccent.withOpacity(0.35)
-            : const Color(0xFF2A2A35),
-        labelStyle: const TextStyle(color: Colors.white),
-        onPressed: () {
-          showModalBottomSheet(
-            context: context,
-            isScrollControlled: true,
-            backgroundColor: const Color(0xFF202028),
-            shape: const RoundedRectangleBorder(
-              borderRadius: BorderRadius.vertical(
-                top: Radius.circular(20),
-              ),
-            ),
-            builder: (_) {
-              final preparedNow = usesPreparedSpells &&
-                  char.preparedSpellIds.contains(spell.id);
-              final usesPreparedLimit = usesPreparedSpells &&
-                  SpellcastingRules.usesPreparedSpellLimit(char);
-              final preparedLimit =
-                  usesPreparedLimit ? _preparedSpellLimit(char) : 0;
-              final preparedCount =
-                  usesPreparedSpells ? char.preparedSpellIds.length : 0;
-              final canPrepareMore = !usesPreparedSpells ||
-                  !usesPreparedLimit ||
-                  preparedNow ||
-                  preparedCount < preparedLimit;
-              return Padding(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+        builder: (_) {
+          final preparedNow =
+              usesPreparedSpells && preparedSpellIds.contains(spell.id);
+          final usesPreparedLimitNow = usesPreparedSpells &&
+              SpellcastingRules.usesPreparedSpellLimitForClass(
+                activeSpellcastingClass,
+              );
+          final preparedLimitNow = usesPreparedLimitNow
+              ? _preparedSpellLimitForClass(
+                  char,
+                  activeSpellcastingClass,
+                )
+              : 0;
+          final preparedCountNow =
+              usesPreparedSpells ? preparedSpellIds.length : 0;
+          final canPrepareMore = !usesPreparedSpells ||
+              !usesPreparedLimitNow ||
+              preparedNow ||
+              preparedCountNow < preparedLimitNow;
+
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    spell.name,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
-                      Text(
-                        spell.name,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      _buildSpellMetaChip(levelLabel(spell.level)),
+                      _buildSpellMetaChip(spell.school),
+                      if (spell.source.isNotEmpty)
+                        _buildSpellMetaChip(spell.source),
+                    ],
+                  ),
+                  if (usesPreparedSpells && usesPreparedLimitNow) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      'Prepared: $preparedCountNow / $preparedLimitNow',
+                      style: TextStyle(
+                        color: canPrepareMore
+                            ? Colors.white70
+                            : Colors.orangeAccent,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
                       ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _buildSpellMetaChip(levelLabel(spell.level)),
-                          _buildSpellMetaChip(spell.school),
-                          if (spell.source.isNotEmpty)
-                            _buildSpellMetaChip(spell.source),
-                        ],
-                      ),
-                      if (usesPreparedSpells && usesPreparedLimit) ...[
-                        const SizedBox(height: 10),
-                        Text(
-                          'Prepared: $preparedCount / $preparedLimit',
-                          style: TextStyle(
-                            color: canPrepareMore
-                                ? Colors.white70
-                                : Colors.orangeAccent,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  _buildSpellDetailRow('Casting Time', spell.castingTime),
+                  _buildSpellDetailRow('Range', spell.range),
+                  _buildSpellDetailRow(
+                    'Components',
+                    spell.components.isEmpty
+                        ? '-'
+                        : spell.components.join(', '),
+                  ),
+                  _buildSpellDetailRow('Duration', spell.duration),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Description',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    spell.description.isEmpty
+                        ? 'No description available.'
+                        : spell.description,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.88),
+                      height: 1.45,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      if (usesPreparedSpells)
+                        FilledButton.icon(
+                          onPressed: (isOwnedByCurrentUser && canPrepareMore)
+                              ? () async {
+                                  await _togglePreparedSpell(
+                                    context,
+                                    char,
+                                    spell.id,
+                                    activeSpellcastingClass,
+                                  );
+
+                                  if (context.mounted) {
+                                    Navigator.pop(context);
+                                  }
+                                }
+                              : null,
+                          icon: Icon(
+                            preparedNow
+                                ? Icons.check_box_outlined
+                                : Icons.check_box_outline_blank,
+                          ),
+                          label: Text(
+                            preparedNow ? 'Unprepare Spell' : 'Prepare Spell',
                           ),
                         ),
-                      ],
-                      const SizedBox(height: 16),
-                      _buildSpellDetailRow('Casting Time', spell.castingTime),
-                      _buildSpellDetailRow('Range', spell.range),
-                      _buildSpellDetailRow(
-                        'Components',
-                        spell.components.isEmpty
-                            ? '—'
-                            : spell.components.join(', '),
-                      ),
-                      _buildSpellDetailRow('Duration', spell.duration),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'Description',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        spell.description.isEmpty
-                            ? 'No description available.'
-                            : spell.description,
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.88),
-                          height: 1.45,
-                          fontSize: 14,
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          if (usesPreparedSpells)
-                            FilledButton.icon(
-                              onPressed: canPrepareMore
-                                  ? () async {
-                                      await _togglePreparedSpell(
-                                        context,
-                                        char,
-                                        spell.id,
-                                      );
+                      TextButton.icon(
+                        onPressed: isOwnedByCurrentUser
+                            ? () async {
+                                await _removeSpellFromCharacter(
+                                  context,
+                                  char,
+                                  spell.id,
+                                  activeSpellcastingClass,
+                                );
 
-                                      if (context.mounted) {
-                                        Navigator.pop(context);
-                                      }
-                                    }
-                                  : null,
-                              icon: Icon(
-                                preparedNow
-                                    ? Icons.check_box_outlined
-                                    : Icons.check_box_outline_blank,
-                              ),
-                              label: Text(
-                                preparedNow
-                                    ? 'Unprepare Spell'
-                                    : 'Prepare Spell',
-                              ),
-                            ),
-                          TextButton.icon(
-                            onPressed: () async {
-                              await _removeSpellFromCharacter(
-                                context,
-                                char,
-                                spell.id,
-                              );
-
-                              if (context.mounted) {
-                                Navigator.pop(context);
+                                if (context.mounted) {
+                                  Navigator.pop(context);
+                                }
                               }
-                            },
-                            icon: const Icon(Icons.delete_outline),
-                            label: const Text('Remove Spell'),
-                          ),
-                        ],
+                            : null,
+                        icon: const Icon(Icons.delete_outline),
+                        label: const Text('Remove Spell'),
                       ),
                     ],
                   ),
-                ),
-              );
-            },
+                ],
+              ),
+            ),
           );
         },
       );
@@ -8106,376 +5504,135 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Spellcasting',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: isLargeTablet ? 24 : (isTablet ? 22 : 20),
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      OutlinedButton.icon(
-                        onPressed: () =>
-                            _showSpellcastingConfigDialog(context, char),
-                        icon: const Icon(Icons.auto_awesome_outlined),
-                        label: Text(
-                          _normalizedSpellcastingAbility(char) == null
-                              ? 'Enable Spellcasting'
-                              : 'Edit Spellcasting',
-                        ),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: () =>
-                            _showEditSpellSlotsDialog(context, char),
-                        icon: const Icon(Icons.tune),
-                        label: const Text('Manage Slots'),
-                      ),
-                      if (SpellcastingRules.canReplaceKnownSpellOnLevelUp(char))
-                        OutlinedButton.icon(
-                          onPressed: char.spellIds.isEmpty
-                              ? null
-                              : () => _showReplaceKnownSpellDialog(
-                                    context,
-                                    char,
-                                  ),
-                          icon: const Icon(Icons.swap_horiz),
-                          label: const Text('Replace Spell'),
-                        ),
-                      ElevatedButton.icon(
-                        onPressed: () => _openSpellSelector(context, char),
-                        icon: const Icon(Icons.add),
-                        label: Text(
-                          usesKnownSpells ? 'Add Spell' : 'Add Spell',
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Spell lists are filtered by ${char.charClass[0].toUpperCase()}${char.charClass.substring(1)}.',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.6),
-                  fontSize: 12,
+              CharacterSpellcastingSummarySection(
+                isTablet: isTablet,
+                isLargeTablet: isLargeTablet,
+                isOwnedByCurrentUser: isOwnedByCurrentUser,
+                hasSpellcasting: hasSpellcasting,
+                canReplaceKnownSpell: SpellcastingRules
+                    .canReplaceKnownSpellOnLevelUpForClassAndSubclass(
+                  className: activeSpellcastingClass,
+                  subclassName: activeSpellcastingSubclass,
+                ),
+                canReplaceSpell: selectedSpellIds.isNotEmpty,
+                className: spellcastingClassName,
+                summaryItems: spellcastingSummaryItems,
+                onConfigureSpellcasting: () => _showSpellcastingConfigDialog(
+                  context,
+                  char,
+                  activeSpellcastingClass,
+                ),
+                onManageSlots: () => _showEditSpellSlotsDialog(context, char),
+                onReplaceSpell: () => _showReplaceKnownSpellDialog(
+                  context,
+                  char,
+                  activeSpellcastingClass,
+                ),
+                onAddSpell: () => _openSpellSelector(
+                  context,
+                  char,
+                  activeSpellcastingClass,
                 ),
               ),
-              const SizedBox(height: 8),
-              if (!hasSpellcasting)
-                _spellSection(
-                  title: 'Spellcasting Status',
-                  child: const Text(
-                    'This character has no spellcasting ability configured yet, but you can still attach spells manually.',
-                    style: TextStyle(color: Colors.white70),
-                  ),
-                )
-              else
-                GridView.count(
-                  crossAxisCount: isLargeTablet ? 3 : (isTablet ? 2 : 1),
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  childAspectRatio:
-                      isLargeTablet ? 1.85 : (isTablet ? 1.7 : 2.1),
-                  children: [
-                    _summaryCard(
-                      label: 'Spellcasting Ability',
-                      value: spellcastingAbilityKey == null
-                          ? '—'
-                          : '$spellcastingAbilityKey (${_formatSigned(spellcastingAbilityModifier)})',
-                      icon: Icons.psychology_outlined,
-                      isTablet: isTablet,
-                      isLargeTablet: isLargeTablet,
-                    ),
-                    _summaryCard(
-                      label: 'Spell Save DC',
-                      value:
-                          spellcastingAbilityKey == null ? '—' : '$spellSaveDc',
-                      icon: Icons.shield_moon_outlined,
-                      isTablet: isTablet,
-                      isLargeTablet: isLargeTablet,
-                    ),
-                    _summaryCard(
-                      label: 'Spell Attack',
-                      value: spellcastingAbilityKey == null
-                          ? '—'
-                          : _formatSigned(spellAttackBonus),
-                      icon: Icons.auto_awesome_outlined,
-                      isTablet: isTablet,
-                      isLargeTablet: isLargeTablet,
-                    ),
-                    _summaryCard(
-                      label: 'Selected Spells',
-                      value: '${selectedSpells.length}',
-                      icon: Icons.menu_book_outlined,
-                      isTablet: isTablet,
-                      isLargeTablet: isLargeTablet,
-                    ),
-                    if (usesKnownCantrips)
-                      _summaryCard(
-                        label: 'Cantrips Known',
-                        value: '$selectedCantrips / $knownCantripLimit',
-                        icon: Icons.blur_circular_outlined,
-                        isTablet: isTablet,
-                        isLargeTablet: isLargeTablet,
-                      ),
-                    if (usesKnownSpells)
-                      _summaryCard(
-                        label: 'Spells Known',
-                        value: '$selectedNonCantripSpells / $knownSpellLimit',
-                        icon: Icons.library_books_outlined,
-                        isTablet: isTablet,
-                        isLargeTablet: isLargeTablet,
-                      ),
-                    if (usesPreparedSpells)
-                      _summaryCard(
-                        label: 'Prepared Spells',
-                        value: usesPreparedLimit
-                            ? '${preparedSpells.length} / $preparedSpellLimit'
-                            : '${preparedSpells.length}',
-                        icon: Icons.checklist_outlined,
-                        isTablet: isTablet,
-                        isLargeTablet: isLargeTablet,
-                      ),
-                    _summaryCard(
-                      label: 'Remaining Slots',
-                      value: '$totalRemainingSlots',
-                      icon: Icons.battery_charging_full_outlined,
-                      isTablet: isTablet,
-                      isLargeTablet: isLargeTablet,
-                    ),
-                  ],
+              if (spellcastingClassSummaries.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                CharacterSpellcastingClassesSection(
+                  summaries: spellcastingClassSummaries,
+                  isTablet: isTablet,
+                  isLargeTablet: isLargeTablet,
+                  onSelectClass: (className) {
+                    setState(() {
+                      _selectedSpellcastingClassByCharacterId[char.id] =
+                          className;
+                    });
+                  },
                 ),
+              ],
               const SizedBox(height: 20),
-              if (SpellcastingRules.isAutoSlotClass(char) &&
-                  SpellcastingRules.getAutoSpellSlots(char).isNotEmpty) ...[
-                Row(
-                  children: [
-                    Expanded(
-                      child: FilledButton.icon(
-                        onPressed: () async {
-                          final confirm = await showDialog<bool>(
-                            context: context,
-                            builder: (_) => AlertDialog(
-                              backgroundColor: const Color(0xFF202028),
-                              title: const Text(
-                                'Auto-fill Spell Slots',
-                                style: TextStyle(color: Colors.white),
-                              ),
-                              content: const Text(
-                                'This will generate spell slots based on class and level.\n\nDo you want to continue?',
-                                style: TextStyle(color: Colors.white70),
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () =>
-                                      Navigator.pop(context, false),
-                                  child: const Text('Cancel'),
-                                ),
-                                FilledButton(
-                                  onPressed: () => Navigator.pop(context, true),
-                                  child: const Text('Apply'),
-                                ),
-                              ],
-                            ),
-                          );
-
-                          if (confirm != true) return;
-
-                          await _applyAutoSpellSlots(
-                            context,
-                            char,
-                            preserveUsed: true,
-                          );
-                        },
-                        icon: const Icon(Icons.auto_fix_high),
-                        label: const Text('Auto-fill Slots'),
+              CharacterSpellSlotsSection(
+                isTablet: isTablet,
+                isLargeTablet: isLargeTablet,
+                isOwnedByCurrentUser: isOwnedByCurrentUser,
+                hasAutoSlots: MulticlassSpellcastingService.hasAutoSlots(char),
+                slots: spellSlotViews,
+                onSetupSlots: () => _showEditSpellSlotsDialog(context, char),
+                onRecoverAll: () => _recoverAllSpellSlots(context, char),
+                onAutoFillPreserveUsage: () async {
+                  final confirm = await showDialog<bool>(
+                    context: context,
+                    builder: (_) => AlertDialog(
+                      backgroundColor: const Color(0xFF202028),
+                      title: const Text(
+                        'Auto-fill Spell Slots',
+                        style: TextStyle(color: Colors.white),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton(
-                      tooltip: 'Regenerate slots (reset usage)',
-                      icon: const Icon(Icons.refresh),
-                      onPressed: () async {
-                        await _applyAutoSpellSlots(
-                          context,
-                          char,
-                          preserveUsed: false,
-                        );
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-              ],
-              _spellSection(
-                title: 'Spell Slots',
-                child: !_hasAnySpellSlots(char)
-                    ? Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'No spell slots recorded yet.',
-                            style: TextStyle(color: Colors.white70),
-                          ),
-                          const SizedBox(height: 10),
-                          OutlinedButton.icon(
-                            onPressed: () =>
-                                _showEditSpellSlotsDialog(context, char),
-                            icon: const Icon(Icons.auto_fix_high),
-                            label: const Text('Set up slots'),
-                          ),
-                        ],
-                      )
-                    : Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              ActionChip(
-                                label: const Text('Recover All Slots'),
-                                onPressed: () =>
-                                    _recoverAllSpellSlots(context, char),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 14),
-                          GridView.builder(
-                            itemCount: slotLevels.length,
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            gridDelegate:
-                                SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount:
-                                  isLargeTablet ? 3 : (isTablet ? 2 : 1),
-                              crossAxisSpacing: 12,
-                              mainAxisSpacing: 12,
-                              childAspectRatio: isLargeTablet ? 1.35 : 1.28,
-                            ),
-                            itemBuilder: (_, index) {
-                              final level = slotLevels[index];
-                              return _buildSpellSlotCard(context, char, level);
-                            },
-                          ),
-                        ],
+                      content: const Text(
+                        'This will generate spell slots based on class and level.\n\nDo you want to continue?',
+                        style: TextStyle(color: Colors.white70),
                       ),
-              ),
-              const SizedBox(height: 12),
-              if (usesPreparedSpells && usesPreparedLimit)
-                _spellSection(
-                  title: 'Preparation Rules',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Prepared: ${preparedSpells.length} / $preparedSpellLimit',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, false),
+                          child: const Text('Cancel'),
                         ),
-                      ),
-                      if (preparedSpellLimitLabel != null) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          'Rule: $preparedSpellLimitLabel',
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.7),
-                          ),
+                        FilledButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          child: const Text('Apply'),
                         ),
                       ],
-                    ],
-                  ),
-                ),
-              if (usesKnownSpells)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: _spellSection(
-                    title: 'Known Spell Rules',
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Spells Known: $selectedNonCantripSpells / $knownSpellLimit',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        if (usesKnownCantrips) ...[
-                          const SizedBox(height: 6),
-                          Text(
-                            'Cantrips Known: $selectedCantrips / $knownCantripLimit',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.8),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-              const SizedBox(height: 12),
-              if (usesPreparedSpells) ...[
-                const SizedBox(height: 12),
-                if (preparedSpells.isEmpty)
-                  _spellSection(
-                    title: 'Prepared Spells',
-                    child: const Text(
-                      'No prepared spells yet.',
-                      style: TextStyle(color: Colors.white70),
-                    ),
-                  )
-                else
-                  ...preparedLevels.map((level) {
-                    final spells = preparedByLevel[level]!;
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _spellSection(
-                        title: 'Prepared • ${levelLabel(level)}',
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: spells.map(buildSpellChip).toList(),
-                        ),
-                      ),
-                    );
-                  }),
-              ],
-              const SizedBox(height: 12),
-              if (selectedSpells.isEmpty)
-                _spellSection(
-                  title: 'Selected Spells',
-                  child: const Text(
-                    'No spells selected yet.',
-                    style: TextStyle(color: Colors.white70),
-                  ),
-                )
-              else
-                ...sortedLevels.map((level) {
-                  final spells = spellsByLevel[level]!;
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: _spellSection(
-                      title: levelLabel(level),
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: spells.map(buildSpellChip).toList(),
-                      ),
                     ),
                   );
-                }),
+
+                  if (confirm != true) return;
+                  if (!context.mounted) return;
+
+                  await _applyAutoSpellSlots(
+                    context,
+                    char,
+                    preserveUsed: true,
+                  );
+                },
+                onAutoFillResetUsage: () => _applyAutoSpellSlots(
+                  context,
+                  char,
+                  preserveUsed: false,
+                ),
+                onSpendSlot: (level) => _spendSpellSlot(context, char, level),
+                onRecoverSlot: (level) =>
+                    _recoverSpellSlot(context, char, level),
+              ),
+              const SizedBox(height: 12),
+              if (pactMagicSlotViews.isNotEmpty) ...[
+                CharacterPactMagicSlotsSection(
+                  isTablet: isTablet,
+                  isLargeTablet: isLargeTablet,
+                  isOwnedByCurrentUser: isOwnedByCurrentUser,
+                  slots: pactMagicSlotViews,
+                  onRecoverAll: () => _recoverAllPactMagicSlots(context, char),
+                  onSpendSlot: (level) =>
+                      _spendPactMagicSlot(context, char, level),
+                  onRecoverSlot: (level) =>
+                      _recoverPactMagicSlot(context, char, level),
+                ),
+                const SizedBox(height: 12),
+              ],
+              CharacterSpellbookSection(
+                title: '${_formatClassName(activeSpellcastingClass)} Spellbook',
+                spells: selectedSpells,
+                usesKnownCantrips: usesKnownCantrips,
+                usesKnownSpells: usesKnownSpells,
+                usesPreparedSpells: usesPreparedSpells,
+                usesPreparedLimit: usesPreparedLimit,
+                preparedSpellIds: preparedSpellIds.toSet(),
+                selectedCantrips: selectedCantrips,
+                selectedNonCantripSpells: selectedNonCantripSpells,
+                knownCantripLimit: knownCantripLimit,
+                knownSpellLimit: knownSpellLimit,
+                preparedSpellsCount: preparedSpells.length,
+                preparedSpellLimit: preparedSpellLimit,
+                preparedSpellLimitLabel: preparedSpellLimitLabel,
+                onSpellTap: showSpellDetail,
+              ),
             ],
           ),
         ),
@@ -8491,6 +5648,11 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final isTablet = screenWidth >= 600;
     final isLargeTablet = screenWidth >= 900;
     final maxWidth = isLargeTablet ? 1000.0 : 850.0;
+    final authProvider = context.read<AuthProvider>();
+    final currentUserId = authProvider.userId;
+    final isOwnedByCurrentUser = currentUserId != null &&
+        char.userId != null &&
+        char.userId == currentUserId;
 
     return SingleChildScrollView(
       padding: EdgeInsets.all(isTablet ? 24 : 16),
@@ -8512,16 +5674,31 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               Text(
                 'Track spendable resources quickly and expand features only when you need to read them.',
                 style: TextStyle(
-                  color: Colors.white.withOpacity(0.6),
+                  color: Colors.white.withValues(alpha: 0.6),
                   fontSize: 12,
                 ),
               ),
               const SizedBox(height: 20),
-              _buildResourcesSection(
-                context,
-                char,
+              CharacterResourcesSection(
                 isTablet: isTablet,
                 isLargeTablet: isLargeTablet,
+                isOwnedByCurrentUser: isOwnedByCurrentUser,
+                resources: char.resources,
+                onRecoverByType: (rechargeType) async {
+                  await context
+                      .read<CharacterProvider>()
+                      .recoverResourcesByType(char.id, rechargeType);
+                },
+                onSpendResource: (resourceId) async {
+                  await context
+                      .read<CharacterProvider>()
+                      .spendResource(char.id, resourceId);
+                },
+                onRecoverResource: (resourceId) async {
+                  await context
+                      .read<CharacterProvider>()
+                      .recoverResource(char.id, resourceId);
+                },
               ),
               const SizedBox(height: 12),
               _buildCharacterOptionsSection(
@@ -8545,9 +5722,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 isLargeTablet: isLargeTablet,
               ),
               const SizedBox(height: 12),
-              _buildFeaturesSection(
-                context,
-                char,
+              CharacterFeaturesSection(
+                character: char,
                 isTablet: isTablet,
                 isLargeTablet: isLargeTablet,
               ),
@@ -8573,9 +5749,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               ),
             ),
             TextSpan(
-              text: value.isEmpty ? '—' : value,
+              text: value.isEmpty ? '-' : value,
               style: TextStyle(
-                color: Colors.white.withOpacity(0.85),
+                color: Colors.white.withValues(alpha: 0.85),
                 fontSize: 14,
               ),
             ),
@@ -8596,7 +5772,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         color: const Color(0xFF202028),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.28),
+          color: Colors.deepPurpleAccent.withValues(alpha: 0.28),
         ),
       ),
       child: Column(
@@ -8631,7 +5807,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.deepPurpleAccent.withOpacity(0.18),
+        color: Colors.deepPurpleAccent.withValues(alpha: 0.18),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
@@ -8651,308 +5827,79 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     );
   }
 
-  Widget _buildSpellSlotCard(
-    BuildContext context,
-    Character char,
-    int level,
-  ) {
-    final max = _slotMaxForLevel(char, level);
-    final used = _slotUsedForLevel(char, level).clamp(0, max);
-    final remaining = (max - used).clamp(0, max);
-
-    final circles = List.generate(max, (index) {
-      final isAvailable = index < remaining;
-
-      return AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        width: 14,
-        height: 14,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: isAvailable
-              ? Colors.deepPurpleAccent
-              : Colors.white.withOpacity(0.12),
-          border: Border.all(
-            color: isAvailable
-                ? Colors.deepPurpleAccent.withOpacity(0.95)
-                : Colors.white.withOpacity(0.18),
-          ),
-          boxShadow: isAvailable
-              ? [
-                  BoxShadow(
-                    color: Colors.deepPurpleAccent.withOpacity(0.35),
-                    blurRadius: 8,
-                    spreadRadius: 1,
-                  ),
-                ]
-              : null,
-        ),
-      );
-    });
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFF262632),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.24),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Level $level',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15,
-                  ),
-                ),
-              ),
-              Text(
-                '$remaining / $max',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.8),
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          if (max > 0)
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: circles,
-            ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: remaining > 0
-                      ? () => _spendSpellSlot(context, char, level)
-                      : null,
-                  icon: const Icon(Icons.remove_circle_outline),
-                  label: const Text('Spend'),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: used > 0
-                      ? () => _recoverSpellSlot(context, char, level)
-                      : null,
-                  icon: const Icon(Icons.add_circle_outline),
-                  label: const Text('Recover'),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildCharacterOptionsSection(
     BuildContext context,
     Character char, {
     required bool isTablet,
     required bool isLargeTablet,
   }) {
+    final authProvider = context.read<AuthProvider>();
+    final currentUserId = authProvider.userId;
+
+    final isOwnedByCurrentUser = currentUserId != null &&
+        char.userId != null &&
+        char.userId == currentUserId;
+
     final groups = _buildCharacterOptionGrantGroups(char);
 
-    if (groups.isEmpty) {
-      return _spellSection(
-        title: 'Class Options',
-        child: const Text(
-          'This character has no class options to choose yet.',
-          style: TextStyle(color: Colors.white70),
+    CharacterOptionGrantGroupViewData buildGroupViewData(
+      _CharacterOptionGrantGroup group,
+    ) {
+      final isSpellGroup = group.category == CharacterOptionCategory.spell;
+
+      final selectedOptions = isSpellGroup
+          ? const <CharacterOptionDefinition>[]
+          : CharacterAvailableOptionsEngine.getSelectedOptionsForGrantGroup(
+              char,
+              group.grants,
+            );
+
+      final availableOptionsCount = isSpellGroup
+          ? 0
+          : CharacterAvailableOptionsEngine.getAvailableOptionsForGrantGroup(
+              char,
+              group.grants,
+            ).length;
+
+      final selectedCount = isSpellGroup
+          ? _getSpellGroupProgress(char, group.grants)
+          : selectedOptions.length;
+
+      final totalCount = group.totalCount;
+      final remaining = (totalCount - selectedCount).clamp(0, totalCount);
+      final isComplete = selectedCount >= totalCount;
+
+      return CharacterOptionGrantGroupViewData(
+        title: group.title,
+        categoryLabel: _categoryLabel(group.category),
+        sourceName: group.sourceName,
+        selectedCount: selectedCount,
+        totalCount: totalCount,
+        remaining: remaining,
+        isComplete: isComplete,
+        isSpellGroup: isSpellGroup,
+        spellLabels: isSpellGroup
+            ? _getSpellGroupSelectionLabels(context, char, group)
+            : const <String>[],
+        selectedOptions: selectedOptions,
+        availableOptionsCount: availableOptionsCount,
+        onEdit: () => _showChooseOptionsForGrantGroupDialog(
+          context,
+          char,
+          group,
         ),
       );
     }
 
     return _spellSection(
       title: 'Class Options',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Choices granted by class, subclass, or feats will appear here.',
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.7),
-              fontSize: 12,
-            ),
-          ),
-          const SizedBox(height: 14),
-          ...groups.map(
-            (group) => Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: _buildCharacterOptionGrantGroupCard(
-                context,
-                char,
-                group,
-                isTablet: isTablet,
-                isLargeTablet: isLargeTablet,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCharacterOptionGrantGroupCard(
-    BuildContext context,
-    Character char,
-    _CharacterOptionGrantGroup group, {
-    required bool isTablet,
-    required bool isLargeTablet,
-  }) {
-    final isSpellGroup = group.category == CharacterOptionCategory.spell;
-
-    final selectedOptions = isSpellGroup
-        ? const <CharacterOptionDefinition>[]
-        : CharacterAvailableOptionsEngine.getSelectedOptionsForGrantGroup(
-            char,
-            group.grants,
-          );
-
-    final availableOptions = isSpellGroup
-        ? const <CharacterOptionDefinition>[]
-        : CharacterAvailableOptionsEngine.getAvailableOptionsForGrantGroup(
-            char,
-            group.grants,
-          );
-
-    final selectedCount = isSpellGroup
-        ? _getSpellGroupProgress(char, group.grants)
-        : selectedOptions.length;
-
-    final totalCount = group.totalCount;
-    final remaining = (totalCount - selectedCount).clamp(0, totalCount);
-    final isComplete = selectedCount >= totalCount;
-
-    final spellLabels = isSpellGroup
-        ? _getSpellGroupSelectionLabels(context, char, group)
-        : const <String>[];
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFF262632),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: isComplete
-              ? Colors.greenAccent.withOpacity(0.28)
-              : Colors.deepPurpleAccent.withOpacity(0.24),
+      child: CharacterOptionsSectionContent(
+        isOwnedByCurrentUser: isOwnedByCurrentUser,
+        groups: groups.map(buildGroupViewData).toList(),
+        onOptionTap: (option) => _showCharacterOptionDetailSheet(
+          context,
+          option,
         ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      group.title,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: isLargeTablet ? 16 : 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        if (group.sourceName != null &&
-                            group.sourceName!.trim().isNotEmpty)
-                          _buildFeatureMetaChip(group.sourceName!),
-                        _buildFeatureMetaChip(_categoryLabel(group.category)),
-                        _buildFeatureMetaChip('$selectedCount / $totalCount'),
-                        if (!isComplete)
-                          _buildFeatureMetaChip('Pending: $remaining'),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          if (isSpellGroup)
-            if (spellLabels.isEmpty)
-              Text(
-                'No selection made yet.',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.7),
-                  fontSize: 13,
-                ),
-              )
-            else
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: spellLabels
-                    .map((label) => _buildFeatureMetaChip(label))
-                    .toList(),
-              )
-          else if (selectedOptions.isEmpty)
-            Text(
-              'No selection made yet.',
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.7),
-                fontSize: 13,
-              ),
-            )
-          else
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: selectedOptions
-                  .map((option) => _buildCharacterOptionChip(context, option))
-                  .toList(),
-            ),
-          if (!isSpellGroup && availableOptions.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Text(
-              '${availableOptions.length} option${availableOptions.length == 1 ? '' : 's'} available',
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.58),
-                fontSize: 12,
-              ),
-            ),
-          ],
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: FilledButton.icon(
-              onPressed: () => _showChooseOptionsForGrantGroupDialog(
-                context,
-                char,
-                group,
-              ),
-              icon: Icon(
-                selectedCount == 0
-                    ? Icons.add_circle_outline
-                    : Icons.edit_outlined,
-              ),
-              label: Text(selectedCount == 0 ? 'Choose' : 'Edit'),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -9039,7 +5986,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       color: const Color(0xFF1B1B24),
                       borderRadius: BorderRadius.circular(24),
                       border: Border.all(
-                        color: Colors.deepPurpleAccent.withOpacity(0.22),
+                        color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
                       ),
                     ),
                     child: Column(
@@ -9074,7 +6021,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                               Text(
                                 'Select $totalCount option${totalCount == 1 ? '' : 's'}',
                                 style: TextStyle(
-                                  color: Colors.white.withOpacity(0.68),
+                                  color: Colors.white.withValues(alpha: 0.68),
                                   fontSize: 13,
                                 ),
                               ),
@@ -9182,7 +6129,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               color: const Color(0xFF1B1B24),
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
-                color: Colors.deepPurpleAccent.withOpacity(0.3),
+                color: Colors.deepPurpleAccent.withValues(alpha: 0.3),
               ),
             ),
             child: Column(
@@ -9313,7 +6260,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     _CharacterOptionGrantGroup group,
     List<String> selectedOptionIds,
   ) async {
-    await context.read<CharacterProvider>().updateCharacterById(char.id, (ch) {
+    final provider = context.read<CharacterProvider>();
+
+    await provider.updateCharacterById(char.id, (ch) {
       final grants = [...group.grants]..sort(
           (a, b) {
             final levelA = a.requiredLevel ?? 0;
@@ -9347,164 +6296,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         start = end;
       }
     });
+
+    if (!context.mounted) return;
     await _reconcileCharacterOptionSelections(context, char.id);
-  }
-
-  Widget _buildCharacterOptionGrantCard(
-    BuildContext context,
-    Character char,
-    CharacterChoiceGrant grant, {
-    required bool isTablet,
-    required bool isLargeTablet,
-  }) {
-    final selectedOptions =
-        CharacterAvailableOptionsEngine.getSelectedOptionsForGrant(
-      char,
-      grant,
-    );
-
-    final availableOptions =
-        CharacterAvailableOptionsEngine.getAvailableOptionsForGrant(
-      char,
-      grant,
-    );
-
-    final isComplete = CharacterAvailableOptionsEngine.isChoiceComplete(
-      char,
-      grant,
-    );
-
-    final remaining =
-        CharacterAvailableOptionsEngine.getRemainingSelectionsCount(
-      char,
-      grant,
-    );
-
-    String categoryLabel(CharacterOptionCategory category) {
-      switch (category) {
-        case CharacterOptionCategory.infusion:
-          return 'Infusion';
-        case CharacterOptionCategory.invocation:
-          return 'Invocation';
-        case CharacterOptionCategory.fightingStyle:
-          return 'Fighting Style';
-        case CharacterOptionCategory.maneuver:
-          return 'Maneuver';
-        case CharacterOptionCategory.metamagic:
-          return 'Metamagic';
-        case CharacterOptionCategory.pactBoon:
-          return 'Pact Boon';
-        case CharacterOptionCategory.spell:
-          return 'Spell';
-      }
-    }
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFF262632),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: isComplete
-              ? Colors.greenAccent.withOpacity(0.28)
-              : Colors.deepPurpleAccent.withOpacity(0.24),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      grant.title,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: isLargeTablet ? 16 : 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        if (grant.sourceName != null &&
-                            grant.sourceName!.trim().isNotEmpty)
-                          _buildFeatureMetaChip(grant.sourceName!),
-                        _buildFeatureMetaChip(categoryLabel(grant.category)),
-                        _buildFeatureMetaChip(
-                          '${selectedOptions.length} / ${grant.count}',
-                        ),
-                        if (!isComplete)
-                          _buildFeatureMetaChip('Pending: $remaining'),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          if (selectedOptions.isEmpty)
-            Text(
-              'No selection made yet.',
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.7),
-                fontSize: 13,
-              ),
-            )
-          else
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: selectedOptions
-                  .map((option) => _buildCharacterOptionChip(context, option))
-                  .toList(),
-            ),
-          if (availableOptions.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Text(
-              '${availableOptions.length} option${availableOptions.length == 1 ? '' : 's'} available',
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.58),
-                fontSize: 12,
-              ),
-            ),
-          ],
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                FilledButton.icon(
-                  onPressed: () => _showChooseOptionsDialog(
-                    context,
-                    char,
-                    grant,
-                  ),
-                  icon: Icon(
-                    selectedOptions.isEmpty
-                        ? Icons.add_circle_outline
-                        : Icons.edit_outlined,
-                  ),
-                  label: Text(
-                    selectedOptions.isEmpty ? 'Choose' : 'Edit',
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
   }
 
   Widget _buildOptionSelectionCard({
@@ -9523,19 +6317,19 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: isSelected
-                ? Colors.deepPurpleAccent.withOpacity(0.18)
+                ? Colors.deepPurpleAccent.withValues(alpha: 0.18)
                 : const Color(0xFF202028),
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
               color: isSelected
-                  ? Colors.deepPurpleAccent.withOpacity(0.95)
-                  : Colors.white.withOpacity(0.08),
+                  ? Colors.deepPurpleAccent.withValues(alpha: 0.95)
+                  : Colors.white.withValues(alpha: 0.08),
               width: isSelected ? 1.4 : 1,
             ),
             boxShadow: isSelected
                 ? [
                     BoxShadow(
-                      color: Colors.deepPurpleAccent.withOpacity(0.16),
+                      color: Colors.deepPurpleAccent.withValues(alpha: 0.16),
                       blurRadius: 10,
                       spreadRadius: 1,
                     ),
@@ -9577,7 +6371,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       Text(
                         option.description!,
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.72),
+                          color: Colors.white.withValues(alpha: 0.72),
                           fontSize: 13,
                           height: 1.35,
                         ),
@@ -9593,361 +6387,14 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     );
   }
 
-  Widget _buildCharacterOptionChip(
-    BuildContext context,
-    CharacterOptionDefinition option,
-  ) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(999),
-        onTap: () => _showCharacterOptionDetailSheet(context, option),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.deepPurpleAccent.withOpacity(0.18),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: Colors.deepPurpleAccent.withOpacity(0.24),
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(
-                child: Text(
-                  option.name,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Icon(
-                Icons.info_outline,
-                size: 14,
-                color: Colors.white.withOpacity(0.72),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFeaturesSection(
-    BuildContext context,
-    Character char, {
-    required bool isTablet,
-    required bool isLargeTablet,
-  }) {
-    final features = [...char.features]..sort((a, b) {
-        final levelCompare =
-            (a.unlockedAtLevel ?? 0).compareTo(b.unlockedAtLevel ?? 0);
-        if (levelCompare != 0) return levelCompare;
-        return a.name.toLowerCase().compareTo(b.name.toLowerCase());
-      });
-
-    if (features.isEmpty) {
-      return _spellSection(
-        title: 'Features',
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'No features synced yet.',
-              style: TextStyle(color: Colors.white70),
-            ),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: () async {
-                await context
-                    .read<CharacterProvider>()
-                    .syncFeaturesAndResources(char.id);
-              },
-              icon: const Icon(Icons.sync),
-              label: const Text('Sync Features'),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return _spellSection(
-      title: 'Features',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              OutlinedButton.icon(
-                onPressed: () async {
-                  await context
-                      .read<CharacterProvider>()
-                      .syncFeaturesAndResources(char.id);
-                },
-                icon: const Icon(Icons.sync),
-                label: const Text('Sync'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          ...features.map(
-            (feature) => Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              decoration: BoxDecoration(
-                color: const Color(0xFF262632),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: Colors.deepPurpleAccent.withOpacity(0.22),
-                ),
-              ),
-              child: Theme(
-                data: Theme.of(context).copyWith(
-                  dividerColor: Colors.transparent,
-                  splashColor: Colors.transparent,
-                  highlightColor: Colors.transparent,
-                ),
-                child: ExpansionTile(
-                  tilePadding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 4,
-                  ),
-                  childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-                  iconColor: Colors.white70,
-                  collapsedIconColor: Colors.white54,
-                  title: Text(
-                    feature.name,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: isLargeTablet ? 16 : 15,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  subtitle: Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        if (feature.unlockedAtLevel != null)
-                          _buildFeatureMetaChip(
-                              'Lv ${feature.unlockedAtLevel}'),
-                        _buildFeatureMetaChip(feature.source.toUpperCase()),
-                      ],
-                    ),
-                  ),
-                  children: [
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        feature.description.trim().isEmpty
-                            ? 'No description available.'
-                            : feature.description,
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.82),
-                          fontSize: isTablet ? 14 : 13,
-                          height: 1.45,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildResourcesSection(
-    BuildContext context,
-    Character char, {
-    required bool isTablet,
-    required bool isLargeTablet,
-  }) {
-    final resources = [...char.resources]
-      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-
-    if (resources.isEmpty) {
-      return _spellSection(
-        title: 'Resources',
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'No tracked resources yet.',
-              style: TextStyle(color: Colors.white70),
-            ),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: () async {
-                await context
-                    .read<CharacterProvider>()
-                    .syncFeaturesAndResources(char.id);
-              },
-              icon: const Icon(Icons.sync),
-              label: const Text('Sync Resources'),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return _spellSection(
-      title: 'Resources',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              ActionChip(
-                label: const Text('Recover Short Rest'),
-                onPressed: () async {
-                  await context
-                      .read<CharacterProvider>()
-                      .recoverResourcesByType(char.id, 'shortRest');
-                },
-              ),
-              ActionChip(
-                label: const Text('Recover Long Rest'),
-                onPressed: () async {
-                  await context
-                      .read<CharacterProvider>()
-                      .recoverResourcesByType(char.id, 'longRest');
-                },
-              ),
-              OutlinedButton.icon(
-                onPressed: () async {
-                  await context
-                      .read<CharacterProvider>()
-                      .syncFeaturesAndResources(char.id);
-                },
-                icon: const Icon(Icons.sync),
-                label: const Text('Sync'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          GridView.builder(
-            itemCount: resources.length,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: isLargeTablet ? 2 : 1,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-              childAspectRatio: isLargeTablet ? 2.2 : 2.4,
-            ),
-            itemBuilder: (_, index) {
-              final resource = resources[index];
-              final current = resource.current.clamp(0, resource.max);
-              final max = resource.max < 0 ? 0 : resource.max;
-
-              return Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF262632),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: Colors.deepPurpleAccent.withOpacity(0.24),
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        Text(
-                          resource.name,
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: isLargeTablet ? 16 : 15,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        _buildFeatureMetaChip(resource.rechargeType),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      '$current / $max',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.88),
-                        fontSize: isTablet ? 16 : 15,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const Spacer(),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: current > 0
-                                ? () async {
-                                    await context
-                                        .read<CharacterProvider>()
-                                        .spendResource(char.id, resource.id);
-                                  }
-                                : null,
-                            icon: const Icon(Icons.remove_circle_outline),
-                            label: const Text('Spend'),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: current < max
-                                ? () async {
-                                    await context
-                                        .read<CharacterProvider>()
-                                        .recoverResource(char.id, resource.id);
-                                  }
-                                : null,
-                            icon: const Icon(Icons.add_circle_outline),
-                            label: const Text('Recover'),
-                          ),
-                        ),
-                      ],
-                    ),
-                    if ((resource.notes ?? '').trim().isNotEmpty) ...[
-                      const SizedBox(height: 10),
-                      Text(
-                        resource.notes!,
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.7),
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildFeatureMetaChip(String label) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.deepPurpleAccent.withOpacity(0.18),
+        color: Colors.deepPurpleAccent.withValues(alpha: 0.18),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.22),
+          color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
         ),
       ),
       child: Text(
@@ -9967,6 +6414,13 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     List<JournalEntry> entries,
     List<Session> campaignSessions,
   ) {
+    final authProvider = context.read<AuthProvider>();
+    final currentUserId = authProvider.userId;
+
+    final isOwnedByCurrentUser = currentUserId != null &&
+        character.userId != null &&
+        character.userId == currentUserId;
+
     final screenWidth = MediaQuery.of(context).size.width;
     final isTablet = screenWidth >= 600;
     final isLargeTablet = screenWidth >= 900;
@@ -9982,45 +6436,66 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         .toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
-    if (entries.isEmpty) {
-      return Column(
-        children: [
-          Padding(
-            padding: EdgeInsets.fromLTRB(
-              isTablet ? 24 : 16,
-              isTablet ? 20 : 16,
-              isTablet ? 24 : 16,
-              8,
-            ),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: maxWidth),
-                child: Row(
+    Widget buildHeader() {
+      return Padding(
+        padding: EdgeInsets.fromLTRB(
+          isTablet ? 24 : 16,
+          isTablet ? 20 : 16,
+          isTablet ? 24 : 16,
+          8,
+        ),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: maxWidth),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
                     Expanded(
                       child: Text(
                         "Journal entries",
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.95),
+                          color: Colors.white.withValues(alpha: 0.95),
                           fontSize: isLargeTablet ? 22 : (isTablet ? 20 : 18),
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                     ),
                     TextButton.icon(
-                      onPressed: () => _showCreateEntryDialog(
-                        context,
-                        character,
-                        campaignSessions,
-                      ),
+                      onPressed: isOwnedByCurrentUser
+                          ? () => _showCreateEntryDialog(
+                                context,
+                                character,
+                                campaignSessions,
+                              )
+                          : null,
                       icon: const Icon(Icons.add),
                       label: const Text("Add note"),
                     ),
                   ],
                 ),
-              ),
+                if (!isOwnedByCurrentUser) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'You can view this journal, but only the owner can add notes.',
+                    style: TextStyle(
+                      color: Colors.orangeAccent.withValues(alpha: 0.8),
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
+        ),
+      );
+    }
+
+    if (entries.isEmpty) {
+      return Column(
+        children: [
+          buildHeader(),
           const Expanded(
             child: Center(
               child: Text(
@@ -10035,42 +6510,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
     return Column(
       children: [
-        Padding(
-          padding: EdgeInsets.fromLTRB(
-            isTablet ? 24 : 16,
-            isTablet ? 20 : 16,
-            isTablet ? 24 : 16,
-            8,
-          ),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: maxWidth),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      "Journal entries",
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.95),
-                        fontSize: isLargeTablet ? 22 : (isTablet ? 20 : 18),
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  TextButton.icon(
-                    onPressed: () => _showCreateEntryDialog(
-                      context,
-                      character,
-                      campaignSessions,
-                    ),
-                    icon: const Icon(Icons.add),
-                    label: const Text("Add note"),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
+        buildHeader(),
         Expanded(
           child: Center(
             child: ConstrainedBox(
@@ -10104,7 +6544,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     return Text(
       title,
       style: TextStyle(
-        color: Colors.white.withOpacity(0.85),
+        color: Colors.white.withValues(alpha: 0.85),
         fontSize: 15,
         fontWeight: FontWeight.w700,
       ),
@@ -10115,10 +6555,10 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.deepPurpleAccent.withOpacity(0.16),
+        color: Colors.deepPurpleAccent.withValues(alpha: 0.16),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.22),
+          color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
         ),
       ),
       child: Text(
@@ -10133,16 +6573,20 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
   }
 
   Widget _buildJournalCard(BuildContext context, JournalEntry entry) {
+    final authProvider = context.read<AuthProvider>();
+    final currentUserId = authProvider.userId;
+
+    final isOwnedByCurrentUser = currentUserId != null &&
+        entry.authorUserId != null &&
+        entry.authorUserId == currentUserId;
+
     final screenWidth = MediaQuery.of(context).size.width;
     final isTablet = screenWidth >= 600;
 
-    final hasAuthorPortrait = entry.authorCharacterPortraitPath != null &&
-        entry.authorCharacterPortraitPath!.isNotEmpty &&
-        File(entry.authorCharacterPortraitPath!).existsSync();
+    final hasAuthorPortrait =
+        hasDisplayableImagePath(entry.authorCharacterPortraitPath);
 
-    final hasAttachedImage = entry.imagePath != null &&
-        entry.imagePath!.isNotEmpty &&
-        File(entry.imagePath!).existsSync();
+    final hasAttachedImage = hasDisplayableImagePath(entry.imagePath);
 
     final isPrivate = entry.sessionId == null || entry.sessionId!.isEmpty;
 
@@ -10164,7 +6608,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 radius: isTablet ? 24 : 22,
                 backgroundColor: Colors.deepPurpleAccent,
                 backgroundImage: hasAuthorPortrait
-                    ? FileImage(File(entry.authorCharacterPortraitPath!))
+                    ? imageProviderFromPath(entry.authorCharacterPortraitPath!)
                     : null,
                 child: !hasAuthorPortrait
                     ? const Icon(Icons.person, color: Colors.white)
@@ -10174,7 +6618,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
               Container(
                 width: 2,
                 height: hasAttachedImage ? (isTablet ? 250 : 220) : 120,
-                color: Colors.deepPurpleAccent.withOpacity(0.30),
+                color: Colors.deepPurpleAccent.withValues(alpha: 0.30),
               ),
             ],
           ),
@@ -10185,11 +6629,11 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                 color: const Color(0xFF202028),
                 borderRadius: BorderRadius.circular(18),
                 border: Border.all(
-                  color: Colors.deepPurpleAccent.withOpacity(0.28),
+                  color: Colors.deepPurpleAccent.withValues(alpha: 0.28),
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.18),
+                    color: Colors.black.withValues(alpha: 0.18),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),
@@ -10230,63 +6674,81 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                           ],
                         ),
                       ),
-                      PopupMenuButton<String>(
-                        icon: const Icon(
-                          Icons.more_vert,
-                          color: Colors.white70,
+
+                      // Owner menu.
+                      if (isOwnedByCurrentUser)
+                        PopupMenuButton<String>(
+                          icon: const Icon(
+                            Icons.more_vert,
+                            color: Colors.white70,
+                          ),
+                          onSelected: (value) async {
+                            if (value == 'edit') {
+                              _showEditEntryDialog(context, entry);
+                            } else if (value == 'delete') {
+                              await context
+                                  .read<JournalEntryProvider>()
+                                  .removeEntry(entry.id);
+                            }
+                          },
+                          itemBuilder: (context) => const [
+                            PopupMenuItem(
+                              value: 'edit',
+                              child: Text('Edit'),
+                            ),
+                            PopupMenuItem(
+                              value: 'delete',
+                              child: Text('Delete'),
+                            ),
+                          ],
                         ),
-                        onSelected: (value) async {
-                          if (value == 'edit') {
-                            _showEditEntryDialog(context, entry);
-                          } else if (value == 'delete') {
-                            await context
-                                .read<JournalEntryProvider>()
-                                .removeEntry(entry.id);
-                          }
-                        },
-                        itemBuilder: (context) => const [
-                          PopupMenuItem(
-                            value: 'edit',
-                            child: Text('Edit'),
-                          ),
-                          PopupMenuItem(
-                            value: 'delete',
-                            child: Text('Delete'),
-                          ),
-                        ],
-                      ),
                     ],
                   ),
+
                   const SizedBox(height: 14),
+
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.03),
+                      color: Colors.white.withValues(alpha: 0.03),
                       borderRadius: BorderRadius.circular(14),
                       border: Border.all(
-                        color: Colors.white.withOpacity(0.05),
+                        color: Colors.white.withValues(alpha: 0.05),
                       ),
                     ),
                     child: LinkedCompendiumText(
                       text: entry.content,
                       campaignId: entry.campaignId,
                       style: TextStyle(
-                        color: Colors.white.withOpacity(0.92),
+                        color: Colors.white.withValues(alpha: 0.92),
                         height: 1.45,
                         fontSize: isTablet ? 15 : 14,
                       ),
                     ),
                   ),
+
                   if (hasAttachedImage) ...[
                     const SizedBox(height: 12),
                     ClipRRect(
                       borderRadius: BorderRadius.circular(14),
-                      child: Image.file(
-                        File(entry.imagePath!),
+                      child: buildImageFromPath(
+                        entry.imagePath!,
                         width: double.infinity,
                         height: isTablet ? 260 : 210,
                         fit: BoxFit.cover,
+                      ),
+                    ),
+                  ],
+
+                  // Read-only message.
+                  if (!isOwnedByCurrentUser) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Only the author can edit or delete this note.',
+                      style: TextStyle(
+                        color: Colors.orangeAccent.withValues(alpha: 0.8),
+                        fontSize: 11,
                       ),
                     ),
                   ],
@@ -10386,7 +6848,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     color: const Color(0xFF1B1B24),
                     borderRadius: BorderRadius.circular(24),
                     border: Border.all(
-                      color: Colors.deepPurpleAccent.withOpacity(0.22),
+                      color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
                     ),
                   ),
                   child: Column(
@@ -10426,7 +6888,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                             allowedSchools: allowedSchools,
                           ),
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.68),
+                            color: Colors.white.withValues(alpha: 0.68),
                             fontSize: 13,
                           ),
                         ),
@@ -10441,7 +6903,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                     'No spells available for this choice.',
                                     textAlign: TextAlign.center,
                                     style: TextStyle(
-                                      color: Colors.white.withOpacity(0.72),
+                                      color:
+                                          Colors.white.withValues(alpha: 0.72),
                                       fontSize: 14,
                                     ),
                                   ),
@@ -10488,7 +6951,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                         decoration: BoxDecoration(
                                           color: isSelected
                                               ? Colors.deepPurpleAccent
-                                                  .withOpacity(0.18)
+                                                  .withValues(alpha: 0.18)
                                               : const Color(0xFF202028),
                                           borderRadius: BorderRadius.circular(
                                             14,
@@ -10496,9 +6959,9 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                           border: Border.all(
                                             color: isSelected
                                                 ? Colors.deepPurpleAccent
-                                                    .withOpacity(0.95)
-                                                : Colors.white.withOpacity(
-                                                    0.08,
+                                                    .withValues(alpha: 0.95)
+                                                : Colors.white.withValues(
+                                                    alpha: 0.08,
                                                   ),
                                           ),
                                         ),
@@ -10604,6 +7067,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                         ch.featSelections[grant.sourceId] = map;
                                       });
 
+                                      if (!context.mounted) return;
                                       await _reconcileCharacterOptionSelections(
                                         context,
                                         char.id,
@@ -10621,198 +7085,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         ),
                       ),
                     ],
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Future<void> _showChooseOptionsDialog(
-    BuildContext context,
-    Character char,
-    CharacterChoiceGrant grant,
-  ) async {
-    final availableOptions =
-        CharacterAvailableOptionsEngine.getAvailableOptionsForGrant(
-      char,
-      grant,
-    );
-
-    final selectedOptions =
-        CharacterAvailableOptionsEngine.getSelectedOptionsForGrant(
-      char,
-      grant,
-    );
-
-    final currentSelectedIds = selectedOptions.map((e) => e.id).toSet();
-    final allOptions = availableOptions;
-
-    if (grant.category == CharacterOptionCategory.spell) {
-      await _showSpellGrantChooser(context, char, grant);
-      return;
-    }
-    if (allOptions.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No available options for this choice.'),
-        ),
-      );
-      return;
-    }
-
-    final tempSelectedIds = <String>{...currentSelectedIds};
-
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            final canSave = tempSelectedIds.length == grant.count;
-            final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-
-            return SafeArea(
-              child: Padding(
-                padding: EdgeInsets.only(
-                  left: 16,
-                  right: 16,
-                  top: 16,
-                  bottom: bottomInset + 16,
-                ),
-                child: SizedBox(
-                  height: MediaQuery.of(context).size.height * 0.82,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1B1B24),
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(
-                        color: Colors.deepPurpleAccent.withOpacity(0.22),
-                      ),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: 12),
-                        Center(
-                          child: Container(
-                            width: 42,
-                            height: 5,
-                            decoration: BoxDecoration(
-                              color: Colors.white24,
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 18),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 20),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Choose ${grant.title}',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                'Select ${grant.count} option${grant.count == 1 ? '' : 's'}',
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.68),
-                                  fontSize: 13,
-                                ),
-                              ),
-                              const SizedBox(height: 14),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: [
-                                  if (grant.sourceName != null &&
-                                      grant.sourceName!.trim().isNotEmpty)
-                                    _buildFeatureMetaChip(grant.sourceName!),
-                                  _buildFeatureMetaChip(
-                                    '${tempSelectedIds.length}/${grant.count} selected',
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Expanded(
-                          child: ListView.separated(
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                            itemCount: allOptions.length,
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(height: 10),
-                            itemBuilder: (context, index) {
-                              final option = allOptions[index];
-                              final isSelected =
-                                  tempSelectedIds.contains(option.id);
-
-                              return _buildOptionSelectionCard(
-                                option: option,
-                                isSelected: isSelected,
-                                onTap: () {
-                                  setDialogState(() {
-                                    if (grant.count == 1) {
-                                      tempSelectedIds
-                                        ..clear()
-                                        ..add(option.id);
-                                    } else {
-                                      if (isSelected) {
-                                        tempSelectedIds.remove(option.id);
-                                      } else if (tempSelectedIds.length <
-                                          grant.count) {
-                                        tempSelectedIds.add(option.id);
-                                      }
-                                    }
-                                  });
-                                },
-                              );
-                            },
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-                          child: Row(
-                            children: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(dialogContext),
-                                child: const Text('Cancel'),
-                              ),
-                              const Spacer(),
-                              FilledButton(
-                                onPressed: canSave
-                                    ? () async {
-                                        await _saveOptionSelectionForGrant(
-                                          context,
-                                          char,
-                                          grant,
-                                          tempSelectedIds.toList(),
-                                        );
-
-                                        if (!dialogContext.mounted) return;
-                                        Navigator.pop(dialogContext);
-                                      }
-                                    : null,
-                                child: Text(
-                                  'Save (${tempSelectedIds.length}/${grant.count})',
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
                   ),
                 ),
               ),
@@ -10952,7 +7224,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     color: const Color(0xFF1B1B24),
                     borderRadius: BorderRadius.circular(24),
                     border: Border.all(
-                      color: Colors.deepPurpleAccent.withOpacity(0.22),
+                      color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
                     ),
                   ),
                   child: Column(
@@ -10987,7 +7259,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         child: Text(
                           'Choose 1 spellcasting ability',
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.68),
+                            color: Colors.white.withValues(alpha: 0.68),
                             fontSize: 13,
                           ),
                         ),
@@ -11017,16 +7289,17 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                   padding: const EdgeInsets.all(14),
                                   decoration: BoxDecoration(
                                     color: isSelected
-                                        ? Colors.deepPurpleAccent.withOpacity(
-                                            0.18,
+                                        ? Colors.deepPurpleAccent.withValues(
+                                            alpha: 0.18,
                                           )
                                         : const Color(0xFF202028),
                                     borderRadius: BorderRadius.circular(14),
                                     border: Border.all(
                                       color: isSelected
                                           ? Colors.deepPurpleAccent
-                                              .withOpacity(0.95)
-                                          : Colors.white.withOpacity(0.08),
+                                              .withValues(alpha: 0.95)
+                                          : Colors.white
+                                              .withValues(alpha: 0.08),
                                     ),
                                   ),
                                   child: Row(
@@ -11090,6 +7363,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                         ch.featSelections[grant.sourceId] = map;
                                       });
 
+                                      if (!context.mounted) return;
                                       await _reconcileCharacterOptionSelections(
                                         context,
                                         char.id,
@@ -11197,7 +7471,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     color: const Color(0xFF1B1B24),
                     borderRadius: BorderRadius.circular(24),
                     border: Border.all(
-                      color: Colors.deepPurpleAccent.withOpacity(0.22),
+                      color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
                     ),
                   ),
                   child: Column(
@@ -11232,7 +7506,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         child: Text(
                           'Choose 1 class list',
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.68),
+                            color: Colors.white.withValues(alpha: 0.68),
                             fontSize: 13,
                           ),
                         ),
@@ -11266,14 +7540,15 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                   decoration: BoxDecoration(
                                     color: isSelected
                                         ? Colors.deepPurpleAccent
-                                            .withOpacity(0.18)
+                                            .withValues(alpha: 0.18)
                                         : const Color(0xFF202028),
                                     borderRadius: BorderRadius.circular(14),
                                     border: Border.all(
                                       color: isSelected
                                           ? Colors.deepPurpleAccent
-                                              .withOpacity(0.95)
-                                          : Colors.white.withOpacity(0.08),
+                                              .withValues(alpha: 0.95)
+                                          : Colors.white
+                                              .withValues(alpha: 0.08),
                                     ),
                                   ),
                                   child: Row(
@@ -11352,6 +7627,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                         },
                                       );
 
+                                      if (!context.mounted) return;
                                       await _reconcileCharacterOptionSelections(
                                         context,
                                         char.id,
@@ -11416,12 +7692,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     final selection = rawSelection is Map
         ? Map<String, dynamic>.from(rawSelection)
         : <String, dynamic>{};
-    print('--- MAGIC INITIATE SPELL PICKER DEBUG ---');
-    print('grant.title: ${grant.title}');
-    print('className raw: $className');
-    print('level: $level');
-    print('spellProvider loaded: ${spellProvider.isLoaded}');
-    print('total spells loaded: ${spellProvider.spells.length}');
     final tempSelectedIds = <String>{
       if (level == 0)
         ...((selection['selectedCantripIds'] as List?) ?? const [])
@@ -11429,10 +7699,6 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
       if (level == 1 && selection['selectedLevel1SpellId'] != null)
         selection['selectedLevel1SpellId'].toString(),
     };
-    print('filtered spells count: ${spells.length}');
-    if (spells.isNotEmpty) {
-      print('first 10 spells: ${spells.take(10).map((s) => s.name).toList()}');
-    }
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -11451,7 +7717,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     color: const Color(0xFF1B1B24),
                     borderRadius: BorderRadius.circular(24),
                     border: Border.all(
-                      color: Colors.deepPurpleAccent.withOpacity(0.22),
+                      color: Colors.deepPurpleAccent.withValues(alpha: 0.22),
                     ),
                   ),
                   child: Column(
@@ -11486,7 +7752,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         child: Text(
                           'Select $maxSelection option${maxSelection == 1 ? '' : 's'} from $className',
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.68),
+                            color: Colors.white.withValues(alpha: 0.68),
                             fontSize: 13,
                           ),
                         ),
@@ -11529,14 +7795,15 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                   decoration: BoxDecoration(
                                     color: isSelected
                                         ? Colors.deepPurpleAccent
-                                            .withOpacity(0.18)
+                                            .withValues(alpha: 0.18)
                                         : const Color(0xFF202028),
                                     borderRadius: BorderRadius.circular(14),
                                     border: Border.all(
                                       color: isSelected
                                           ? Colors.deepPurpleAccent
-                                              .withOpacity(0.95)
-                                          : Colors.white.withOpacity(0.08),
+                                              .withValues(alpha: 0.95)
+                                          : Colors.white
+                                              .withValues(alpha: 0.08),
                                     ),
                                   ),
                                   child: Row(
@@ -11630,6 +7897,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                         },
                                       );
 
+                                      if (!context.mounted) return;
                                       await _reconcileCharacterOptionSelections(
                                         context,
                                         char.id,
@@ -11664,36 +7932,11 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     return value.replaceAll(' Spells', '').trim();
   }
 
-  Future<void> _saveOptionSelectionForGrant(
-    BuildContext context,
-    Character char,
-    CharacterChoiceGrant grant,
-    List<String> selectedOptionIds,
-  ) async {
-    await context.read<CharacterProvider>().updateCharacterById(char.id, (ch) {
-      final existingIndex = ch.selectedOptionGroups.indexWhere(
-        (group) => group.choiceId == grant.choiceId,
-      );
-
-      final newGroup = CharacterSelectedOptionGroup(
-        choiceId: grant.choiceId,
-        category: grant.category,
-        selectedOptionIds: selectedOptionIds,
-      );
-
-      if (existingIndex >= 0) {
-        ch.selectedOptionGroups[existingIndex] = newGroup;
-      } else {
-        ch.selectedOptionGroups.add(newGroup);
-      }
-    });
-    await _reconcileCharacterOptionSelections(context, char.id);
-  }
-
   Future<void> _addSpellToCharacter(
     BuildContext context,
     Character char,
     String spellId,
+    String className,
   ) async {
     final provider = context.read<CharacterProvider>();
     final spellProvider = context.read<SpellProvider>();
@@ -11701,20 +7944,31 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
     if (spell == null) return;
 
-    final selectedSpells = char.spellIds
+    final selectedSpellIds = _knownSpellIdsForClass(char, className);
+    final selectedSpells = selectedSpellIds
         .map((id) => spellProvider.getById(id))
         .whereType<Spell>()
         .toList();
 
-    if (SpellcastingRules.usesKnownSpells(char)) {
+    final subclassName = char.subclassForClass(className);
+    final classLevel = _levelForSpellcastingClass(char, className);
+
+    if (SpellcastingRules.usesKnownSpellsForClassAndSubclass(
+      className: className,
+      subclassName: subclassName,
+    )) {
       final nonCantripSelected =
           selectedSpells.where((s) => s.level > 0).length;
       final cantripSelected = selectedSpells.where((s) => s.level == 0).length;
 
-      final knownSpellLimit = _knownSpellLimit(char);
-      final knownCantripLimit = _knownCantripLimit(char);
+      final knownSpellLimit = _knownSpellLimitForClass(char, className);
+      final knownCantripLimit = _knownCantripLimitForClass(char, className);
 
-      if (spell.level == 0 && SpellcastingRules.usesKnownCantrips(char)) {
+      if (spell.level == 0 &&
+          SpellcastingRules.usesKnownCantripsForClassAndSubclass(
+            className: className,
+            subclassName: subclassName,
+          )) {
         if (cantripSelected >= knownCantripLimit) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -11739,24 +7993,68 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
           return;
         }
       }
+
+      if (!SpellcastingRules.canLearnThirdCasterSpell(
+        className: className,
+        classLevel: classLevel,
+        subclassName: subclassName,
+        spell: spell,
+        currentKnownSpells: selectedSpells,
+      )) {
+        final schools = SpellcastingRules.restrictedSchoolsForThirdCaster(
+          className: className,
+          subclassName: subclassName,
+        ).join(' or ');
+        final freeLimit = SpellcastingRules.unrestrictedThirdCasterSpellLimit(
+          className: className,
+          classLevel: classLevel,
+          subclassName: subclassName,
+        );
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              schools.isEmpty
+                  ? 'This spell is not available for this class.'
+                  : 'Choose $schools spells, except for $freeLimit unrestricted pick${freeLimit == 1 ? '' : 's'} at this class level.',
+            ),
+          ),
+        );
+        return;
+      }
     }
 
     await provider.updateCharacterById(char.id, (ch) {
-      if (!ch.spellIds.contains(spellId)) {
-        ch.spellIds.add(spellId);
-      }
+      ch.addKnownSpellForClass(className, spellId);
     });
   }
 
-  void _openSpellSelector(BuildContext context, Character char) {
+  void _openSpellSelector(
+    BuildContext context,
+    Character char,
+    String className,
+  ) {
     final spellProvider = context.read<SpellProvider>();
 
     const includeClassVariants = false;
+    final subclassName = char.subclassForClass(className);
+    final currentSpells = _knownSpellIdsForClass(char, className)
+        .map((id) => spellProvider.getById(id))
+        .whereType<Spell>()
+        .toList();
 
-    final filteredSpells = SpellcastingRules.spellsForCharacterClassAndLevel(
-      char,
-      spellProvider.spells,
+    final filteredSpells = SpellcastingRules.spellsForClassAndLevel(
+      className: className,
+      classLevel: _levelForSpellcastingClass(char, className),
+      maxSlotLevel: SpellcastingRules.maxSpellLevelForClassLevel(
+        className: className,
+        classLevel: _levelForSpellcastingClass(char, className),
+        subclassName: subclassName,
+      ),
+      spells: spellProvider.spells,
+      subclassName: subclassName,
       includeClassVariants: includeClassVariants,
+      currentKnownSpells: currentSpells,
     )..sort((a, b) {
         final levelCompare = a.level.compareTo(b.level);
         if (levelCompare != 0) return levelCompare;
@@ -11771,11 +8069,11 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (_) {
-        return _SpellSelectorModal(
+        return CharacterSpellSelectorModal(
           spells: filteredSpells,
-          excludedSpellIds: char.spellIds.toSet(),
+          excludedSpellIds: _knownSpellIdsForClass(char, className).toSet(),
           onSelect: (spell) async {
-            await _addSpellToCharacter(context, char, spell.id);
+            await _addSpellToCharacter(context, char, spell.id, className);
 
             if (context.mounted) {
               Navigator.pop(context);
@@ -11791,6 +8089,23 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     Character character,
     List<Session> campaignSessions,
   ) {
+    final authProvider = context.read<AuthProvider>();
+    final journalProvider = context.read<JournalEntryProvider>();
+    final currentUserId = authProvider.userId;
+
+    final isOwnedByCurrentUser = currentUserId != null &&
+        character.userId != null &&
+        character.userId == currentUserId;
+
+    if (!isOwnedByCurrentUser) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Only the character owner can create notes.'),
+        ),
+      );
+      return;
+    }
+
     final controller = TextEditingController();
     Session? selectedSession =
         campaignSessions.isNotEmpty ? campaignSessions.first : null;
@@ -11909,8 +8224,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         const SizedBox(height: 12),
                         ClipRRect(
                           borderRadius: BorderRadius.circular(12),
-                          child: Image.file(
-                            File(selectedImagePath!),
+                          child: buildImageFromPath(
+                            selectedImagePath!,
                             height: 150,
                             width: double.infinity,
                             fit: BoxFit.cover,
@@ -11932,12 +8247,32 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     if (content.isEmpty) return;
                     if (!isPrivateNote && selectedSession == null) return;
 
+                    final entryId =
+                        DateTime.now().millisecondsSinceEpoch.toString();
+                    String? resolvedImagePath;
+                    try {
+                      resolvedImagePath = await _uploadPickedImageIfNeeded(
+                        selectedImagePath,
+                        ownerUserId: currentUserId,
+                        folder: 'journal-entries',
+                        entityId: entryId,
+                      );
+                    } catch (e) {
+                      if (!dialogContext.mounted) return;
+                      ScaffoldMessenger.of(dialogContext).showSnackBar(
+                        const SnackBar(
+                          content: Text('Could not upload the image.'),
+                        ),
+                      );
+                      return;
+                    }
+
                     final characterName = character.name.isEmpty
                         ? 'Unnamed Character'
                         : character.name;
 
                     final entry = JournalEntry(
-                      id: DateTime.now().millisecondsSinceEpoch.toString(),
+                      id: entryId,
                       campaignId: character.campaignId ??
                           selectedSession?.campaignId ??
                           '',
@@ -11947,14 +8282,13 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       authorCharacterName: characterName,
                       authorCharacterPortraitPath: character.portraitPath,
                       authorCharacterId: character.id,
+                      authorUserId: currentUserId,
                       content: content,
-                      imagePath: selectedImagePath,
+                      imagePath: resolvedImagePath,
                       createdAt: DateTime.now(),
                     );
 
-                    await dialogContext
-                        .read<JournalEntryProvider>()
-                        .addEntry(entry);
+                    await journalProvider.addEntry(entry);
 
                     if (!dialogContext.mounted) return;
                     Navigator.pop(dialogContext);
@@ -11975,6 +8309,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
     List<EquipmentCompendiumItem> equipmentItems,
     List<CompendiumEntry> campaignItemEntries,
   ) {
+    final characterProvider = context.read<CharacterProvider>();
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
     final hasEquipmentItems = equipmentItems.isNotEmpty;
     final hasCampaignItems = campaignItemEntries.isNotEmpty;
 
@@ -11989,35 +8325,107 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
         hasCampaignItems ? campaignItemEntries.first : null;
 
     final nameController = TextEditingController();
+    final damageDiceController = TextEditingController(text: '1d8');
+    final damageTypeController = TextEditingController(text: 'slashing');
     final quantityController = TextEditingController(text: '1');
     final notesController = TextEditingController();
     String? selectedImagePath;
+    bool customWeaponFinesse = false;
+    bool customWeaponRanged = false;
+    bool customWeaponTwoHanded = false;
 
     showDialog(
       context: context,
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            final tokens = context.stitch;
             final isManual = selectedSource == 'manual';
             final isEquipment = selectedSource == 'equipment';
             final isCampaign = selectedSource == 'campaign';
+            final isCustomWeapon = selectedSource == 'customWeapon';
 
             return AlertDialog(
-              title: const Text('Add item'),
+              backgroundColor: tokens.panel,
+              surfaceTintColor: Colors.transparent,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(tokens.radiusMd),
+                side: BorderSide(
+                  color: tokens.accentRead.withValues(alpha: 0.26),
+                ),
+              ),
+              titlePadding: const EdgeInsets.fromLTRB(18, 18, 18, 8),
+              contentPadding: const EdgeInsets.fromLTRB(18, 8, 18, 10),
+              actionsPadding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+              title: Row(
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: tokens.accentRead.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(tokens.radiusSm),
+                      border: Border.all(
+                        color: tokens.accentRead.withValues(alpha: 0.24),
+                      ),
+                    ),
+                    child: Icon(
+                      Icons.add_shopping_cart_outlined,
+                      color: tokens.accentReadSoft,
+                      size: 21,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'ADD ITEM',
+                          style: TextStyle(
+                            color:
+                                tokens.accentReadSoft.withValues(alpha: 0.90),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          isManual
+                              ? 'Create a custom inventory entry'
+                              : isCustomWeapon
+                                  ? 'Create a custom combat weapon'
+                                  : isEquipment
+                                      ? 'Grant gear from the armory'
+                                      : 'Grant from campaign compendium',
+                          style: TextStyle(
+                            color: tokens.textSecondary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
               content: SingleChildScrollView(
                 child: SizedBox(
-                  width: 360,
+                  width: 460,
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Align(
                         alignment: Alignment.centerLeft,
                         child: Text(
-                          'Source',
+                          'SOURCE',
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.7),
+                            color:
+                                tokens.accentReadSoft.withValues(alpha: 0.82),
                             fontSize: 12,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0,
                           ),
                         ),
                       ),
@@ -12029,9 +8437,42 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                           ChoiceChip(
                             label: const Text('Manual'),
                             selected: isManual,
+                            selectedColor:
+                                tokens.accentInfo.withValues(alpha: 0.18),
+                            backgroundColor: tokens.surface,
+                            side: BorderSide(
+                              color: isManual
+                                  ? tokens.accentInfo.withValues(alpha: 0.34)
+                                  : Colors.white.withValues(alpha: 0.08),
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius:
+                                  BorderRadius.circular(tokens.radiusSm),
+                            ),
                             onSelected: (_) {
                               setDialogState(() {
                                 selectedSource = 'manual';
+                              });
+                            },
+                          ),
+                          ChoiceChip(
+                            label: const Text('Custom weapon'),
+                            selected: isCustomWeapon,
+                            selectedColor:
+                                tokens.accentAction.withValues(alpha: 0.18),
+                            backgroundColor: tokens.surface,
+                            side: BorderSide(
+                              color: isCustomWeapon
+                                  ? tokens.accentAction.withValues(alpha: 0.34)
+                                  : Colors.white.withValues(alpha: 0.08),
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius:
+                                  BorderRadius.circular(tokens.radiusSm),
+                            ),
+                            onSelected: (_) {
+                              setDialogState(() {
+                                selectedSource = 'customWeapon';
                               });
                             },
                           ),
@@ -12039,6 +8480,18 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                             ChoiceChip(
                               label: const Text('Armory'),
                               selected: isEquipment,
+                              selectedColor:
+                                  tokens.accentRead.withValues(alpha: 0.18),
+                              backgroundColor: tokens.surface,
+                              side: BorderSide(
+                                color: isEquipment
+                                    ? tokens.accentRead.withValues(alpha: 0.34)
+                                    : Colors.white.withValues(alpha: 0.08),
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius:
+                                    BorderRadius.circular(tokens.radiusSm),
+                              ),
                               onSelected: (_) {
                                 setDialogState(() {
                                   selectedSource = 'equipment';
@@ -12050,6 +8503,18 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                             ChoiceChip(
                               label: const Text('Campaign Compendium'),
                               selected: isCampaign,
+                              selectedColor:
+                                  tokens.accentMagic.withValues(alpha: 0.18),
+                              backgroundColor: tokens.surface,
+                              side: BorderSide(
+                                color: isCampaign
+                                    ? tokens.accentMagic.withValues(alpha: 0.34)
+                                    : Colors.white.withValues(alpha: 0.08),
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius:
+                                    BorderRadius.circular(tokens.radiusSm),
+                              ),
                               onSelected: (_) {
                                 setDialogState(() {
                                   selectedSource = 'campaign';
@@ -12064,11 +8529,13 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         Align(
                           alignment: Alignment.centerLeft,
                           child: Text(
-                            'Armory item',
+                            'ARMORY ITEM',
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.7),
+                              color:
+                                  tokens.accentReadSoft.withValues(alpha: 0.82),
                               fontSize: 12,
-                              fontWeight: FontWeight.w600,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0,
                             ),
                           ),
                         ),
@@ -12093,11 +8560,12 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                             width: double.infinity,
                             padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF202028),
-                              borderRadius: BorderRadius.circular(12),
+                              color: tokens.surface,
+                              borderRadius:
+                                  BorderRadius.circular(tokens.radiusSm),
                               border: Border.all(
                                 color:
-                                    Colors.deepPurpleAccent.withOpacity(0.28),
+                                    tokens.accentRead.withValues(alpha: 0.24),
                               ),
                             ),
                             child: selectedEquipmentEntry == null
@@ -12123,9 +8591,10 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                                 .trim()
                                                 .isEmpty
                                             ? selectedEquipmentEntry!.source
-                                            : '${selectedEquipmentEntry!.displayCategory} • ${selectedEquipmentEntry!.source}',
+                                            : '${selectedEquipmentEntry!.displayCategory} - ${selectedEquipmentEntry!.source}',
                                         style: TextStyle(
-                                          color: Colors.white.withOpacity(0.68),
+                                          color: Colors.white
+                                              .withValues(alpha: 0.68),
                                           fontSize: 12,
                                         ),
                                       ),
@@ -12140,8 +8609,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                           maxLines: 3,
                                           overflow: TextOverflow.ellipsis,
                                           style: TextStyle(
-                                            color:
-                                                Colors.white.withOpacity(0.72),
+                                            color: Colors.white
+                                                .withValues(alpha: 0.72),
                                             fontSize: 12,
                                             height: 1.35,
                                           ),
@@ -12151,8 +8620,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                                       Text(
                                         'Tap to change',
                                         style: TextStyle(
-                                          color: Colors.deepPurpleAccent
-                                              .withOpacity(0.95),
+                                          color: tokens.accentReadSoft
+                                              .withValues(alpha: 0.95),
                                           fontSize: 12,
                                           fontWeight: FontWeight.w600,
                                         ),
@@ -12191,11 +8660,12 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                             width: double.infinity,
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF202028),
-                              borderRadius: BorderRadius.circular(12),
+                              color: tokens.surface,
+                              borderRadius:
+                                  BorderRadius.circular(tokens.radiusSm),
                               border: Border.all(
                                 color:
-                                    Colors.deepPurpleAccent.withOpacity(0.22),
+                                    tokens.accentMagic.withValues(alpha: 0.22),
                               ),
                             ),
                             child: Text(
@@ -12203,7 +8673,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                               maxLines: 4,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                color: Colors.white.withOpacity(0.72),
+                                color: Colors.white.withValues(alpha: 0.72),
                                 fontSize: 12,
                                 height: 1.35,
                               ),
@@ -12211,14 +8681,84 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                           ),
                         ],
                       ],
-                      if (isManual) ...[
+                      if (isManual || isCustomWeapon) ...[
                         const SizedBox(height: 16),
                         TextField(
                           controller: nameController,
-                          decoration: const InputDecoration(
-                            labelText: 'Item name',
-                            hintText: 'Example: Rusty key',
+                          decoration: InputDecoration(
+                            labelText:
+                                isCustomWeapon ? 'Weapon name' : 'Item name',
+                            hintText: isCustomWeapon
+                                ? 'Example: Moonsteel Saber'
+                                : 'Example: Rusty key',
                           ),
+                        ),
+                      ],
+                      if (isCustomWeapon) ...[
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: damageDiceController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Damage dice',
+                                  hintText: '1d8',
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: TextField(
+                                controller: damageTypeController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Damage type',
+                                  hintText: 'slashing',
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        SwitchListTile(
+                          value: customWeaponFinesse,
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Finesse'),
+                          subtitle: const Text(
+                              'Uses STR or DEX, whichever is better.'),
+                          onChanged: (value) {
+                            setDialogState(() {
+                              customWeaponFinesse = value;
+                            });
+                          },
+                        ),
+                        SwitchListTile(
+                          value: customWeaponRanged,
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Ranged'),
+                          subtitle:
+                              const Text('Uses DEX for attacks and damage.'),
+                          onChanged: (value) {
+                            setDialogState(() {
+                              customWeaponRanged = value;
+                              if (value) customWeaponFinesse = false;
+                            });
+                          },
+                        ),
+                        SwitchListTile(
+                          value: customWeaponTwoHanded,
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Two-handed'),
+                          subtitle: const Text(
+                              'Can only be equipped in the main hand.'),
+                          onChanged: (value) {
+                            setDialogState(() {
+                              customWeaponTwoHanded = value;
+                            });
+                          },
                         ),
                       ],
                       const SizedBox(height: 12),
@@ -12235,12 +8775,12 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         maxLines: 3,
                         decoration: InputDecoration(
                           labelText: 'Notes',
-                          hintText: isManual
-                              ? 'Optional notes about this manual item...'
+                          hintText: isManual || isCustomWeapon
+                              ? 'Optional notes about this custom item...'
                               : 'Optional notes about this item...',
                         ),
                       ),
-                      if (isManual) ...[
+                      if (isManual || isCustomWeapon) ...[
                         const SizedBox(height: 16),
                         Row(
                           children: [
@@ -12280,8 +8820,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                           const SizedBox(height: 12),
                           ClipRRect(
                             borderRadius: BorderRadius.circular(12),
-                            child: Image.file(
-                              File(selectedImagePath!),
+                            child: buildImageFromPath(
+                              selectedImagePath!,
                               height: 150,
                               width: 320,
                               fit: BoxFit.cover,
@@ -12310,12 +8850,71 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         InventoryItemSourceType.manual;
                     String? description;
                     String? imagePath;
+                    final itemId =
+                        DateTime.now().millisecondsSinceEpoch.toString();
 
                     if (isManual) {
                       itemName = nameController.text.trim();
                       sourceType = InventoryItemSourceType.manual;
                       description = null;
-                      imagePath = selectedImagePath;
+                      try {
+                        imagePath = await _uploadPickedImageIfNeeded(
+                          selectedImagePath,
+                          ownerUserId: context.read<AuthProvider>().userId,
+                          folder: 'inventory-items',
+                          entityId: itemId,
+                        );
+                      } catch (e) {
+                        if (!dialogContext.mounted) return;
+                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                          const SnackBar(
+                            content: Text('Could not upload the image.'),
+                          ),
+                        );
+                        return;
+                      }
+                    } else if (isCustomWeapon) {
+                      itemName = nameController.text.trim();
+                      sourceType = InventoryItemSourceType.manual;
+                      final damageDice = damageDiceController.text.trim();
+                      final damageType = damageTypeController.text.trim();
+                      final validDice = RegExp(
+                        r'^\d*d\d+$',
+                        caseSensitive: false,
+                      ).hasMatch(damageDice);
+                      if (!validDice) {
+                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Use a dice formula like 1d8 or 2d6.',
+                            ),
+                          ),
+                        );
+                        return;
+                      }
+                      description = [
+                        'Custom weapon.',
+                        'Damage: $damageDice${damageType.isEmpty ? '' : ' $damageType'}.',
+                        if (customWeaponFinesse) 'Property: Finesse.',
+                        if (customWeaponRanged) 'Property: Ranged.',
+                        if (customWeaponTwoHanded) 'Property: Two-handed.',
+                      ].join('\n');
+                      try {
+                        imagePath = await _uploadPickedImageIfNeeded(
+                          selectedImagePath,
+                          ownerUserId: context.read<AuthProvider>().userId,
+                          folder: 'inventory-items',
+                          entityId: itemId,
+                        );
+                      } catch (e) {
+                        if (!dialogContext.mounted) return;
+                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                          const SnackBar(
+                            content: Text('Could not upload the image.'),
+                          ),
+                        );
+                        return;
+                      }
                     } else if (isEquipment) {
                       if (selectedEquipmentEntry == null) return;
 
@@ -12344,7 +8943,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     if (itemName.isEmpty) return;
 
                     final item = CharacterInventoryItem(
-                      id: DateTime.now().millisecondsSinceEpoch.toString(),
+                      id: itemId,
                       name: itemName,
                       compendiumEntryId: compendiumEntryId,
                       sourceType: sourceType,
@@ -12355,28 +8954,57 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       description: description,
                       imagePath: imagePath,
                       createdAt: DateTime.now(),
+                      isEquippable: isCustomWeapon,
+                      itemType: isCustomWeapon
+                          ? EquipItemType.weapon
+                          : EquipItemType.generic,
+                      allowedSlots: isCustomWeapon
+                          ? [
+                              EquipSlot.weaponMainHand,
+                              if (!customWeaponTwoHanded && !customWeaponRanged)
+                                EquipSlot.weaponOffHand,
+                            ]
+                          : const [],
+                      damageDice: isCustomWeapon
+                          ? damageDiceController.text.trim()
+                          : null,
+                      damageType: isCustomWeapon
+                          ? damageTypeController.text.trim()
+                          : null,
+                      isFinesse: isCustomWeapon && customWeaponFinesse,
+                      isRanged: isCustomWeapon && customWeaponRanged,
+                      isTwoHanded: isCustomWeapon && customWeaponTwoHanded,
                     );
 
-                    await dialogContext
-                        .read<CharacterProvider>()
-                        .addInventoryItemToCharacter(character.id, item);
+                    await characterProvider.addInventoryItemToCharacter(
+                      character.id,
+                      item,
+                    );
 
                     if (!dialogContext.mounted) return;
                     Navigator.of(dialogContext).pop();
 
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    scaffoldMessenger.showSnackBar(
                       SnackBar(
                         content: Text(
                           isManual
                               ? 'Manual item added'
-                              : isEquipment
-                                  ? 'Item granted from armory'
-                                  : 'Item granted from campaign compendium',
+                              : isCustomWeapon
+                                  ? 'Custom weapon added'
+                                  : isEquipment
+                                      ? 'Item granted from armory'
+                                      : 'Item granted from campaign compendium',
                         ),
                       ),
                     );
                   },
-                  child: Text(isManual ? 'Add' : 'Grant'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: tokens.accentRead,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: Text(
+                    isManual || isCustomWeapon ? 'Add' : 'Grant',
+                  ),
                 ),
               ],
             );
@@ -12394,6 +9022,7 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
 
     final sessionProvider = context.read<SessionProvider>();
     final characterProvider = context.read<CharacterProvider>();
+    final journalProvider = context.read<JournalEntryProvider>();
 
     final character = characterProvider.characters
         .firstWhere((c) => c.id == entry.authorCharacterId);
@@ -12519,8 +9148,8 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                         const SizedBox(height: 12),
                         ClipRRect(
                           borderRadius: BorderRadius.circular(12),
-                          child: Image.file(
-                            File(selectedImagePath!),
+                          child: buildImageFromPath(
+                            selectedImagePath!,
                             height: 150,
                             width: double.infinity,
                             fit: BoxFit.cover,
@@ -12542,6 +9171,24 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                     if (updatedContent.isEmpty) return;
                     if (!isPrivate && selectedSession == null) return;
 
+                    String? resolvedImagePath;
+                    try {
+                      resolvedImagePath = await _uploadPickedImageIfNeeded(
+                        selectedImagePath,
+                        ownerUserId: entry.authorUserId,
+                        folder: 'journal-entries',
+                        entityId: entry.id,
+                      );
+                    } catch (e) {
+                      if (!dialogContext.mounted) return;
+                      ScaffoldMessenger.of(dialogContext).showSnackBar(
+                        const SnackBar(
+                          content: Text('Could not upload the image.'),
+                        ),
+                      );
+                      return;
+                    }
+
                     final updated = JournalEntry(
                       id: entry.id,
                       campaignId: entry.campaignId,
@@ -12552,14 +9199,13 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
                       authorCharacterPortraitPath:
                           entry.authorCharacterPortraitPath,
                       authorCharacterId: entry.authorCharacterId,
+                      authorUserId: entry.authorUserId,
                       content: updatedContent,
-                      imagePath: selectedImagePath,
+                      imagePath: resolvedImagePath,
                       createdAt: entry.createdAt,
                     );
 
-                    await dialogContext
-                        .read<JournalEntryProvider>()
-                        .updateEntry(updated);
+                    await journalProvider.updateEntry(updated);
 
                     if (!dialogContext.mounted) return;
                     Navigator.pop(dialogContext);
@@ -12571,6 +9217,30 @@ class _CharacterSheetScreenState extends State<CharacterSheetScreen> {
           },
         );
       },
+    );
+  }
+
+  Future<String?> _uploadPickedImageIfNeeded(
+    String? imagePath, {
+    required String? ownerUserId,
+    required String folder,
+    required String entityId,
+  }) async {
+    if (imagePath == null || imagePath.trim().isEmpty) return null;
+    if (isRemoteImagePath(imagePath)) return imagePath;
+    if (isAssetImagePath(imagePath)) return imagePath;
+    if (ownerUserId == null || ownerUserId.trim().isEmpty) {
+      throw StateError('Cannot upload an image without an owner user id.');
+    }
+    if (!File(imagePath).existsSync()) {
+      throw StateError('Cannot upload an image because the file is missing.');
+    }
+
+    return SupabaseStorageService.uploadUserImage(
+      file: File(imagePath),
+      ownerUserId: ownerUserId,
+      folder: folder,
+      entityId: entityId,
     );
   }
 

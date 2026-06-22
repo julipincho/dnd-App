@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import '../models/dnd_class.dart';
 import '../services/class_data_service.dart';
 import '../screens/subclass_detail_screen.dart';
+import '../theme.dart';
+import '../widgets/stitch_codex_ui.dart';
 
 class SubclassSelectionScreen extends StatefulWidget {
   final String classIndex;
@@ -29,6 +33,7 @@ class _SubclassSelectionScreenState extends State<SubclassSelectionScreen> {
 
   Future<void> _load() async {
     final cls = await ClassDataService.loadClass(widget.classIndex);
+    if (!mounted) return;
 
     setState(() {
       _cls = cls;
@@ -52,106 +57,148 @@ class _SubclassSelectionScreenState extends State<SubclassSelectionScreen> {
   Widget build(BuildContext context) {
     if (_loading || _cls == null) {
       return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+        backgroundColor: StitchCodexPalette.ground,
+        body: StitchCodexBackground(
+          child: Center(
+            child: CircularProgressIndicator(
+              color: StitchCodexPalette.bronze,
+            ),
+          ),
+        ),
       );
     }
 
     final subs = _cls!.subclasses;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF2B1A1A),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF3C2A2A),
-        title: Text("Choose ${_cls!.name} Subclass"),
+      backgroundColor: StitchCodexPalette.ground,
+      appBar: StitchAppBar(
+        showBrand: false,
+        backgroundColor: StitchCodexPalette.ground,
+        title: const Text(
+          'CHOOSE SUBCLASS',
+          style: TextStyle(
+            color: StitchCodexPalette.textPrimary,
+            fontFamily: StitchTypography.display,
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 1.4,
+          ),
+        ),
       ),
-      body: ListView.builder(
-        itemCount: subs.length,
-        padding: const EdgeInsets.all(16),
-        itemBuilder: (_, i) {
-          final sub = subs[i];
+      body: StitchCodexBackground(
+        child: ListView.builder(
+          itemCount: subs.length + 1,
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
+          itemBuilder: (_, i) {
+            if (i == 0) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 22),
+                child: StitchCodexPageHeader(
+                  eyebrow: 'SPECIALIZATION · ${_cls!.name.toUpperCase()}',
+                  title: 'Choose your path',
+                  subtitle:
+                      'A subclass defines the tradition and specialized talents your hero develops.',
+                ),
+              );
+            }
+            final sub = subs[i - 1];
 
-          return FutureBuilder<ImageProvider?>(
-            future: _loadSubclassImage(sub.name),
-            builder: (_, snapshot) {
-              final img = snapshot.data;
+            return FutureBuilder<ImageProvider?>(
+              future: _loadSubclassImage(sub.name),
+              builder: (_, snapshot) {
+                final img = snapshot.data;
 
-              return GestureDetector(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => SubclassDetailScreen(
-                        classIndex: _cls!.index,
-                        subclassName: sub.name,
-                      ),
-                    ),
-                  );
-                },
-                child: Container(
-                  padding: const EdgeInsets.all(18),
-                  margin: const EdgeInsets.only(bottom: 12),
-                  decoration: BoxDecoration(
-                    color: Colors.deepPurple.withOpacity(.25),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.deepPurpleAccent),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: img != null
-                            ? Image(
-                                image: img,
-                                width: 70,
-                                height: 70,
-                                fit: BoxFit.cover,
-                              )
-                            : Container(
-                                width: 70,
-                                height: 70,
-                                color: Colors.black26,
-                                child: const Icon(
-                                  Icons.menu_book,
-                                  color: Colors.white38,
-                                ),
-                              ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(2),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => SubclassDetailScreen(
+                              classIndex: _cls!.index,
+                              subclassName: sub.name,
+                            ),
+                          ),
+                        );
+                      },
+                      child: Ink(
+                        padding: const EdgeInsets.all(18),
+                        decoration: BoxDecoration(
+                          color: StitchCodexPalette.surfaceMuted,
+                          borderRadius: BorderRadius.circular(2),
+                          border: Border.all(
+                            color: StitchCodexPalette.bronze
+                                .withValues(alpha: 0.18),
+                          ),
+                        ),
+                        child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              sub.name,
-                              style: const TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(2),
+                              child: img != null
+                                  ? Image(
+                                      image: img,
+                                      width: 70,
+                                      height: 70,
+                                      fit: BoxFit.cover,
+                                    )
+                                  : Container(
+                                      width: 70,
+                                      height: 70,
+                                      color: StitchCodexPalette.surface,
+                                      child: const Icon(
+                                        Icons.menu_book_outlined,
+                                        color: StitchCodexPalette.bronze,
+                                      ),
+                                    ),
                             ),
-                            const SizedBox(height: 6),
-                            Text(
-                              sub.description?.isNotEmpty == true
-                                  ? sub.description!
-                                  : "No description available.",
-                              maxLines: 4,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.white70,
-                                fontSize: 14,
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    sub.name,
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontFamily: StitchTypography.display,
+                                      fontWeight: FontWeight.w600,
+                                      color: StitchCodexPalette.textPrimary,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    sub.description?.isNotEmpty == true
+                                        ? sub.description!
+                                        : "No description available.",
+                                    maxLines: 4,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: StitchCodexPalette.textMuted,
+                                      fontFamily: StitchTypography.body,
+                                      fontSize: 14,
+                                      height: 1.4,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ],
                         ),
                       ),
-                    ],
+                    ),
                   ),
-                ),
-              );
-            },
-          );
-        },
+                );
+              },
+            );
+          },
+        ),
       ),
     );
   }

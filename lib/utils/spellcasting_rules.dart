@@ -5,12 +5,20 @@ enum SpellcastingProgression {
   none,
   fullCaster,
   halfCaster,
+  thirdCaster,
   warlock,
 }
 
 class SpellcastingRules {
   static SpellcastingProgression getProgression(Character char) {
-    switch (char.charClass.toLowerCase().trim()) {
+    return getProgressionForClassAndSubclass(
+      className: char.charClass,
+      subclassName: char.subclassForClass(char.charClass) ?? char.subclass,
+    );
+  }
+
+  static SpellcastingProgression getProgressionForClass(String className) {
+    switch (className.toLowerCase().trim()) {
       case 'bard':
       case 'cleric':
       case 'druid':
@@ -31,8 +39,171 @@ class SpellcastingRules {
     }
   }
 
+  static SpellcastingProgression getProgressionForClassAndSubclass({
+    required String className,
+    String? subclassName,
+  }) {
+    final baseProgression = getProgressionForClass(className);
+    if (baseProgression != SpellcastingProgression.none) {
+      return baseProgression;
+    }
+
+    return _isThirdCasterSubclass(
+      className: className,
+      subclassName: subclassName,
+    )
+        ? SpellcastingProgression.thirdCaster
+        : SpellcastingProgression.none;
+  }
+
+  static bool _isThirdCasterSubclass({
+    required String className,
+    String? subclassName,
+  }) {
+    final normalizedClassName = className.toLowerCase().trim();
+    final normalizedSubclass = subclassName?.toLowerCase().trim() ?? '';
+
+    return (normalizedClassName == 'fighter' &&
+            normalizedSubclass.contains('eldritch knight')) ||
+        (normalizedClassName == 'rogue' &&
+            normalizedSubclass.contains('arcane trickster'));
+  }
+
+  static bool isThirdCasterSubclass({
+    required String className,
+    String? subclassName,
+  }) {
+    return _isThirdCasterSubclass(
+      className: className,
+      subclassName: subclassName,
+    );
+  }
+
+  static Set<String> restrictedSchoolsForThirdCaster({
+    required String className,
+    String? subclassName,
+  }) {
+    if (!_isThirdCasterSubclass(
+      className: className,
+      subclassName: subclassName,
+    )) {
+      return const {};
+    }
+
+    switch (className.toLowerCase().trim()) {
+      case 'fighter':
+        return const {'ABJURATION', 'EVOCATION'};
+      case 'rogue':
+        return const {'ENCHANTMENT', 'ILLUSION'};
+      default:
+        return const {};
+    }
+  }
+
+  static int unrestrictedThirdCasterSpellLimit({
+    required String className,
+    required int classLevel,
+    String? subclassName,
+  }) {
+    if (!_isThirdCasterSubclass(
+      className: className,
+      subclassName: subclassName,
+    )) {
+      return 0;
+    }
+
+    final level = classLevel.clamp(1, 20);
+    var count = 0;
+    if (level >= 3) count++;
+    if (level >= 8) count++;
+    if (level >= 14) count++;
+    if (level >= 20) count++;
+    return count;
+  }
+
+  static bool isRestrictedThirdCasterSchool({
+    required String className,
+    required Spell spell,
+    String? subclassName,
+  }) {
+    final allowedSchools = restrictedSchoolsForThirdCaster(
+      className: className,
+      subclassName: subclassName,
+    );
+    if (allowedSchools.isEmpty) return false;
+    return allowedSchools.contains(spell.school.trim().toUpperCase());
+  }
+
+  static bool canLearnThirdCasterSpell({
+    required String className,
+    required int classLevel,
+    required String? subclassName,
+    required Spell spell,
+    required Iterable<Spell> currentKnownSpells,
+    String? replacingSpellId,
+  }) {
+    if (!_isThirdCasterSubclass(
+      className: className,
+      subclassName: subclassName,
+    )) {
+      return true;
+    }
+
+    if (spell.level == 0) return true;
+
+    if (isRestrictedThirdCasterSchool(
+      className: className,
+      subclassName: subclassName,
+      spell: spell,
+    )) {
+      return true;
+    }
+
+    final freeLimit = unrestrictedThirdCasterSpellLimit(
+      className: className,
+      classLevel: classLevel,
+      subclassName: subclassName,
+    );
+    final currentFreeCount = currentKnownSpells.where((knownSpell) {
+      if (knownSpell.level == 0) return false;
+      if (replacingSpellId != null && knownSpell.id == replacingSpellId) {
+        return false;
+      }
+      return !isRestrictedThirdCasterSchool(
+        className: className,
+        subclassName: subclassName,
+        spell: knownSpell,
+      );
+    }).length;
+
+    return currentFreeCount < freeLimit;
+  }
+
   static bool usesKnownSpells(Character char) {
-    switch (char.charClass.toLowerCase().trim()) {
+    return usesKnownSpellsForClassAndSubclass(
+      className: char.charClass,
+      subclassName: char.subclassForClass(char.charClass) ?? char.subclass,
+    );
+  }
+
+  static bool usesKnownSpellsForClass(String className) {
+    return usesKnownSpellsForClassAndSubclass(
+      className: className,
+    );
+  }
+
+  static bool usesKnownSpellsForClassAndSubclass({
+    required String className,
+    String? subclassName,
+  }) {
+    if (_isThirdCasterSubclass(
+      className: className,
+      subclassName: subclassName,
+    )) {
+      return true;
+    }
+
+    switch (className.toLowerCase().trim()) {
       case 'bard':
       case 'sorcerer':
       case 'warlock':
@@ -44,7 +215,30 @@ class SpellcastingRules {
   }
 
   static bool usesKnownCantrips(Character char) {
-    switch (char.charClass.toLowerCase().trim()) {
+    return usesKnownCantripsForClassAndSubclass(
+      className: char.charClass,
+      subclassName: char.subclassForClass(char.charClass) ?? char.subclass,
+    );
+  }
+
+  static bool usesKnownCantripsForClass(String className) {
+    return usesKnownCantripsForClassAndSubclass(
+      className: className,
+    );
+  }
+
+  static bool usesKnownCantripsForClassAndSubclass({
+    required String className,
+    String? subclassName,
+  }) {
+    if (_isThirdCasterSubclass(
+      className: className,
+      subclassName: subclassName,
+    )) {
+      return true;
+    }
+
+    switch (className.toLowerCase().trim()) {
       case 'bard':
       case 'sorcerer':
       case 'warlock':
@@ -57,10 +251,39 @@ class SpellcastingRules {
   }
 
   static int knownCantrips(Character char) {
-    final level = char.level.clamp(1, 20);
-    final className = char.charClass.toLowerCase().trim();
+    return knownCantripsForClass(
+      className: char.charClass,
+      classLevel: char.level,
+      subclassName: char.subclassForClass(char.charClass) ?? char.subclass,
+    );
+  }
 
-    switch (className) {
+  static int knownCantripsForClass({
+    required String className,
+    required int classLevel,
+    String? subclassName,
+  }) {
+    final level = classLevel.clamp(1, 20);
+    final normalizedClassName = className.toLowerCase().trim();
+
+    if (_isThirdCasterSubclass(
+      className: className,
+      subclassName: subclassName,
+    )) {
+      if (normalizedClassName == 'rogue') {
+        if (level >= 10) return 4;
+        if (level >= 3) return 3;
+      }
+
+      if (normalizedClassName == 'fighter') {
+        if (level >= 10) return 3;
+        if (level >= 3) return 2;
+      }
+
+      return 0;
+    }
+
+    switch (normalizedClassName) {
       case 'bard':
         if (level >= 10) return 4;
         return 2;
@@ -81,10 +304,51 @@ class SpellcastingRules {
   }
 
   static int knownSpells(Character char) {
-    final level = char.level.clamp(1, 20);
-    final className = char.charClass.toLowerCase().trim();
+    return knownSpellsForClass(
+      className: char.charClass,
+      classLevel: char.level,
+      subclassName: char.subclassForClass(char.charClass) ?? char.subclass,
+    );
+  }
 
-    switch (className) {
+  static int knownSpellsForClass({
+    required String className,
+    required int classLevel,
+    String? subclassName,
+  }) {
+    final level = classLevel.clamp(1, 20);
+    final normalizedClassName = className.toLowerCase().trim();
+
+    if (_isThirdCasterSubclass(
+      className: className,
+      subclassName: subclassName,
+    )) {
+      const table = {
+        1: 0,
+        2: 0,
+        3: 3,
+        4: 4,
+        5: 4,
+        6: 4,
+        7: 5,
+        8: 6,
+        9: 6,
+        10: 7,
+        11: 8,
+        12: 8,
+        13: 9,
+        14: 10,
+        15: 10,
+        16: 11,
+        17: 11,
+        18: 11,
+        19: 12,
+        20: 13,
+      };
+      return table[level] ?? 0;
+    }
+
+    switch (normalizedClassName) {
       case 'bard':
         const table = {
           1: 4,
@@ -202,11 +466,16 @@ class SpellcastingRules {
     final progression = getProgression(char);
     return progression == SpellcastingProgression.fullCaster ||
         progression == SpellcastingProgression.halfCaster ||
+        progression == SpellcastingProgression.thirdCaster ||
         progression == SpellcastingProgression.warlock;
   }
 
   static bool usesPreparedSpellLimit(Character char) {
-    switch (char.charClass.toLowerCase().trim()) {
+    return usesPreparedSpellLimitForClass(char.charClass);
+  }
+
+  static bool usesPreparedSpellLimitForClass(String className) {
+    switch (className.toLowerCase().trim()) {
       case 'wizard':
       case 'cleric':
       case 'druid':
@@ -219,7 +488,11 @@ class SpellcastingRules {
   }
 
   static String? preparedSpellLimitLabel(Character char) {
-    switch (char.charClass.toLowerCase().trim()) {
+    return preparedSpellLimitLabelForClass(char.charClass);
+  }
+
+  static String? preparedSpellLimitLabelForClass(String className) {
+    switch (className.toLowerCase().trim()) {
       case 'wizard':
         return 'Level + INT modifier';
       case 'cleric':
@@ -235,7 +508,11 @@ class SpellcastingRules {
   }
 
   static String? preparedSpellcastingAbility(Character char) {
-    switch (char.charClass.toLowerCase().trim()) {
+    return preparedSpellcastingAbilityForClass(char.charClass);
+  }
+
+  static String? preparedSpellcastingAbilityForClass(String className) {
+    switch (className.toLowerCase().trim()) {
       case 'wizard':
       case 'artificer':
         return 'INT';
@@ -257,31 +534,45 @@ class SpellcastingRules {
     int Function(String ability) getAbilityScore,
     int Function(int score) getAbilityModifier,
   ) {
-    final className = char.charClass.toLowerCase().trim();
+    return preparedSpellLimitForClass(
+      className: char.charClass,
+      classLevel: char.level,
+      getAbilityScore: getAbilityScore,
+      getAbilityModifier: getAbilityModifier,
+    );
+  }
+
+  static int preparedSpellLimitForClass({
+    required String className,
+    required int classLevel,
+    required int Function(String ability) getAbilityScore,
+    required int Function(int score) getAbilityModifier,
+  }) {
+    final normalizedClassName = className.toLowerCase().trim();
 
     String? ability;
     int baseCount = 0;
 
-    switch (className) {
+    switch (normalizedClassName) {
       case 'wizard':
         ability = 'INT';
-        baseCount = char.level;
+        baseCount = classLevel;
         break;
 
       case 'cleric':
       case 'druid':
         ability = 'WIS';
-        baseCount = char.level;
+        baseCount = classLevel;
         break;
 
       case 'paladin':
         ability = 'CHA';
-        baseCount = (char.level / 2).floor();
+        baseCount = (classLevel / 2).floor();
         break;
 
       case 'artificer':
         ability = 'INT';
-        baseCount = (char.level / 2).floor();
+        baseCount = (classLevel / 2).floor();
         break;
 
       default:
@@ -305,6 +596,9 @@ class SpellcastingRules {
       case SpellcastingProgression.halfCaster:
         return (char.level / 2).ceil();
 
+      case SpellcastingProgression.thirdCaster:
+        return (char.level / 3).floor();
+
       case SpellcastingProgression.warlock:
         return char.level;
 
@@ -322,6 +616,9 @@ class SpellcastingRules {
 
       case SpellcastingProgression.halfCaster:
         return _halfCasterSlotsForLevel(char.level);
+
+      case SpellcastingProgression.thirdCaster:
+        return _thirdCasterSlotsForLevel(char.level);
 
       case SpellcastingProgression.warlock:
         return _warlockSlotsForLevel(char.level);
@@ -441,6 +738,33 @@ class SpellcastingRules {
     return Map<int, int>.from(table[level.clamp(1, 20)] ?? {});
   }
 
+  static Map<int, int> _thirdCasterSlotsForLevel(int level) {
+    const table = <int, Map<int, int>>{
+      1: {},
+      2: {},
+      3: {1: 2},
+      4: {1: 3},
+      5: {1: 3},
+      6: {1: 3},
+      7: {1: 4, 2: 2},
+      8: {1: 4, 2: 2},
+      9: {1: 4, 2: 2},
+      10: {1: 4, 2: 3},
+      11: {1: 4, 2: 3},
+      12: {1: 4, 2: 3},
+      13: {1: 4, 2: 3, 3: 2},
+      14: {1: 4, 2: 3, 3: 2},
+      15: {1: 4, 2: 3, 3: 2},
+      16: {1: 4, 2: 3, 3: 3},
+      17: {1: 4, 2: 3, 3: 3},
+      18: {1: 4, 2: 3, 3: 3},
+      19: {1: 4, 2: 3, 3: 3, 4: 1},
+      20: {1: 4, 2: 3, 3: 3, 4: 1},
+    };
+
+    return Map<int, int>.from(table[level.clamp(1, 20)] ?? {});
+  }
+
   static Map<int, int> _warlockSlotsForLevel(int level) {
     const table = <int, Map<int, int>>{
       1: {1: 1},
@@ -469,7 +793,30 @@ class SpellcastingRules {
   }
 
   static bool canReplaceKnownSpellOnLevelUp(Character char) {
-    switch (char.charClass.toLowerCase().trim()) {
+    return canReplaceKnownSpellOnLevelUpForClassAndSubclass(
+      className: char.charClass,
+      subclassName: char.subclassForClass(char.charClass) ?? char.subclass,
+    );
+  }
+
+  static bool canReplaceKnownSpellOnLevelUpForClass(String className) {
+    return canReplaceKnownSpellOnLevelUpForClassAndSubclass(
+      className: className,
+    );
+  }
+
+  static bool canReplaceKnownSpellOnLevelUpForClassAndSubclass({
+    required String className,
+    String? subclassName,
+  }) {
+    if (_isThirdCasterSubclass(
+      className: className,
+      subclassName: subclassName,
+    )) {
+      return true;
+    }
+
+    switch (className.toLowerCase().trim()) {
       case 'bard':
       case 'sorcerer':
       case 'warlock':
@@ -481,7 +828,11 @@ class SpellcastingRules {
   }
 
   static bool usesPreparedSpells(Character char) {
-    switch (char.charClass.toLowerCase().trim()) {
+    return usesPreparedSpellsForClass(char.charClass);
+  }
+
+  static bool usesPreparedSpellsForClass(String className) {
+    switch (className.toLowerCase().trim()) {
       case 'wizard':
       case 'cleric':
       case 'druid':
@@ -502,17 +853,42 @@ class SpellcastingRules {
     Spell spell, {
     bool includeClassVariants = false,
   }) {
-    final className = normalizedClassName(char);
+    final subclassName = char.subclassForClass(char.charClass) ?? char.subclass;
+    if (_isThirdCasterSubclass(
+      className: char.charClass,
+      subclassName: subclassName,
+    )) {
+      return _spellMatchesThirdCasterSubclass(
+        subclassName: subclassName,
+        spell: spell,
+        includeClassVariants: includeClassVariants,
+      );
+    }
 
-    final baseMatch =
-        spell.classes.map((e) => e.toLowerCase().trim()).contains(className);
+    return spellMatchesClassName(
+      className: normalizedClassName(char),
+      spell: spell,
+      includeClassVariants: includeClassVariants,
+    );
+  }
+
+  static bool spellMatchesClassName({
+    required String className,
+    required Spell spell,
+    bool includeClassVariants = false,
+  }) {
+    final normalizedClassName = className.toLowerCase().trim();
+
+    final baseMatch = spell.classes
+        .map((e) => e.toLowerCase().trim())
+        .contains(normalizedClassName);
 
     if (baseMatch) return true;
 
     if (includeClassVariants) {
       final variantMatch = spell.classVariants
           .map((e) => e.toLowerCase().trim())
-          .contains(className);
+          .contains(normalizedClassName);
 
       if (variantMatch) return true;
     }
@@ -534,6 +910,55 @@ class SpellcastingRules {
     return availableLevels.last;
   }
 
+  static int maxSpellLevelForClassLevel({
+    required String className,
+    required int classLevel,
+    String? subclassName,
+  }) {
+    final normalizedClassName = className.toLowerCase().trim();
+
+    if (_canClassLearnSpellsWithoutSlotsAtThisLevelForClass(
+      className: normalizedClassName,
+      subclassName: subclassName,
+    )) {
+      return _maxKnownSpellLevelForClassLevel(
+        className: normalizedClassName,
+        classLevel: classLevel,
+        subclassName: subclassName,
+      );
+    }
+
+    Map<int, int> slots;
+    switch (getProgressionForClassAndSubclass(
+      className: normalizedClassName,
+      subclassName: subclassName,
+    )) {
+      case SpellcastingProgression.fullCaster:
+        slots = _fullCasterSlotsForLevel(classLevel);
+        break;
+      case SpellcastingProgression.halfCaster:
+        slots = _halfCasterSlotsForLevel(classLevel);
+        break;
+      case SpellcastingProgression.thirdCaster:
+        slots = _thirdCasterSlotsForLevel(classLevel);
+        break;
+      case SpellcastingProgression.warlock:
+        slots = _warlockSlotsForLevel(classLevel);
+        break;
+      case SpellcastingProgression.none:
+        slots = const {};
+        break;
+    }
+
+    final availableLevels = slots.entries
+        .where((entry) => entry.value > 0)
+        .map((entry) => entry.key)
+        .toList()
+      ..sort();
+
+    return availableLevels.isEmpty ? 0 : availableLevels.last;
+  }
+
   static List<Spell> spellsForCharacterClass(
     Character char,
     List<Spell> spells, {
@@ -553,32 +978,94 @@ class SpellcastingRules {
     List<Spell> spells, {
     bool includeClassVariants = false,
   }) {
-    final maxLevel = maxSpellLevelAvailable(char);
+    return spellsForClassAndLevel(
+      className: char.charClass,
+      classLevel: char.level,
+      maxSlotLevel: maxSpellLevelAvailable(char),
+      spells: spells,
+      subclassName: char.subclassForClass(char.charClass) ?? char.subclass,
+      includeClassVariants: includeClassVariants,
+    );
+  }
+
+  static List<Spell> spellsForClassAndLevel({
+    required String className,
+    required int classLevel,
+    required int maxSlotLevel,
+    required List<Spell> spells,
+    String? subclassName,
+    bool includeClassVariants = false,
+    Iterable<Spell> currentKnownSpells = const [],
+    String? replacingSpellId,
+  }) {
+    final normalizedClassName = className.toLowerCase().trim();
+    final isThirdCaster = _isThirdCasterSubclass(
+      className: normalizedClassName,
+      subclassName: subclassName,
+    );
 
     return spells.where((spell) {
-      final matchesClass = spellMatchesCharacterClass(
-        char,
-        spell,
-        includeClassVariants: includeClassVariants,
-      );
+      final matchesClass = isThirdCaster
+          ? _spellMatchesThirdCasterSubclass(
+              subclassName: subclassName,
+              spell: spell,
+              includeClassVariants: includeClassVariants,
+            )
+          : spellMatchesClassName(
+              className: normalizedClassName,
+              spell: spell,
+              includeClassVariants: includeClassVariants,
+            );
 
       if (!matchesClass) return false;
 
       if (spell.level == 0) return true;
 
-      if (_canClassLearnSpellsWithoutSlotsAtThisLevel(char)) {
-        final knownLimit = knownSpells(char);
+      if (_canClassLearnSpellsWithoutSlotsAtThisLevelForClass(
+        className: normalizedClassName,
+        subclassName: subclassName,
+      )) {
+        final knownLimit = knownSpellsForClass(
+          className: normalizedClassName,
+          classLevel: classLevel,
+          subclassName: subclassName,
+        );
         if (knownLimit <= 0) return false;
 
-        return spell.level <= _maxKnownSpellLevelForClass(char);
+        final withinKnownLevel = spell.level <=
+            _maxKnownSpellLevelForClassLevel(
+              className: normalizedClassName,
+              classLevel: classLevel,
+              subclassName: subclassName,
+            );
+        if (!withinKnownLevel) return false;
+
+        return canLearnThirdCasterSpell(
+          className: normalizedClassName,
+          classLevel: classLevel,
+          subclassName: subclassName,
+          spell: spell,
+          currentKnownSpells: currentKnownSpells,
+          replacingSpellId: replacingSpellId,
+        );
       }
 
-      return spell.level <= maxLevel;
+      return spell.level <= maxSlotLevel;
     }).toList();
   }
 
-  static bool _canClassLearnSpellsWithoutSlotsAtThisLevel(Character char) {
-    switch (char.charClass.toLowerCase().trim()) {
+  static bool _canClassLearnSpellsWithoutSlotsAtThisLevelForClass({
+    required String className,
+    String? subclassName,
+  }) {
+    if (_isThirdCasterSubclass(
+      className: className,
+      subclassName: subclassName,
+    )) {
+      return true;
+    }
+
+    switch (className.toLowerCase().trim()) {
       case 'bard':
       case 'sorcerer':
       case 'warlock':
@@ -589,9 +1076,24 @@ class SpellcastingRules {
     }
   }
 
-  static int _maxKnownSpellLevelForClass(Character char) {
-    final level = char.level.clamp(1, 20);
-    switch (char.charClass.toLowerCase().trim()) {
+  static int _maxKnownSpellLevelForClassLevel({
+    required String className,
+    required int classLevel,
+    String? subclassName,
+  }) {
+    final level = classLevel.clamp(1, 20);
+    if (_isThirdCasterSubclass(
+      className: className,
+      subclassName: subclassName,
+    )) {
+      if (level >= 19) return 4;
+      if (level >= 13) return 3;
+      if (level >= 7) return 2;
+      if (level >= 3) return 1;
+      return 0;
+    }
+
+    switch (className.toLowerCase().trim()) {
       case 'bard':
       case 'sorcerer':
         if (level >= 17) return 9;
@@ -625,5 +1127,26 @@ class SpellcastingRules {
       default:
         return 0;
     }
+  }
+
+  static bool _spellMatchesThirdCasterSubclass({
+    required String? subclassName,
+    required Spell spell,
+    required bool includeClassVariants,
+  }) {
+    final normalizedSubclass = subclassName?.toLowerCase().trim() ?? '';
+    if (normalizedSubclass.isNotEmpty) {
+      final subclassMatch = spell.subclasses
+          .map((e) => e.toLowerCase().trim())
+          .any((value) => value.contains(normalizedSubclass));
+
+      if (subclassMatch) return true;
+    }
+
+    return spellMatchesClassName(
+      className: 'wizard',
+      spell: spell,
+      includeClassVariants: includeClassVariants,
+    );
   }
 }

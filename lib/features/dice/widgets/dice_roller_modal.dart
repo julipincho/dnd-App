@@ -1,26 +1,37 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
+import '../../../services/dice_color_preferences_service.dart';
+import '../../../theme.dart';
 import '../models/dice_roll_result.dart';
 import '../services/dice_roller_service.dart';
 
 class DiceRollerModal extends StatefulWidget {
   final void Function(DiceRollResult result)? onRoll;
+  final ValueChanged<Color>? onDiceColorChanged;
   final String initialLabel;
   final int initialModifier;
   final int initialSides;
   final int initialDiceCount;
   final bool initialAdvantage;
   final bool initialDisadvantage;
+  final Color initialDiceColor;
+  final String diceColorPreferenceKey;
 
   const DiceRollerModal({
     super.key,
     this.onRoll,
+    this.onDiceColorChanged,
     this.initialLabel = 'Dice Roll',
     this.initialModifier = 0,
     this.initialSides = 20,
     this.initialDiceCount = 1,
     this.initialAdvantage = false,
     this.initialDisadvantage = false,
+    this.initialDiceColor = DiceColorPreferencesService.defaultColor,
+    this.diceColorPreferenceKey = DiceColorPreferencesService.defaultKey,
   });
 
   @override
@@ -28,15 +39,16 @@ class DiceRollerModal extends StatefulWidget {
 }
 
 class _DiceRollerModalState extends State<DiceRollerModal> {
-  late final TextEditingController _modifierController;
-  late final TextEditingController _diceCountController;
+  late final TextEditingController _formulaController;
   late final TextEditingController _labelController;
 
-  late int _selectedSides;
   late bool _advantage;
   late bool _disadvantage;
+  late Color _diceColor;
 
   final List<DiceRollResult> _history = [];
+  DiceRollResult? _featuredResult;
+  String? _formulaError;
 
   static const List<int> _diceOptions = [4, 6, 8, 10, 12, 20, 100];
 
@@ -44,253 +56,840 @@ class _DiceRollerModalState extends State<DiceRollerModal> {
   void initState() {
     super.initState();
 
-    _modifierController =
-        TextEditingController(text: widget.initialModifier.toString());
-    _diceCountController =
-        TextEditingController(text: widget.initialDiceCount.toString());
+    _formulaController = TextEditingController(
+      text: _shouldStartBlank
+          ? ''
+          : _initialFormula(
+              diceCount: widget.initialDiceCount,
+              sides: widget.initialSides,
+              modifier: widget.initialModifier,
+            ),
+    );
     _labelController = TextEditingController(text: widget.initialLabel);
 
-    _selectedSides = widget.initialSides;
     _advantage = widget.initialAdvantage;
     _disadvantage = widget.initialDisadvantage;
+    _diceColor = widget.initialDiceColor;
+    _loadDiceColorPreference();
+  }
+
+  bool get _shouldStartBlank {
+    return widget.initialLabel == 'Dice Roll' &&
+        widget.initialModifier == 0 &&
+        widget.initialSides == 20 &&
+        widget.initialDiceCount == 1 &&
+        !widget.initialAdvantage &&
+        !widget.initialDisadvantage;
   }
 
   @override
   void dispose() {
-    _modifierController.dispose();
-    _diceCountController.dispose();
+    _formulaController.dispose();
     _labelController.dispose();
     super.dispose();
   }
 
+  String _initialFormula({
+    required int diceCount,
+    required int sides,
+    required int modifier,
+  }) {
+    final safeDiceCount = diceCount < 1 ? 1 : diceCount;
+    if (modifier == 0) return '${safeDiceCount}d$sides';
+    return modifier > 0
+        ? '${safeDiceCount}d$sides+$modifier'
+        : '${safeDiceCount}d$sides$modifier';
+  }
+
+  void _appendDice(int sides) {
+    final current = _formulaController.text.trim();
+    final next = current.isEmpty ? '1d$sides' : '$current + 1d$sides';
+
+    setState(() {
+      _formulaController.text = next;
+      _formulaController.selection = TextSelection.collapsed(
+        offset: _formulaController.text.length,
+      );
+      _formulaError = null;
+    });
+  }
+
+  bool get _canUseD20Mode {
+    final normalized =
+        _formulaController.text.replaceAll(' ', '').toLowerCase();
+    return RegExp(r'^1?d20([+-]\d+)?$').hasMatch(normalized);
+  }
+
+  int _modifierFromSimpleD20Formula() {
+    final normalized =
+        _formulaController.text.replaceAll(' ', '').toLowerCase();
+    final match = RegExp(r'^1?d20([+-]\d+)?$').firstMatch(normalized);
+    if (match == null) return 0;
+    return int.tryParse(match.group(1) ?? '0') ?? 0;
+  }
+
+  Future<void> _loadDiceColorPreference() async {
+    final color = await DiceColorPreferencesService.loadColor(
+      key: widget.diceColorPreferenceKey,
+    );
+    if (!mounted) return;
+    setState(() {
+      _diceColor = color;
+    });
+    widget.onDiceColorChanged?.call(color);
+  }
+
+  Future<void> _selectDiceColor(Color color) async {
+    setState(() {
+      _diceColor = color;
+    });
+    widget.onDiceColorChanged?.call(color);
+    await DiceColorPreferencesService.saveColor(
+      color,
+      key: widget.diceColorPreferenceKey,
+    );
+  }
+
   void _rollDice() {
-    final modifier = int.tryParse(_modifierController.text.trim()) ?? 0;
-    final diceCount = int.tryParse(_diceCountController.text.trim()) ?? 1;
     final label = _labelController.text.trim().isEmpty
         ? 'Dice Roll'
         : _labelController.text.trim();
 
-    final result = DiceRollerService.roll(
-      sides: _selectedSides,
-      diceCount: diceCount < 1 ? 1 : diceCount,
-      modifier: modifier,
-      advantage: _selectedSides == 20 && diceCount == 1 ? _advantage : false,
-      disadvantage:
-          _selectedSides == 20 && diceCount == 1 ? _disadvantage : false,
-      label: label,
-    );
+    try {
+      final result = (_canUseD20Mode && (_advantage || _disadvantage))
+          ? DiceRollerService.roll(
+              sides: 20,
+              diceCount: 1,
+              modifier: _modifierFromSimpleD20Formula(),
+              advantage: _advantage,
+              disadvantage: _disadvantage,
+              label: label,
+            )
+          : DiceRollerService.rollFormula(
+              formula: _formulaController.text,
+              label: label,
+            );
 
-    setState(() {
-      _history.insert(0, result);
-      if (_history.length > 12) {
-        _history.removeLast();
-      }
-    });
+      setState(() {
+        _formulaError = null;
+        _featuredResult = result;
+        _history.insert(0, result);
+        if (_history.length > 12) {
+          _history.removeLast();
+        }
+      });
 
-    widget.onRoll?.call(result);
+      widget.onRoll?.call(result);
+    } on FormatException catch (error) {
+      setState(() {
+        _formulaError = error.message;
+      });
+    }
   }
 
   Widget _buildDiceChoice(int sides) {
-    final isSelected = _selectedSides == sides;
-
-    return ChoiceChip(
-      label: Text('d$sides'),
-      selected: isSelected,
-      onSelected: (_) {
-        setState(() {
-          _selectedSides = sides;
-
-          if (_selectedSides != 20) {
-            _advantage = false;
-            _disadvantage = false;
-          }
-        });
-      },
-    );
-  }
-
-  Widget _buildHistoryCard(DiceRollResult result) {
-    final time =
-        '${result.timestamp.hour.toString().padLeft(2, '0')}:${result.timestamp.minute.toString().padLeft(2, '0')}';
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        title: Text(
-          result.summaryText,
-          style: const TextStyle(fontWeight: FontWeight.w600),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 4),
-            if (result.firstD20 != null && result.secondD20 != null)
-              Text(
-                'Rolls: ${result.firstD20}, ${result.secondD20} → selected ${result.selectedD20}',
-              )
-            else
-              Text('Rolls: ${result.rolls.join(', ')}'),
-            const SizedBox(height: 2),
-            Text('Time: $time'),
-          ],
-        ),
-        trailing: CircleAvatar(
-          child: Text('${result.total}'),
-        ),
-      ),
+    return _DiceIconButton(
+      sides: sides,
+      onPressed: () => _appendDice(sides),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final isSingleD20 = _selectedSides == 20 &&
-        (int.tryParse(_diceCountController.text.trim()) ?? 1) == 1;
+    final tokens = context.stitch;
+    final canUseD20Mode = _canUseD20Mode;
 
     return SafeArea(
       child: DraggableScrollableSheet(
         expand: false,
-        initialChildSize: 0.85,
-        minChildSize: 0.55,
-        maxChildSize: 0.95,
+        initialChildSize: 0.88,
+        minChildSize: 0.58,
+        maxChildSize: 0.96,
         builder: (context, scrollController) {
           return Material(
-            color: Theme.of(context).scaffoldBackgroundColor,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            child: ListView(
-              controller: scrollController,
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-              children: [
-                Center(
-                  child: Container(
-                    width: 48,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade400,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
+            color: Colors.transparent,
+            child: Container(
+              decoration: BoxDecoration(
+                color: tokens.panel,
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(18)),
+                border: Border(
+                  top: BorderSide(
+                    color: tokens.accentRead.withValues(alpha: 0.24),
                   ),
                 ),
-                const SizedBox(height: 16),
-                Text(
-                  'Dice Roller',
-                  style: Theme.of(context).textTheme.headlineSmall,
-                ),
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: _diceOptions.map(_buildDiceChoice).toList(),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _diceCountController,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Dice Count',
-                          border: OutlineInputBorder(),
-                        ),
+              ),
+              child: ListView(
+                controller: scrollController,
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                children: [
+                  Center(
+                    child: Container(
+                      width: 48,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.24),
+                        borderRadius: BorderRadius.circular(999),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextField(
-                        controller: _modifierController,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          signed: true,
-                        ),
-                        decoration: const InputDecoration(
-                          labelText: 'Modifier',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _labelController,
-                  decoration: const InputDecoration(
-                    labelText: 'Label',
-                    border: OutlineInputBorder(),
                   ),
-                ),
-                const SizedBox(height: 16),
-                if (isSingleD20)
+                  const SizedBox(height: 16),
+                  _DiceHeader(featuredResult: _featuredResult),
+                  const SizedBox(height: 14),
+                  if (_featuredResult != null)
+                    _FeaturedRollPanel(result: _featuredResult!),
+                  if (_featuredResult != null) const SizedBox(height: 14),
+                  TextField(
+                    controller: _labelController,
+                    decoration: const InputDecoration(
+                      labelText: 'Label',
+                      prefixIcon: Icon(Icons.label_outline),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _formulaController,
+                    decoration: InputDecoration(
+                      labelText: 'Formula',
+                      hintText: 'Example: d20+5, 2d6+3, 1d8+1d4+2',
+                      prefixIcon: const Icon(Icons.functions),
+                      errorText: _formulaError,
+                    ),
+                    onChanged: (_) {
+                      setState(() {
+                        _formulaError = null;
+                        if (!_canUseD20Mode) {
+                          _advantage = false;
+                          _disadvantage = false;
+                        }
+                      });
+                    },
+                    onSubmitted: (_) => _rollDice(),
+                  ),
+                  const SizedBox(height: 12),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
+                    children: _diceOptions.map(_buildDiceChoice).toList(),
+                  ),
+                  const SizedBox(height: 12),
+                  _DiceColorSelector(
+                    selectedColor: _diceColor,
+                    onChanged: (color) => unawaited(_selectDiceColor(color)),
+                  ),
+                  const SizedBox(height: 12),
+                  AnimatedOpacity(
+                    duration: const Duration(milliseconds: 160),
+                    opacity: canUseD20Mode ? 1 : 0.45,
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        FilterChip(
+                          label: const Text('Advantage'),
+                          avatar: const Icon(Icons.arrow_upward, size: 15),
+                          selected: _advantage,
+                          onSelected: canUseD20Mode
+                              ? (value) {
+                                  setState(() {
+                                    _advantage = value;
+                                    if (value) _disadvantage = false;
+                                  });
+                                }
+                              : null,
+                        ),
+                        FilterChip(
+                          label: const Text('Disadvantage'),
+                          avatar: const Icon(Icons.arrow_downward, size: 15),
+                          selected: _disadvantage,
+                          onSelected: canUseD20Mode
+                              ? (value) {
+                                  setState(() {
+                                    _disadvantage = value;
+                                    if (value) _advantage = false;
+                                  });
+                                }
+                              : null,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    height: 54,
+                    child: FilledButton.icon(
+                      onPressed: _rollDice,
+                      icon: const Icon(Icons.casino_outlined),
+                      label: const Text('Roll Formula'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: tokens.accentAction,
+                        foregroundColor: Colors.white,
+                        textStyle: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
                     children: [
-                      FilterChip(
-                        label: const Text('Advantage'),
-                        selected: _advantage,
-                        onSelected: (value) {
-                          setState(() {
-                            _advantage = value;
-                            if (value) _disadvantage = false;
-                          });
-                        },
+                      Text(
+                        'RECENT ROLLS',
+                        style: TextStyle(
+                          color: tokens.accentReadSoft.withValues(alpha: 0.88),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0,
+                        ),
                       ),
-                      FilterChip(
-                        label: const Text('Disadvantage'),
-                        selected: _disadvantage,
-                        onSelected: (value) {
-                          setState(() {
-                            _disadvantage = value;
-                            if (value) _advantage = false;
-                          });
-                        },
-                      ),
+                      const Spacer(),
+                      if (_history.isNotEmpty)
+                        TextButton(
+                          onPressed: () {
+                            setState(() {
+                              _history.clear();
+                            });
+                          },
+                          child: const Text('Clear'),
+                        ),
                     ],
                   ),
-                const SizedBox(height: 20),
-                SizedBox(
-                  height: 52,
-                  child: FilledButton.icon(
-                    onPressed: _rollDice,
-                    icon: const Icon(Icons.casino_outlined),
-                    label: const Text('Roll'),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                Row(
-                  children: [
-                    Text(
-                      'Recent Rolls',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const Spacer(),
-                    if (_history.isNotEmpty)
-                      TextButton(
-                        onPressed: () {
-                          setState(() {
-                            _history.clear();
-                          });
-                        },
-                        child: const Text('Clear'),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                if (_history.isEmpty)
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey.shade300),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: const Text(
-                      'No rolls yet. Try your first roll.',
-                    ),
-                  )
-                else
-                  ..._history.map(_buildHistoryCard),
-              ],
+                  const SizedBox(height: 8),
+                  if (_history.isEmpty)
+                    _EmptyDiceHistory()
+                  else
+                    ..._history.map((result) => _HistoryCard(result: result)),
+                ],
+              ),
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _DiceHeader extends StatelessWidget {
+  final DiceRollResult? featuredResult;
+
+  const _DiceHeader({
+    required this.featuredResult,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
+    return Row(
+      children: [
+        Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            color: tokens.accentAction.withValues(alpha: 0.14),
+            borderRadius: BorderRadius.circular(tokens.radiusSm),
+            border: Border.all(
+              color: tokens.accentAction.withValues(alpha: 0.26),
+            ),
+          ),
+          child: const Icon(
+            Icons.casino_outlined,
+            color: Colors.white,
+            size: 22,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'DICE ROLLER',
+                style: TextStyle(
+                  color: tokens.accentReadSoft.withValues(alpha: 0.90),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                'Roll formulas, attacks, checks and damage.',
+                style: TextStyle(
+                  color: tokens.textSecondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _FeaturedRollPanel extends StatelessWidget {
+  final DiceRollResult result;
+
+  const _FeaturedRollPanel({
+    required this.result,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final accent = result.isCriticalHit
+        ? tokens.accentSuccess
+        : result.isCriticalMiss
+            ? tokens.accentAction
+            : tokens.accentMagic;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            accent.withValues(alpha: 0.20),
+            tokens.surface,
+          ],
+        ),
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(color: accent.withValues(alpha: 0.32)),
+        boxShadow: [
+          BoxShadow(
+            color: accent.withValues(alpha: 0.12),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  result.outcomeLabel.toUpperCase(),
+                  style: TextStyle(
+                    color: accent,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  result.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  result.formula,
+                  style: TextStyle(
+                    color: tokens.textSecondary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          _TotalBadge(total: result.total, color: accent, large: true),
+        ],
+      ),
+    );
+  }
+}
+
+class _DiceIconButton extends StatelessWidget {
+  final int sides;
+  final VoidCallback onPressed;
+
+  const _DiceIconButton({
+    required this.sides,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
+    return Tooltip(
+      message: 'Add d$sides',
+      child: OutlinedButton(
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: Colors.white,
+          side: BorderSide(color: tokens.accentRead.withValues(alpha: 0.22)),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _DieGlyph(sides: sides, size: 22),
+            const SizedBox(width: 7),
+            Text(
+              'd$sides',
+              style: const TextStyle(fontWeight: FontWeight.w900),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DiceColorSelector extends StatelessWidget {
+  final Color selectedColor;
+  final ValueChanged<Color> onChanged;
+
+  const _DiceColorSelector({
+    required this.selectedColor,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: tokens.surface,
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(color: tokens.accentRead.withValues(alpha: 0.16)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            Icon(
+              Icons.palette_outlined,
+              color: selectedColor,
+              size: 20,
+            ),
+            const SizedBox(width: 10),
+            Text(
+              'DICE COLOR',
+              style: TextStyle(
+                color: tokens.accentReadSoft.withValues(alpha: 0.88),
+                fontSize: 11,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Wrap(
+                alignment: WrapAlignment.end,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final color in DiceColorPreferencesService.palette)
+                    _DiceColorSwatch(
+                      color: color,
+                      selected:
+                          DiceColorPreferencesService.colorToArgb(color) ==
+                              DiceColorPreferencesService.colorToArgb(
+                                selectedColor,
+                              ),
+                      onTap: () => onChanged(color),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DiceColorSwatch extends StatelessWidget {
+  final Color color;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _DiceColorSwatch({
+    required this.color,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: DiceColorPreferencesService.colorToHex(color),
+      child: InkResponse(
+        onTap: onTap,
+        radius: 18,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          width: 30,
+          height: 30,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: color,
+            border: Border.all(
+              color: selected
+                  ? Colors.white
+                  : Colors.white.withValues(alpha: 0.28),
+              width: selected ? 3 : 1,
+            ),
+            boxShadow: [
+              if (selected)
+                BoxShadow(
+                  color: color.withValues(alpha: 0.42),
+                  blurRadius: 12,
+                ),
+            ],
+          ),
+          child: selected
+              ? const Icon(
+                  Icons.check_rounded,
+                  color: Colors.black,
+                  size: 17,
+                )
+              : null,
+        ),
+      ),
+    );
+  }
+}
+
+class _HistoryCard extends StatelessWidget {
+  final DiceRollResult result;
+
+  const _HistoryCard({
+    required this.result,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final accent = result.isCriticalHit
+        ? tokens.accentSuccess
+        : result.isCriticalMiss
+            ? tokens.accentAction
+            : tokens.accentRead;
+    final time =
+        '${result.timestamp.hour.toString().padLeft(2, '0')}:${result.timestamp.minute.toString().padLeft(2, '0')}';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: tokens.surface,
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(color: accent.withValues(alpha: 0.22)),
+      ),
+      child: Row(
+        children: [
+          _DieGlyph(sides: result.sides, size: 30),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  result.summaryText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${result.rollsText} • $time',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: tokens.textSecondary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          _TotalBadge(total: result.total, color: accent),
+        ],
+      ),
+    );
+  }
+}
+
+class _TotalBadge extends StatelessWidget {
+  final int total;
+  final Color color;
+  final bool large;
+
+  const _TotalBadge({
+    required this.total,
+    required this.color,
+    this.large = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: large ? 70 : 48,
+      height: large ? 70 : 48,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: color.withValues(alpha: 0.18),
+        border: Border.all(color: color.withValues(alpha: 0.38)),
+      ),
+      child: Text(
+        '$total',
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: large ? 28 : 17,
+          fontWeight: FontWeight.w900,
+          height: 1,
+        ),
+      ),
+    );
+  }
+}
+
+class _DieGlyph extends StatelessWidget {
+  final int sides;
+  final double size;
+
+  const _DieGlyph({
+    required this.sides,
+    required this.size,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final label = sides <= 0 ? 'F' : '$sides';
+
+    return CustomPaint(
+      size: Size.square(size),
+      painter: _DieGlyphPainter(
+        sides: sides,
+        color: tokens.accentReadSoft,
+        borderColor: tokens.accentRead,
+      ),
+      child: SizedBox.square(
+        dimension: size,
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: size * 0.34,
+              fontWeight: FontWeight.w900,
+              height: 1,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DieGlyphPainter extends CustomPainter {
+  final int sides;
+  final Color color;
+  final Color borderColor;
+
+  const _DieGlyphPainter({
+    required this.sides,
+    required this.color,
+    required this.borderColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color.withValues(alpha: 0.18)
+      ..style = PaintingStyle.fill;
+    final borderPaint = Paint()
+      ..color = borderColor.withValues(alpha: 0.42)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4;
+    final path = Path();
+    final safeSides = sides <= 0 ? 6 : sides;
+    final points = safeSides == 4
+        ? 3
+        : safeSides == 6
+            ? 4
+            : safeSides == 8
+                ? 6
+                : safeSides == 10
+                    ? 5
+                    : safeSides == 12
+                        ? 6
+                        : 8;
+    final radius = size.width * 0.43;
+    final center = Offset(size.width / 2, size.height / 2);
+
+    for (var index = 0; index < points; index++) {
+      final angle = -1.5708 + (index * 6.28318 / points);
+      final point = Offset(
+        center.dx + radius * math.cos(angle),
+        center.dy + radius * math.sin(angle),
+      );
+      if (index == 0) {
+        path.moveTo(point.dx, point.dy);
+      } else {
+        path.lineTo(point.dx, point.dy);
+      }
+    }
+
+    path.close();
+    canvas.drawPath(path, paint);
+    canvas.drawPath(path, borderPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _DieGlyphPainter oldDelegate) {
+    return oldDelegate.sides != sides ||
+        oldDelegate.color != color ||
+        oldDelegate.borderColor != borderColor;
+  }
+}
+
+class _EmptyDiceHistory extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: tokens.surface,
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(color: tokens.accentRead.withValues(alpha: 0.16)),
+      ),
+      child: Text(
+        'No rolls yet. Try a formula like d20+5 or 2d6+3.',
+        style: TextStyle(
+          color: tokens.textSecondary,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }

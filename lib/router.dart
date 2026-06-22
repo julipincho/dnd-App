@@ -29,15 +29,38 @@ import 'screens/session_detail_screen.dart';
 import 'screens/timeline_screen.dart';
 import 'screens/compendium_screen.dart';
 import 'screens/characters_screen.dart';
+import 'screens/home_screen.dart';
+import 'screens/level_up_screen.dart';
+import 'screens/login_screen.dart';
+import 'screens/register_screen.dart';
+import 'screens/combat_mode_screen.dart';
+import 'screens/battle_board_screen.dart';
+import 'screens/battle_board_demo_screen.dart';
 
 final GoRouter appRouter = GoRouter(
-  // initialLocation: '/welcome',
-  initialLocation: '/campaigns',
   refreshListenable: CharacterStorage.refreshNotifier,
   routes: [
     // ---------------------------------------------------------
+    // 🔐 AUTH
+    // ---------------------------------------------------------
+
+    GoRoute(
+      path: '/login',
+      builder: (_, __) => const LoginScreen(),
+    ),
+    GoRoute(
+      path: '/register',
+      builder: (_, __) => const RegisterScreen(),
+    ),
+
+    // ---------------------------------------------------------
     // 🚀 INICIO
     // ---------------------------------------------------------
+
+    GoRoute(
+      path: '/',
+      builder: (context, state) => const HomeScreen(),
+    ),
     GoRoute(
       path: '/welcome',
       builder: (_, __) => const WelcomeScreen(),
@@ -46,6 +69,7 @@ final GoRouter appRouter = GoRouter(
     // ---------------------------------------------------------
     // 🧬 RAZAS
     // ---------------------------------------------------------
+
     GoRoute(
       path: '/race-selection',
       builder: (_, __) => const RaceSelectionScreen(),
@@ -103,6 +127,7 @@ final GoRouter appRouter = GoRouter(
     // ---------------------------------------------------------
     // ⚔️ CLASES
     // ---------------------------------------------------------
+
     GoRoute(
       path: '/select-class',
       builder: (_, __) => const ClassSelectionScreen(),
@@ -130,6 +155,7 @@ final GoRouter appRouter = GoRouter(
     // ---------------------------------------------------------
     // 🛠 CREACIÓN DE PERSONAJE
     // ---------------------------------------------------------
+
     GoRoute(
       path: '/select-level',
       builder: (_, __) => const SelectLevelScreen(),
@@ -163,6 +189,7 @@ final GoRouter appRouter = GoRouter(
     // ---------------------------------------------------------
     // 🏠 HOME
     // ---------------------------------------------------------
+
     GoRoute(
       path: '/home',
       builder: (_, __) => const MainHomeScreen(),
@@ -171,11 +198,57 @@ final GoRouter appRouter = GoRouter(
     // ---------------------------------------------------------
     // 📜 HOJA DE PERSONAJE
     // ---------------------------------------------------------
+
     GoRoute(
       path: '/character/:id',
       builder: (_, state) {
         final id = state.pathParameters['id']!;
         return CharacterSheetScreen(characterId: id);
+      },
+    ),
+
+    GoRoute(
+      path: '/level-up/:id',
+      builder: (_, state) {
+        final id = state.pathParameters['id']!;
+        return LevelUpScreen(characterId: id);
+      },
+    ),
+
+    GoRoute(
+      path: '/combat-mode',
+      builder: (_, state) => CombatModeScreen(
+        campaignId: state.uri.queryParameters['campaignId'],
+      ),
+    ),
+    GoRoute(
+      path: '/combat-mode/:id',
+      builder: (_, state) {
+        final id = state.pathParameters['id']!;
+        return CombatModeScreen(
+          characterId: id,
+          campaignId: state.uri.queryParameters['campaignId'],
+        );
+      },
+    ),
+    GoRoute(
+      path: '/board/:campaignId/:sceneId',
+      builder: (_, state) {
+        final campaignId = state.pathParameters['campaignId']!;
+        final sceneId = state.pathParameters['sceneId']!;
+        final mode = state.uri.queryParameters['mode'];
+        return BattleBoardScreen(
+          campaignId: campaignId,
+          sceneId: sceneId,
+          readOnly: mode == 'display',
+        );
+      },
+    ),
+    GoRoute(
+      path: '/board-demo',
+      builder: (_, state) {
+        final mode = state.uri.queryParameters['mode'];
+        return BattleBoardDemoScreen(readOnly: mode == 'display');
       },
     ),
 
@@ -195,9 +268,11 @@ final GoRouter appRouter = GoRouter(
       path: '/select-background',
       builder: (_, __) => const BackgroundSelectionScreen(),
     ),
+
     // ---------------------------------------------------------
     // ✏️ EDICIÓN DE PERSONAJE
     // ---------------------------------------------------------
+
     GoRoute(
       path: '/edit-character/:id',
       builder: (_, state) {

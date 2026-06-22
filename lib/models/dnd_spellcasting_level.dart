@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 class DndSpellcastingLevel {
   final int? cantripsKnown;
   final int? spellsKnown;

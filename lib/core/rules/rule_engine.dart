@@ -36,4 +36,39 @@ class RuleEngine {
 
     return base + proficiency;
   }
+
+  static int getBaseSpeed({
+    int? manualSpeed,
+    int? raceSpeed,
+    int? subraceSpeed,
+  }) {
+    if (manualSpeed != null && manualSpeed > 0) {
+      return manualSpeed;
+    }
+
+    if (subraceSpeed != null && subraceSpeed > 0) {
+      return subraceSpeed;
+    }
+
+    if (raceSpeed != null && raceSpeed > 0) {
+      return raceSpeed;
+    }
+
+    return 30;
+  }
+
+  static int getEffectiveSpeed({
+    int? manualSpeed,
+    int? raceSpeed,
+    int? subraceSpeed,
+    int featSpeedBonus = 0,
+  }) {
+    final baseSpeed = getBaseSpeed(
+      manualSpeed: manualSpeed,
+      raceSpeed: raceSpeed,
+      subraceSpeed: subraceSpeed,
+    );
+
+    return baseSpeed + featSpeedBonus;
+  }
 }

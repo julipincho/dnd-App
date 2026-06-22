@@ -1,10 +1,12 @@
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
-
+import '../providers/auth_provider.dart';
 import '../models/dnd_class.dart';
 import '../models/dnd_background.dart';
 import '../models/character.dart';
@@ -14,6 +16,10 @@ import '../services/dnd_data_service.dart';
 import '../models/feat_data.dart';
 import '../services/feat_data_service.dart';
 import '../services/feat_validation_service.dart';
+import '../services/supabase_storage_service.dart';
+import '../theme.dart';
+import '../utils/image_path_utils.dart';
+import '../widgets/stitch_codex_ui.dart';
 
 class EditCharacterScreen extends StatefulWidget {
   final String characterId;
@@ -36,11 +42,17 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
   late TextEditingController _acController;
   late TextEditingController _speedController;
 
-  File? _portrait;
+  Uint8List? _portraitBytes;
+  String? _portraitFileName;
+  String? _portraitPath;
   List<FeatData> _allFeats = [];
   List<DndBackground> backgrounds = [];
   DndBackground? selectedBackground;
   DndClass? _loadedClassData;
+  final Map<String, DndClass?> _progressionClassData = {};
+  final Map<String, int?> _subclassChoiceLevelsByClass = {};
+  bool _backgroundsLoaded = false;
+  String? _backgroundsLoadError;
 
   final List<String> alignments = [
     "Lawful Good",
@@ -232,10 +244,6 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
 
     try {
       character = provider.getCharacterById(widget.characterId);
-      if (character != null) {
-        character!.featSelections ??= <String, dynamic>{};
-        provider.selectCharacterByObject(character!);
-      }
     } catch (_) {
       character = null;
     }
@@ -255,37 +263,73 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
 
     if (character == null) return;
 
-    provider.selectCharacterByObject(character!);
+    _portraitPath = character!.portraitPath;
 
     selectedAlignment = alignments.contains(character!.alignment)
         ? character!.alignment
         : "True Neutral";
 
-    if (character!.portraitPath != null &&
-        character!.portraitPath!.isNotEmpty &&
-        File(character!.portraitPath!).existsSync()) {
-      _portrait = File(character!.portraitPath!);
-    }
-
     _loadBackgrounds(character!.background.name);
     _loadClassData();
+    _loadProgressionClassData();
     _loadFeats();
   }
 
   Future<void> _loadBackgrounds(String currentBg) async {
-    final list = await DndDataService.getBackgrounds();
+    try {
+      final list = await DndDataService.getBackgrounds();
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    setState(() {
-      backgrounds = list;
-      if (backgrounds.isNotEmpty) {
-        selectedBackground = backgrounds.firstWhere(
-          (bg) => bg.name == currentBg,
-          orElse: () => backgrounds.first,
-        );
+      setState(() {
+        backgrounds = _dedupeBackgrounds(list);
+        selectedBackground = _resolveSelectedBackground(currentBg);
+        _backgroundsLoaded = true;
+        _backgroundsLoadError = null;
+      });
+    } catch (e, stackTrace) {
+      debugPrint('Error loading backgrounds for edit screen: $e');
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) return;
+
+      setState(() {
+        backgrounds = const [];
+        selectedBackground = null;
+        _backgroundsLoaded = true;
+        _backgroundsLoadError = 'Background options could not be loaded.';
+      });
+    }
+  }
+
+  List<DndBackground> _dedupeBackgrounds(List<DndBackground> source) {
+    final seen = <String>{};
+    final result = <DndBackground>[];
+
+    for (final background in source) {
+      final key = background.index.trim().isNotEmpty
+          ? background.index.trim().toLowerCase()
+          : background.name.trim().toLowerCase();
+      if (key.isEmpty || seen.contains(key)) continue;
+      seen.add(key);
+      result.add(background);
+    }
+
+    return result;
+  }
+
+  DndBackground? _resolveSelectedBackground(String currentBg) {
+    if (backgrounds.isEmpty) return null;
+
+    final normalizedCurrent = currentBg.trim().toLowerCase();
+    for (final background in backgrounds) {
+      if (background.name.trim().toLowerCase() == normalizedCurrent ||
+          background.index.trim().toLowerCase() == normalizedCurrent) {
+        return background;
       }
-    });
+    }
+
+    return backgrounds.first;
   }
 
   Future<void> _loadClassData() async {
@@ -307,6 +351,39 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
     }
   }
 
+  Future<void> _loadProgressionClassData() async {
+    if (character == null) return;
+
+    final classNames = character!.classLevels.keys
+        .where((className) => className.trim().isNotEmpty)
+        .toList();
+
+    if (classNames.isEmpty && character!.charClass.trim().isNotEmpty) {
+      classNames.add(character!.charClass);
+    }
+
+    final classDataByName = <String, DndClass?>{};
+    final choiceLevelsByClass = <String, int?>{};
+
+    for (final className in classNames) {
+      final key = _normalizeClassName(className);
+      classDataByName[key] = await ClassDataService.loadClass(className);
+      choiceLevelsByClass[key] =
+          await ClassDataService.getSubclassChoiceLevel(className);
+    }
+
+    if (!mounted) return;
+
+    setState(() {
+      _progressionClassData
+        ..clear()
+        ..addAll(classDataByName);
+      _subclassChoiceLevelsByClass
+        ..clear()
+        ..addAll(choiceLevelsByClass);
+    });
+  }
+
   Future<void> _loadFeats() async {
     try {
       final feats = await FeatDataService.loadFeats();
@@ -326,12 +403,30 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
 
   Future<void> _pickImage() async {
     try {
-      final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
-      if (picked != null && mounted) {
-        setState(() => _portrait = File(picked.path));
-      }
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1200,
+        maxHeight: 1200,
+        imageQuality: 88,
+      );
+      if (picked == null) return;
+
+      final bytes = await picked.readAsBytes();
+      if (!mounted || bytes.isEmpty) return;
+
+      setState(() {
+        _portraitBytes = bytes;
+        _portraitFileName = picked.name;
+        _portraitPath = picked.path;
+      });
     } catch (e) {
       debugPrint('Error picking portrait: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('The portrait could not be opened. Try another image.'),
+        ),
+      );
     }
   }
 
@@ -392,7 +487,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                       Align(
                         alignment: Alignment.centerLeft,
                         child: Text(
-                          '${character!.charClass} • ${selectedSkills.length} / $maxChoices selected',
+                          '${character!.charClass} \u2022 ${selectedSkills.length} / $maxChoices selected',
                           style: TextStyle(
                             color: Colors.white.withOpacity(0.72),
                             fontSize: 13,
@@ -434,11 +529,13 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                       ? () async {
                           final provider = context.read<CharacterProvider>();
 
-                          provider.update((ch) {
-                            ch.classSkills = List<String>.from(selectedSkills);
-                          });
-
-                          await provider.saveCharacter();
+                          await provider.updateCharacterById(
+                            widget.characterId,
+                            (ch) {
+                              ch.classSkills =
+                                  List<String>.from(selectedSkills);
+                            },
+                          );
 
                           if (!mounted) return;
 
@@ -808,7 +905,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                 FilledButton(
                   onPressed: () async {
                     final featSelections = Map<String, dynamic>.from(
-                      character!.featSelections ?? const <String, dynamic>{},
+                      character!.featSelections,
                     );
 
                     for (final feat in _allFeats) {
@@ -837,11 +934,9 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
 
                       if (needsVariantChoice) {
                         final currentChosenVariant =
-                            existingSelection['chosenVariant'] != null
-                                ? existingSelection['chosenVariant']
-                                    .toString()
-                                    .trim()
-                                : null;
+                            existingSelection['chosenVariant']
+                                ?.toString()
+                                .trim();
 
                         final chosenVariant =
                             await _showFeatVariantChoiceDialog(
@@ -857,12 +952,10 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                       }
                       if (needsAbilityChoice) {
                         final currentChosenAbility =
-                            existingSelection['chosenAbility'] != null
-                                ? existingSelection['chosenAbility']
-                                    .toString()
-                                    .trim()
-                                    .toUpperCase()
-                                : null;
+                            existingSelection['chosenAbility']
+                                ?.toString()
+                                .trim()
+                                .toUpperCase();
 
                         final chosenAbility =
                             await _showFeatAbilityChoiceDialog(
@@ -878,12 +971,10 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                       }
                       if (needsDamageTypeChoice) {
                         final currentChosenDamageType =
-                            existingSelection['chosenDamageType'] != null
-                                ? existingSelection['chosenDamageType']
-                                    .toString()
-                                    .trim()
-                                    .toLowerCase()
-                                : null;
+                            existingSelection['chosenDamageType']
+                                ?.toString()
+                                .trim()
+                                .toLowerCase();
 
                         final chosenDamageType =
                             await _showFeatDamageTypeChoiceDialog(
@@ -901,13 +992,10 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
 
                       if (needsSpellcastingAbilityChoice) {
                         final currentChosenSpellcastingAbility =
-                            existingSelection['chosenSpellcastingAbility'] !=
-                                    null
-                                ? existingSelection['chosenSpellcastingAbility']
-                                    .toString()
-                                    .trim()
-                                    .toUpperCase()
-                                : null;
+                            existingSelection['chosenSpellcastingAbility']
+                                ?.toString()
+                                .trim()
+                                .toUpperCase();
 
                         final chosenSpellcastingAbility =
                             await _showFeatSpellcastingAbilityChoiceDialog(
@@ -1217,8 +1305,6 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                     ),
                     const SizedBox(height: 14),
                     ...options.map((ability) {
-                      final isSelected = selected == ability;
-
                       return RadioListTile<String>(
                         value: ability,
                         groupValue: selected,
@@ -1284,8 +1370,6 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                     ),
                     const SizedBox(height: 14),
                     ...options.map((damageType) {
-                      final isSelected = selected == damageType;
-
                       return RadioListTile<String>(
                         value: damageType,
                         groupValue: selected,
@@ -1453,14 +1537,24 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
     );
   }
 
-  Future<void> _showAssignSubclassDialog() async {
+  Future<void> _showAssignSubclassDialog({String? className}) async {
     if (character == null) return;
 
+    final targetClassName = className ?? character!.charClass;
     final hasSubclass =
-        character!.subclass != null && character!.subclass!.trim().isNotEmpty;
+        character!.subclassForClass(targetClassName)?.trim().isNotEmpty ??
+            false;
     if (hasSubclass) return;
 
-    final classData = _loadedClassData;
+    final classKey = _normalizeClassName(targetClassName);
+    var classData = _progressionClassData[classKey];
+    classData ??= classKey == _normalizeClassName(character!.charClass)
+        ? _loadedClassData
+        : null;
+    classData ??= await ClassDataService.loadClass(targetClassName);
+
+    if (!mounted) return;
+
     if (classData == null || classData.subclasses.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -1469,12 +1563,13 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
       );
       return;
     }
+    final selectedClassData = classData;
 
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) {
+      builder: (dialogContext) {
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
@@ -1523,7 +1618,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: Text(
-                      'Choose a subclass for ${character!.charClass}. Once assigned, it cannot be changed from this screen.',
+                      'Choose a subclass for $targetClassName. Once assigned, it cannot be changed from this screen.',
                       style: TextStyle(
                         color: Colors.white.withOpacity(0.70),
                         height: 1.4,
@@ -1535,10 +1630,10 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                     child: ListView.separated(
                       shrinkWrap: true,
                       padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                      itemCount: classData.subclasses.length,
+                      itemCount: selectedClassData.subclasses.length,
                       separatorBuilder: (_, __) => const SizedBox(height: 10),
                       itemBuilder: (_, index) {
-                        final subclass = classData.subclasses[index];
+                        final subclass = selectedClassData.subclasses[index];
 
                         return Material(
                           color: Colors.transparent,
@@ -1551,12 +1646,22 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                               await provider.updateCharacterById(
                                 character!.id,
                                 (ch) {
-                                  final alreadyHasSubclass =
-                                      ch.subclass != null &&
-                                          ch.subclass!.trim().isNotEmpty;
+                                  final alreadyHasSubclass = ch
+                                          .subclassForClass(targetClassName)
+                                          ?.trim()
+                                          .isNotEmpty ??
+                                      false;
 
                                   if (alreadyHasSubclass) return;
-                                  ch.subclass = subclass.name;
+                                  ch.progression = ch.normalizedProgression
+                                      .withSubclassForClass(
+                                    className: targetClassName,
+                                    subclassName: subclass.name,
+                                  );
+                                  if (_normalizeClassName(ch.charClass) ==
+                                      _normalizeClassName(targetClassName)) {
+                                    ch.subclass = subclass.name;
+                                  }
                                 },
                               );
 
@@ -1569,9 +1674,10 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                                 character = provider
                                     .getCharacterById(widget.characterId);
                               });
+                              await _loadProgressionClassData();
 
-                              if (!context.mounted) return;
-                              Navigator.pop(context);
+                              if (!dialogContext.mounted) return;
+                              Navigator.pop(dialogContext);
                             },
                             child: Container(
                               padding: const EdgeInsets.all(14),
@@ -1636,7 +1742,33 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
     final safeCurrentHp = currentHp.clamp(0, maxHp > 0 ? maxHp : currentHp);
     if (character == null) return;
 
-    provider.update((ch) {
+    final userId = context.read<AuthProvider>().userId;
+    if (userId == null) return;
+
+    var resolvedPortraitPath = _portraitPath ?? character!.portraitPath;
+    if (_portraitBytes != null) {
+      try {
+        resolvedPortraitPath =
+            await SupabaseStorageService.uploadUserImageBytes(
+          bytes: _portraitBytes!,
+          fileName: _portraitFileName ?? 'character-portrait.jpg',
+          ownerUserId: userId,
+          folder: 'character-portraits',
+          entityId: character!.id,
+        );
+      } catch (e) {
+        debugPrint('Error uploading portrait to Supabase: $e');
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not upload the portrait. Try again.'),
+          ),
+        );
+        return;
+      }
+    }
+
+    await provider.updateCharacterById(character!.id, (ch) {
       ch.name = _nameController.text.trim();
       ch.maxHp = maxHp;
       ch.currentHp = safeCurrentHp;
@@ -1644,7 +1776,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
       ch.speed = speed;
       ch.background = selectedBackground ?? ch.background;
       ch.alignment = selectedAlignment ?? ch.alignment;
-      ch.portraitPath = _portrait?.path ?? ch.portraitPath;
+      ch.portraitPath = resolvedPortraitPath;
       ch.backstory = _backstoryController.text.trim().isEmpty
           ? null
           : _backstoryController.text.trim();
@@ -1652,8 +1784,6 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
           ? null
           : _notesController.text.trim();
     });
-
-    await provider.saveCharacter();
 
     if (!mounted) return;
     context.go('/character/${widget.characterId}');
@@ -1672,29 +1802,9 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
   }
 
   InputDecoration _inputDecoration(String label, {String? hint}) {
-    return InputDecoration(
+    return stitchCodexInputDecoration(
       labelText: label,
       hintText: hint,
-      labelStyle: const TextStyle(color: Colors.white70),
-      hintStyle: const TextStyle(color: Colors.white38),
-      filled: true,
-      fillColor: const Color(0xFF202028),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide(
-          color: Colors.deepPurpleAccent.withOpacity(0.45),
-        ),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(
-          color: Colors.deepPurpleAccent,
-          width: 1.4,
-        ),
-      ),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-      ),
     );
   }
 
@@ -1702,32 +1812,142 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
     required Widget child,
     EdgeInsets? padding,
   }) {
-    return Container(
-      width: double.infinity,
-      padding: padding ?? const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF17181F),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: Colors.deepPurpleAccent.withOpacity(0.25),
-        ),
-      ),
+    return StitchCodexPanel(
+      padding: padding ?? const EdgeInsets.all(18),
       child: child,
+    );
+  }
+
+  TextStyle get _sectionTitleStyle {
+    return const TextStyle(
+      color: StitchCodexPalette.textPrimary,
+      fontFamily: StitchTypography.display,
+      fontSize: 18,
+      fontWeight: FontWeight.w600,
+    );
+  }
+
+  TextStyle get _sectionDescriptionStyle {
+    return const TextStyle(
+      color: StitchCodexPalette.textMuted,
+      fontFamily: StitchTypography.body,
+      fontSize: 15,
+      height: 1.4,
+    );
+  }
+
+  Widget _portraitEditor(double radius) {
+    final ImageProvider? portraitImage = _portraitBytes != null
+        ? MemoryImage(_portraitBytes!)
+        : hasDisplayableImagePath(_portraitPath)
+            ? imageProviderFromPath(_portraitPath!)
+            : null;
+
+    return GestureDetector(
+      onTap: _pickImage,
+      child: Container(
+        width: radius * 2,
+        height: radius * 2.25,
+        decoration: BoxDecoration(
+          color: StitchCodexPalette.surfaceRaised,
+          border: Border.all(
+            color: StitchCodexPalette.bronze.withValues(alpha: 0.44),
+          ),
+          image: portraitImage != null
+              ? DecorationImage(
+                  image: portraitImage,
+                  fit: BoxFit.cover,
+                  alignment: Alignment.topCenter,
+                )
+              : null,
+        ),
+        child: portraitImage == null
+            ? const Icon(
+                Icons.add_a_photo_outlined,
+                size: 32,
+                color: StitchCodexPalette.bronze,
+              )
+            : null,
+      ),
+    );
+  }
+
+  Widget _buildBackgroundField() {
+    if (backgrounds.isEmpty) {
+      return TextFormField(
+        enabled: false,
+        initialValue: character?.background.name ?? 'Unknown',
+        style: const TextStyle(color: Colors.white70),
+        decoration: _inputDecoration(
+          'Background',
+          hint: _backgroundsLoadError ?? 'No background options available.',
+        ),
+      );
+    }
+
+    return DropdownButtonFormField<DndBackground>(
+      initialValue:
+          backgrounds.contains(selectedBackground) ? selectedBackground : null,
+      dropdownColor: StitchCodexPalette.surfaceRaised,
+      style: stitchCodexFieldTextStyle,
+      decoration: _inputDecoration('Background'),
+      items: backgrounds
+          .map(
+            (bg) => DropdownMenuItem(
+              value: bg,
+              child: Text(
+                bg.name,
+                style: stitchCodexFieldTextStyle,
+              ),
+            ),
+          )
+          .toList(),
+      onChanged: (val) {
+        setState(() => selectedBackground = val);
+      },
+    );
+  }
+
+  Widget _buildAlignmentField() {
+    return DropdownButtonFormField<String>(
+      initialValue:
+          alignments.contains(selectedAlignment) ? selectedAlignment : null,
+      dropdownColor: StitchCodexPalette.surfaceRaised,
+      style: stitchCodexFieldTextStyle,
+      decoration: _inputDecoration('Alignment'),
+      items: alignments
+          .map(
+            (alignment) => DropdownMenuItem(
+              value: alignment,
+              child: Text(
+                alignment,
+                style: stitchCodexFieldTextStyle,
+              ),
+            ),
+          )
+          .toList(),
+      onChanged: (val) {
+        setState(() => selectedAlignment = val);
+      },
     );
   }
 
   Widget _buildSubclassEditorCard() {
     if (character == null) return const SizedBox.shrink();
 
-    final hasSubclass =
-        character!.subclass != null && character!.subclass!.trim().isNotEmpty;
+    final classEntries = character!.classLevels.entries.toList()
+      ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
+
+    if (classEntries.isEmpty && character!.charClass.trim().isNotEmpty) {
+      classEntries.add(MapEntry(character!.charClass, character!.level));
+    }
 
     return _buildSectionCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            "Subclass",
+            "Class Progression",
             style: TextStyle(
               color: Colors.white,
               fontSize: 18,
@@ -1736,42 +1956,129 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            hasSubclass
-                ? "This character already has a subclass assigned."
-                : "Assign a subclass only if this legacy character is missing one.",
+            "Review subclasses per class. Use this only to repair legacy or manually edited characters.",
             style: TextStyle(
               color: Colors.white.withOpacity(0.70),
               height: 1.4,
             ),
           ),
           const SizedBox(height: 14),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: const Color(0xFF202028),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: Colors.white.withOpacity(0.08),
+          if (classEntries.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFF202028),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: Colors.white.withOpacity(0.08),
+                ),
+              ),
+              child: const Text(
+                'No class progression found.',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            )
+          else
+            ...classEntries.map(
+              (entry) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _buildClassProgressionSubclassTile(
+                  className: entry.key,
+                  classLevel: entry.value,
+                ),
               ),
             ),
-            child: Text(
-              hasSubclass
-                  ? character!.subclass!.trim()
-                  : 'No subclass assigned',
-              style: TextStyle(
-                color: hasSubclass ? Colors.white : Colors.white70,
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-              ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildClassProgressionSubclassTile({
+    required String className,
+    required int classLevel,
+  }) {
+    final classKey = _normalizeClassName(className);
+    final classData = _progressionClassData[classKey];
+    final choiceLevel = _subclassChoiceLevelsByClass[classKey];
+    final subclassName = character!.subclassForClass(className)?.trim();
+    final hasSubclass = subclassName != null && subclassName.isNotEmpty;
+    final hasSubclassOptions = classData?.subclasses.isNotEmpty ?? false;
+    final canAssign = !hasSubclass &&
+        hasSubclassOptions &&
+        choiceLevel != null &&
+        classLevel >= choiceLevel;
+
+    String status;
+    Color statusColor;
+
+    if (hasSubclass) {
+      status = subclassName;
+      statusColor = Colors.white;
+    } else if (!hasSubclassOptions && classData == null) {
+      status = 'Loading subclass data...';
+      statusColor = Colors.white60;
+    } else if (!hasSubclassOptions) {
+      status = 'No subclass options found';
+      statusColor = Colors.white60;
+    } else if (choiceLevel == null) {
+      status = 'Subclass choice level unknown';
+      statusColor = Colors.amberAccent;
+    } else if (classLevel < choiceLevel) {
+      status = 'Subclass available at $className $choiceLevel';
+      statusColor = Colors.white60;
+    } else {
+      status = 'Missing subclass';
+      statusColor = Colors.amberAccent;
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF202028),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: canAssign
+              ? Colors.deepPurpleAccent.withOpacity(0.38)
+              : Colors.white.withOpacity(0.08),
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$className $classLevel',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  status,
+                  style: TextStyle(
+                    color: statusColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 16),
-          if (!hasSubclass)
+          if (canAssign)
             OutlinedButton.icon(
-              onPressed: _showAssignSubclassDialog,
-              icon: const Icon(Icons.auto_awesome_outlined),
-              label: const Text('Assign Subclass'),
+              onPressed: () => _showAssignSubclassDialog(className: className),
+              icon: const Icon(Icons.auto_awesome_outlined, size: 18),
+              label: const Text('Assign'),
             ),
         ],
       ),
@@ -2095,11 +2402,16 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
   Widget build(BuildContext context) {
     if (character == null) {
       return const Scaffold(
-        backgroundColor: Color(0xFF1E1E22),
-        body: Center(
-          child: Text(
-            "Character not found",
-            style: TextStyle(color: Colors.white),
+        backgroundColor: StitchCodexPalette.ground,
+        body: StitchCodexBackground(
+          child: Center(
+            child: Text(
+              'Character not found',
+              style: TextStyle(
+                color: StitchCodexPalette.textMuted,
+                fontFamily: StitchTypography.body,
+              ),
+            ),
           ),
         ),
       );
@@ -2115,15 +2427,29 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
     final titleSize = isLarge ? 28.0 : (isTablet ? 24.0 : 21.0);
 
     return Scaffold(
-      backgroundColor: const Color(0xFF1E1E22),
-      appBar: AppBar(
-        title: const Text("Edit Character"),
-        backgroundColor: const Color(0xFF121214),
-        elevation: 2,
+      backgroundColor: StitchCodexPalette.ground,
+      appBar: StitchAppBar(
+        showBrand: false,
+        title: const Text(
+          'EDIT CHARACTER',
+          style: TextStyle(
+            color: StitchCodexPalette.textPrimary,
+            fontFamily: StitchTypography.display,
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 1.2,
+          ),
+        ),
+        backgroundColor: StitchCodexPalette.ground,
       ),
-      body: backgrounds.isEmpty
-          ? const Center(child: CircularProgressIndicator())
-          : SafeArea(
+      body: StitchCodexBackground(
+        child: !_backgroundsLoaded
+            ? const Center(
+                child: CircularProgressIndicator(
+                  color: StitchCodexPalette.bronze,
+                ),
+              )
+            : SafeArea(
               child: SingleChildScrollView(
                 padding: EdgeInsets.fromLTRB(
                   horizontalPadding,
@@ -2143,24 +2469,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                               ? Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    GestureDetector(
-                                      onTap: _pickImage,
-                                      child: CircleAvatar(
-                                        radius: avatarRadius,
-                                        backgroundImage: _portrait != null
-                                            ? FileImage(_portrait!)
-                                            : null,
-                                        backgroundColor:
-                                            Colors.deepPurpleAccent,
-                                        child: _portrait == null
-                                            ? const Icon(
-                                                Icons.camera_alt,
-                                                size: 34,
-                                                color: Colors.white,
-                                              )
-                                            : null,
-                                      ),
-                                    ),
+                                    _portraitEditor(avatarRadius),
                                     const SizedBox(width: 20),
                                     Expanded(
                                       child: Column(
@@ -2168,25 +2477,21 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                                             CrossAxisAlignment.start,
                                         children: [
                                           Text(
-                                            "Identity",
-                                            style: TextStyle(
-                                              color: Colors.white,
+                                            'Identity',
+                                            style: _sectionTitleStyle.copyWith(
                                               fontSize: titleSize,
-                                              fontWeight: FontWeight.bold,
                                             ),
                                           ),
                                           const SizedBox(height: 8),
                                           Text(
-                                            "Edit the core information of your character. Portrait, name, background, alignment and narrative details live here.",
-                                            style: TextStyle(
-                                              color: Colors.white
-                                                  .withOpacity(0.72),
-                                              height: 1.4,
-                                            ),
+                                            'Edit the core information of your character. Portrait, name, background, alignment and narrative details live here.',
+                                            style: _sectionDescriptionStyle,
                                           ),
                                           const SizedBox(height: 14),
                                           OutlinedButton.icon(
                                             onPressed: _pickImage,
+                                            style:
+                                                stitchCodexOutlineButtonStyle(),
                                             icon: const Icon(
                                               Icons.image_outlined,
                                             ),
@@ -2201,45 +2506,24 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                                 )
                               : Column(
                                   children: [
-                                    GestureDetector(
-                                      onTap: _pickImage,
-                                      child: CircleAvatar(
-                                        radius: avatarRadius,
-                                        backgroundImage: _portrait != null
-                                            ? FileImage(_portrait!)
-                                            : null,
-                                        backgroundColor:
-                                            Colors.deepPurpleAccent,
-                                        child: _portrait == null
-                                            ? const Icon(
-                                                Icons.camera_alt,
-                                                size: 32,
-                                                color: Colors.white,
-                                              )
-                                            : null,
-                                      ),
-                                    ),
+                                    _portraitEditor(avatarRadius),
                                     const SizedBox(height: 16),
                                     Text(
-                                      "Identity",
-                                      style: TextStyle(
-                                        color: Colors.white,
+                                      'Identity',
+                                      style: _sectionTitleStyle.copyWith(
                                         fontSize: titleSize,
-                                        fontWeight: FontWeight.bold,
                                       ),
                                     ),
                                     const SizedBox(height: 8),
                                     Text(
-                                      "Edit the core information of your character.",
+                                      'Edit the core information of your character.',
                                       textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        color: Colors.white.withOpacity(0.72),
-                                        height: 1.4,
-                                      ),
+                                      style: _sectionDescriptionStyle,
                                     ),
                                     const SizedBox(height: 14),
                                     OutlinedButton.icon(
                                       onPressed: _pickImage,
+                                      style: stitchCodexOutlineButtonStyle(),
                                       icon: const Icon(Icons.image_outlined),
                                       label: const Text("Change portrait"),
                                     ),
@@ -2251,18 +2535,14 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
-                                "Basic info",
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
-                                ),
+                              Text(
+                                'Basic Info',
+                                style: _sectionTitleStyle,
                               ),
                               const SizedBox(height: 14),
                               TextField(
                                 controller: _nameController,
-                                style: const TextStyle(color: Colors.white),
+                                style: stitchCodexFieldTextStyle,
                                 decoration: _inputDecoration(
                                   "Name",
                                   hint: "Character name",
@@ -2274,113 +2554,18 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Expanded(
-                                      child: DropdownButtonFormField<
-                                          DndBackground>(
-                                        value: selectedBackground,
-                                        dropdownColor: const Color(0xFF1E1E22),
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                        ),
-                                        decoration:
-                                            _inputDecoration("Background"),
-                                        items: backgrounds
-                                            .map(
-                                              (bg) => DropdownMenuItem(
-                                                value: bg,
-                                                child: Text(
-                                                  bg.name,
-                                                  style: const TextStyle(
-                                                    color: Colors.white,
-                                                  ),
-                                                ),
-                                              ),
-                                            )
-                                            .toList(),
-                                        onChanged: (val) {
-                                          setState(
-                                            () => selectedBackground = val,
-                                          );
-                                        },
-                                      ),
+                                      child: _buildBackgroundField(),
                                     ),
                                     const SizedBox(width: 16),
                                     Expanded(
-                                      child: DropdownButtonFormField<String>(
-                                        value: selectedAlignment,
-                                        dropdownColor: const Color(0xFF1E1E22),
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                        ),
-                                        decoration:
-                                            _inputDecoration("Alignment"),
-                                        items: alignments
-                                            .map(
-                                              (a) => DropdownMenuItem(
-                                                value: a,
-                                                child: Text(
-                                                  a,
-                                                  style: const TextStyle(
-                                                    color: Colors.white,
-                                                  ),
-                                                ),
-                                              ),
-                                            )
-                                            .toList(),
-                                        onChanged: (val) {
-                                          setState(
-                                            () => selectedAlignment = val,
-                                          );
-                                        },
-                                      ),
+                                      child: _buildAlignmentField(),
                                     ),
                                   ],
                                 )
                               else ...[
-                                DropdownButtonFormField<DndBackground>(
-                                  value: selectedBackground,
-                                  dropdownColor: const Color(0xFF1E1E22),
-                                  style: const TextStyle(color: Colors.white),
-                                  decoration: _inputDecoration("Background"),
-                                  items: backgrounds
-                                      .map(
-                                        (bg) => DropdownMenuItem(
-                                          value: bg,
-                                          child: Text(
-                                            bg.name,
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                            ),
-                                          ),
-                                        ),
-                                      )
-                                      .toList(),
-                                  onChanged: (val) {
-                                    setState(() => selectedBackground = val);
-                                  },
-                                ),
+                                _buildBackgroundField(),
                                 const SizedBox(height: 16),
-                                DropdownButtonFormField<String>(
-                                  value: selectedAlignment,
-                                  dropdownColor: const Color(0xFF1E1E22),
-                                  style: const TextStyle(color: Colors.white),
-                                  decoration: _inputDecoration("Alignment"),
-                                  items: alignments
-                                      .map(
-                                        (a) => DropdownMenuItem(
-                                          value: a,
-                                          child: Text(
-                                            a,
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                            ),
-                                          ),
-                                        ),
-                                      )
-                                      .toList(),
-                                  onChanged: (val) {
-                                    setState(() => selectedAlignment = val);
-                                  },
-                                ),
+                                _buildAlignmentField(),
                               ],
                             ],
                           ),
@@ -2396,25 +2581,19 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
-                                "Narrative",
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
-                                ),
+                              Text(
+                                'Narrative',
+                                style: _sectionTitleStyle,
                               ),
                               const SizedBox(height: 8),
                               Text(
-                                "This is the part that makes the sheet feel alive.",
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.70),
-                                ),
+                                'This is the part that makes the sheet feel alive.',
+                                style: _sectionDescriptionStyle,
                               ),
                               const SizedBox(height: 14),
                               TextField(
                                 controller: _backstoryController,
-                                style: const TextStyle(color: Colors.white),
+                                style: stitchCodexFieldTextStyle,
                                 maxLines: 7,
                                 decoration: _inputDecoration(
                                   "Backstory",
@@ -2425,7 +2604,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                               const SizedBox(height: 16),
                               TextField(
                                 controller: _notesController,
-                                style: const TextStyle(color: Colors.white),
+                                style: stitchCodexFieldTextStyle,
                                 maxLines: 7,
                                 decoration: _inputDecoration(
                                   "Notes",
@@ -2441,20 +2620,14 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
-                                "Combat Stats",
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
-                                ),
+                              Text(
+                                'Combat Stats',
+                                style: _sectionTitleStyle,
                               ),
                               const SizedBox(height: 8),
                               Text(
-                                "Core combat values of your character.",
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.70),
-                                ),
+                                'Core combat values of your character.',
+                                style: _sectionDescriptionStyle,
                               ),
                               const SizedBox(height: 14),
                               Row(
@@ -2463,8 +2636,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                                     child: TextField(
                                       controller: _maxHpController,
                                       keyboardType: TextInputType.number,
-                                      style:
-                                          const TextStyle(color: Colors.white),
+                                      style: stitchCodexFieldTextStyle,
                                       decoration: _inputDecoration("Max HP"),
                                     ),
                                   ),
@@ -2473,8 +2645,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                                     child: TextField(
                                       controller: _currentHpController,
                                       keyboardType: TextInputType.number,
-                                      style:
-                                          const TextStyle(color: Colors.white),
+                                      style: stitchCodexFieldTextStyle,
                                       decoration:
                                           _inputDecoration("Current HP"),
                                     ),
@@ -2488,8 +2659,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                                     child: TextField(
                                       controller: _acController,
                                       keyboardType: TextInputType.number,
-                                      style:
-                                          const TextStyle(color: Colors.white),
+                                      style: stitchCodexFieldTextStyle,
                                       decoration:
                                           _inputDecoration("Armor Class"),
                                     ),
@@ -2499,8 +2669,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                                     child: TextField(
                                       controller: _speedController,
                                       keyboardType: TextInputType.number,
-                                      style:
-                                          const TextStyle(color: Colors.white),
+                                      style: stitchCodexFieldTextStyle,
                                       decoration: _inputDecoration("Speed"),
                                     ),
                                   ),
@@ -2512,24 +2681,12 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                         const SizedBox(height: 26),
                         SizedBox(
                           width: double.infinity,
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.deepPurpleAccent,
-                              padding: EdgeInsets.symmetric(
-                                vertical: isTablet ? 18 : 16,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                            ),
+                          child: FilledButton.icon(
+                            style: stitchCodexPrimaryButtonStyle(),
                             onPressed: _saveChanges,
-                            child: Text(
-                              "Save Changes",
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: isTablet ? 16 : 15,
-                                fontWeight: FontWeight.w600,
-                              ),
+                            icon: const Icon(Icons.save_outlined),
+                            label: const Text(
+                              'Save Changes',
                             ),
                           ),
                         ),
@@ -2539,6 +2696,7 @@ class _EditCharacterScreenState extends State<EditCharacterScreen> {
                 ),
               ),
             ),
+      ),
     );
   }
 }

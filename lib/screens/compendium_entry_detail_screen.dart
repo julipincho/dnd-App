@@ -1,6 +1,6 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:provider/provider.dart';
 
 import '../models/campaign_event.dart';
@@ -11,6 +11,10 @@ import '../providers/app_role_provider.dart';
 import '../providers/campaign_event_provider.dart';
 import '../providers/journal_entry_provider.dart';
 import '../providers/session_provider.dart';
+import '../theme.dart';
+import '../utils/compendium_linking.dart';
+import '../utils/image_path_utils.dart';
+import '../widgets/stitch_codex_ui.dart';
 import 'session_detail_screen.dart';
 
 class CompendiumEntryDetailScreen extends StatelessWidget {
@@ -69,47 +73,94 @@ class CompendiumEntryDetailScreen extends StatelessWidget {
       return true;
     }).toList();
 
-    final hasImage = entry.imagePath != null &&
-        entry.imagePath!.isNotEmpty &&
-        File(entry.imagePath!).existsSync();
+    final hasImage = hasDisplayableImagePath(entry.imagePath);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(entry.title),
+      backgroundColor: StitchCodexPalette.ground,
+      appBar: StitchAppBar(
+        showBrand: false,
+        backgroundColor: StitchCodexPalette.ground,
+        title: Text(
+          entry.title.toUpperCase(),
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: StitchCodexPalette.textPrimary,
+            fontFamily: StitchTypography.display,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 1.1,
+          ),
+        ),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
+      body: StitchCodexBackground(
+        child: SingleChildScrollView(
+          child: StitchCodexContentWidth(
+            maxWidth: 920,
+            child: Column(
+              children: [
+                StitchCodexPanel(
+                  emphasized: true,
+                  padding: const EdgeInsets.all(20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (hasImage) ...[
                       ClipRRect(
-                        borderRadius: BorderRadius.circular(14),
-                        child: Image.file(
-                          File(entry.imagePath!),
+                        borderRadius: BorderRadius.circular(2),
+                        child: buildImageFromPath(
+                          entry.imagePath!,
                           width: double.infinity,
-                          height: 220,
+                          height: 280,
                           fit: BoxFit.cover,
                         ),
                       ),
                       const SizedBox(height: 16),
                     ],
                     Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        CircleAvatar(
-                          radius: 24,
-                          child: Icon(_iconForType(entry.type)),
+                        Container(
+                          width: 52,
+                          height: 58,
+                          decoration: BoxDecoration(
+                            color: StitchCodexPalette.bronze
+                                .withValues(alpha: 0.09),
+                            border: Border.all(
+                              color: StitchCodexPalette.bronze
+                                  .withValues(alpha: 0.34),
+                            ),
+                          ),
+                          child: Icon(
+                            _iconForType(entry.type),
+                            color: StitchCodexPalette.bronze,
+                          ),
                         ),
-                        const SizedBox(width: 12),
+                        const SizedBox(width: 14),
                         Expanded(
-                          child: Text(
-                            entry.title,
-                            style: Theme.of(context).textTheme.headlineSmall,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'COMPENDIUM RECORD',
+                                style: TextStyle(
+                                  color: StitchCodexPalette.bronze,
+                                  fontFamily: StitchTypography.data,
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 1.7,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                entry.title,
+                                style: const TextStyle(
+                                  color: StitchCodexPalette.textPrimary,
+                                  fontFamily: StitchTypography.display,
+                                  fontSize: 25,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
@@ -119,83 +170,104 @@ class CompendiumEntryDetailScreen extends StatelessWidget {
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        Chip(
-                          label: Text(entry.type.toUpperCase()),
+                        StitchCodexTag(
+                          label: entry.type.toUpperCase(),
                         ),
-                        Chip(
-                          label: Text(
-                            'Created ${_formatDate(entry.createdAt)}',
-                          ),
+                        StitchCodexTag(
+                          label: 'CREATED ${_formatDate(entry.createdAt)}',
+                          color: StitchCodexPalette.crimsonBright,
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16),
-                    Text(
+                    const SizedBox(height: 20),
+                    const Text(
                       'Description',
-                      style: Theme.of(context).textTheme.titleMedium,
+                      style: TextStyle(
+                        color: StitchCodexPalette.textPrimary,
+                        fontFamily: StitchTypography.display,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       entry.description,
-                      style: Theme.of(context).textTheme.bodyLarge,
+                      style: const TextStyle(
+                        color: StitchCodexPalette.textSecondary,
+                        fontFamily: StitchTypography.body,
+                        fontSize: 16,
+                        height: 1.5,
+                      ),
                     ),
                   ],
                 ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            _buildBacklinkSection(
-              context,
-              title: 'Appears in sessions',
-              count: sessionMentions.length,
-              emptyText: 'No session mentions found yet',
-              children: sessionMentions.map((mention) {
-                return _buildSessionMentionCard(context, mention);
-              }).toList(),
-            ),
-            const SizedBox(height: 16),
-            _buildBacklinkSection(
-              context,
-              title: 'Appears in events',
-              count: eventMentions.length,
-              emptyText: 'No event mentions found yet',
-              children: eventMentions.map((event) {
-                final linkedSession = event.sessionId == null
-                    ? null
-                    : campaignSessions.cast<Session?>().firstWhere(
-                          (session) => session?.id == event.sessionId,
-                          orElse: () => null,
-                        );
-
-                return _buildEventMentionCard(
+                ),
+                const SizedBox(height: 24),
+                const StitchCodexPageHeader(
+                  eyebrow: 'BACKLINKS',
+                  title: 'Where this record appears',
+                  subtitle:
+                      'Every session, event and journal note connected to this piece of lore.',
+                ),
+                const SizedBox(height: 16),
+                _buildBacklinkSection(
                   context,
-                  event,
-                  linkedSession,
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 16),
-            _buildBacklinkSection(
-              context,
-              title: 'Appears in journal',
-              count: journalMentions.length,
-              emptyText: 'No journal mentions found yet',
-              children: journalMentions.map((journalEntry) {
-                final linkedSession = journalEntry.sessionId == null
-                    ? null
-                    : campaignSessions.cast<Session?>().firstWhere(
-                          (session) => session?.id == journalEntry.sessionId,
-                          orElse: () => null,
-                        );
-
-                return _buildJournalMentionCard(
+                  title: 'Appears in sessions',
+                  icon: Icons.auto_stories_outlined,
+                  count: sessionMentions.length,
+                  emptyText: 'No session mentions found yet',
+                  children: sessionMentions.map((mention) {
+                    return _buildSessionMentionCard(context, mention);
+                  }).toList(),
+                ),
+                const SizedBox(height: 12),
+                _buildBacklinkSection(
                   context,
-                  journalEntry,
-                  linkedSession,
-                );
-              }).toList(),
+                  title: 'Appears in events',
+                  icon: Icons.timeline_outlined,
+                  count: eventMentions.length,
+                  emptyText: 'No event mentions found yet',
+                  children: eventMentions.map((event) {
+                    final linkedSession = event.sessionId == null
+                        ? null
+                        : campaignSessions.cast<Session?>().firstWhere(
+                              (session) => session?.id == event.sessionId,
+                              orElse: () => null,
+                            );
+
+                    return _buildEventMentionCard(
+                      context,
+                      event,
+                      linkedSession,
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 12),
+                _buildBacklinkSection(
+                  context,
+                  title: 'Appears in journal',
+                  icon: Icons.edit_note_outlined,
+                  count: journalMentions.length,
+                  emptyText: 'No journal mentions found yet',
+                  children: journalMentions.map((journalEntry) {
+                    final linkedSession = journalEntry.sessionId == null
+                        ? null
+                        : campaignSessions.cast<Session?>().firstWhere(
+                              (session) =>
+                                  session?.id == journalEntry.sessionId,
+                              orElse: () => null,
+                            );
+
+                    return _buildJournalMentionCard(
+                      context,
+                      journalEntry,
+                      linkedSession,
+                    );
+                  }).toList(),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -204,41 +276,52 @@ class CompendiumEntryDetailScreen extends StatelessWidget {
   Widget _buildBacklinkSection(
     BuildContext context, {
     required String title,
+    required IconData icon,
     required int count,
     required String emptyText,
     required List<Widget> children,
   }) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).dividerColor),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+    return StitchCodexPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: StitchCodexPalette.bronze, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    color: StitchCodexPalette.textPrimary,
+                    fontFamily: StitchTypography.display,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              StitchCodexTag(label: '$count'),
+            ],
+          ),
+          const SizedBox(height: 14),
+          if (children.isEmpty)
             Text(
-              '$title ($count)',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 12),
-            if (children.isEmpty)
-              Text(
-                emptyText,
-                style: Theme.of(context).textTheme.bodyMedium,
-              )
-            else
-              ...children
-                  .expand((child) => [
-                        child,
-                        const SizedBox(height: 10),
-                      ])
-                  .toList()
-                ..removeLast(),
-          ],
-        ),
+              emptyText,
+              style: const TextStyle(
+                color: StitchCodexPalette.textMuted,
+                fontFamily: StitchTypography.body,
+                fontSize: 14,
+              ),
+            )
+          else
+            ...children
+                .expand((child) => [
+                      child,
+                      const SizedBox(height: 10),
+                    ])
+                .toList()
+              ..removeLast(),
+        ],
       ),
     );
   }
@@ -247,32 +330,56 @@ class CompendiumEntryDetailScreen extends StatelessWidget {
     BuildContext context,
     _SessionMention mention,
   ) {
-    return Card(
-      margin: EdgeInsets.zero,
+    return StitchCodexPanel(
+      padding: EdgeInsets.zero,
       child: ListTile(
         contentPadding: const EdgeInsets.all(14),
-        leading: const CircleAvatar(
-          child: Icon(Icons.auto_stories_outlined),
+        leading: Container(
+          width: 42,
+          height: 46,
+          decoration: BoxDecoration(
+            color: StitchCodexPalette.bronze.withValues(alpha: 0.08),
+            border: Border.all(
+              color: StitchCodexPalette.bronze.withValues(alpha: 0.28),
+            ),
+          ),
+          child: const Icon(
+            Icons.auto_stories_outlined,
+            color: StitchCodexPalette.bronze,
+            size: 20,
+          ),
         ),
         title: Text(
           mention.session.title.isEmpty
               ? 'Untitled session'
               : mention.session.title,
+          style: const TextStyle(
+            color: StitchCodexPalette.textPrimary,
+            fontFamily: StitchTypography.display,
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 8),
-            Text(_formatDate(mention.session.date)),
+            Text(
+              _formatDate(mention.session.date),
+              style: const TextStyle(
+                color: StitchCodexPalette.textMuted,
+                fontFamily: StitchTypography.data,
+                fontSize: 8,
+              ),
+            ),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: mention.sources
                   .map(
-                    (source) => Chip(
-                      label: Text(source),
-                      visualDensity: VisualDensity.compact,
+                    (source) => StitchCodexTag(
+                      label: source.toUpperCase(),
                     ),
                   )
                   .toList(),
@@ -283,11 +390,19 @@ class CompendiumEntryDetailScreen extends StatelessWidget {
                 mention.preview,
                 maxLines: 3,
                 overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: StitchCodexPalette.textSecondary,
+                  fontFamily: StitchTypography.body,
+                  height: 1.35,
+                ),
               ),
             ],
           ],
         ),
-        trailing: const Icon(Icons.chevron_right),
+        trailing: const Icon(
+          Icons.chevron_right,
+          color: StitchCodexPalette.textMuted,
+        ),
         onTap: () {
           Navigator.of(context).push(
             MaterialPageRoute(
@@ -304,39 +419,53 @@ class CompendiumEntryDetailScreen extends StatelessWidget {
     CampaignEvent event,
     Session? linkedSession,
   ) {
-    return Card(
-      margin: EdgeInsets.zero,
+    return StitchCodexPanel(
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: EdgeInsets.zero,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               event.title,
-              style: Theme.of(context).textTheme.titleSmall,
+              style: const TextStyle(
+                color: StitchCodexPalette.textPrimary,
+                fontFamily: StitchTypography.display,
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const SizedBox(height: 6),
             Text(
               _formatDate(event.date),
-              style: Theme.of(context).textTheme.bodySmall,
+              style: const TextStyle(
+                color: StitchCodexPalette.textMuted,
+                fontFamily: StitchTypography.data,
+                fontSize: 8,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
               event.description,
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: StitchCodexPalette.textSecondary,
+                fontFamily: StitchTypography.body,
+                height: 1.4,
+              ),
             ),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
-                Chip(
-                  label: Text(event.type),
-                  visualDensity: VisualDensity.compact,
+                StitchCodexTag(
+                  label: event.type.toUpperCase(),
                 ),
                 if (linkedSession != null)
-                  ActionChip(
+                  OutlinedButton.icon(
+                    style: stitchCodexOutlineButtonStyle(),
+                    icon: const Icon(Icons.menu_book_outlined, size: 16),
                     label: Text(
                       linkedSession.title.isEmpty
                           ? 'Open session'
@@ -366,44 +495,57 @@ class CompendiumEntryDetailScreen extends StatelessWidget {
   ) {
     final author = journalEntry.authorCharacterName ?? journalEntry.authorName;
 
-    return Card(
-      margin: EdgeInsets.zero,
+    return StitchCodexPanel(
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: EdgeInsets.zero,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               author,
-              style: Theme.of(context).textTheme.titleSmall,
+              style: const TextStyle(
+                color: StitchCodexPalette.textPrimary,
+                fontFamily: StitchTypography.display,
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const SizedBox(height: 6),
             Text(
               _formatDate(journalEntry.createdAt),
-              style: Theme.of(context).textTheme.bodySmall,
+              style: const TextStyle(
+                color: StitchCodexPalette.textMuted,
+                fontFamily: StitchTypography.data,
+                fontSize: 8,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
               journalEntry.content,
               maxLines: 4,
               overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: StitchCodexPalette.textSecondary,
+                fontFamily: StitchTypography.body,
+                height: 1.4,
+              ),
             ),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
-                Chip(
-                  label: Text(
-                    (journalEntry.sessionId == null ||
-                            journalEntry.sessionId!.isEmpty)
-                        ? 'Private note'
-                        : 'Session note',
-                  ),
-                  visualDensity: VisualDensity.compact,
+                StitchCodexTag(
+                  label: (journalEntry.sessionId == null ||
+                          journalEntry.sessionId!.isEmpty)
+                      ? 'PRIVATE NOTE'
+                      : 'SESSION NOTE',
+                  color: StitchCodexPalette.crimsonBright,
                 ),
                 if (linkedSession != null)
-                  ActionChip(
+                  OutlinedButton.icon(
+                    style: stitchCodexOutlineButtonStyle(),
+                    icon: const Icon(Icons.menu_book_outlined, size: 16),
                     label: Text(
                       linkedSession.title.isEmpty
                           ? 'Open session'
@@ -467,12 +609,7 @@ class CompendiumEntryDetailScreen extends StatelessWidget {
     final cleanTitle = title.trim();
     if (cleanTitle.isEmpty || text.trim().isEmpty) return false;
 
-    final regex = RegExp(
-      '(?<!\\w)${RegExp.escape(cleanTitle)}(?!\\w)',
-      caseSensitive: false,
-    );
-
-    return regex.hasMatch(text);
+    return CompendiumLinking.containsTitle(text, cleanTitle);
   }
 
   String _clip(String text, {int max = 140}) {

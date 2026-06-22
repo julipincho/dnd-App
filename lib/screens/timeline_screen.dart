@@ -1,15 +1,29 @@
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:provider/provider.dart';
 
 import '../models/campaign_event.dart';
+import '../models/compendium_entry.dart';
 import '../models/journal_entry.dart';
 import '../models/session.dart';
+import '../models/story_timeline_item.dart';
 import '../providers/app_role_provider.dart';
 import '../providers/campaign_event_provider.dart';
 import '../providers/campaign_provider.dart';
+import '../providers/compendium_provider.dart';
 import '../providers/journal_entry_provider.dart';
 import '../providers/session_provider.dart';
+import '../theme.dart';
+import '../services/campaign_story_timeline_service.dart';
+import '../services/demo_campaign_story_seed_service.dart';
+import '../widgets/campaign_codex_ui.dart';
+import '../widgets/campaign_interactive_timeline.dart';
+import '../widgets/campaign_story_timeline.dart';
+import '../widgets/campaign_event_composer_sheet.dart';
 import '../widgets/linked_compendium_text.dart';
+import 'session_detail_screen.dart';
+import 'story_day_detail_screen.dart';
 
 class TimelineScreen extends StatefulWidget {
   const TimelineScreen({super.key});
@@ -20,21 +34,28 @@ class TimelineScreen extends StatefulWidget {
 
 class _TimelineScreenState extends State<TimelineScreen> {
   String _recapMode = 'player'; // 'player' | 'dm'
+  String _viewMode = 'story'; // 'story' | 'sessions'
+  String _storyFilter = 'all'; // 'all' | 'note' | 'event' | 'session'
   bool _didLoad = false;
   String _searchQuery = '';
   bool _showPrivateNotes = true;
   final Set<String> _expandedRecaps = {};
+  final Set<String> _expandedStoryItems = {};
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
 
-    if (!_didLoad) {
-      _didLoad = true;
-      context.read<CampaignEventProvider>().loadEvents();
-      context.read<SessionProvider>().loadSessions();
-      context.read<JournalEntryProvider>().loadEntries();
-    }
+    if (_didLoad) return;
+    _didLoad = true;
+
+    final activeCampaign = context.read<CampaignProvider>().activeCampaign;
+    if (activeCampaign == null) return;
+
+    context.read<CampaignEventProvider>().loadEvents(activeCampaign.id);
+    context.read<SessionProvider>().loadSessions(activeCampaign.id);
+    context.read<JournalEntryProvider>().loadEntries(activeCampaign.id);
+    context.read<CompendiumProvider>().loadEntries();
   }
 
   @override
@@ -43,6 +64,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
     final eventProvider = context.watch<CampaignEventProvider>();
     final sessionProvider = context.watch<SessionProvider>();
     final journalProvider = context.watch<JournalEntryProvider>();
+    final compendiumProvider = context.watch<CompendiumProvider>();
     final roleProvider = context.watch<AppRoleProvider>();
 
     final activeCampaign = campaignProvider.activeCampaign;
@@ -50,7 +72,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
 
     if (activeCampaign == null) {
       return Scaffold(
-        appBar: AppBar(
+        appBar: StitchAppBar(
           title: const Text('Timeline'),
         ),
         body: const Center(
@@ -62,7 +84,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
     final sessions = sessionProvider
         .getSessionsByCampaign(activeCampaign.id)
         .toList()
-      ..sort((a, b) => b.date.compareTo(a.date));
+      ..sort((a, b) => a.date.compareTo(b.date));
 
     final campaignEvents =
         eventProvider.getEventsByCampaign(activeCampaign.id).toList();
@@ -70,6 +92,9 @@ class _TimelineScreenState extends State<TimelineScreen> {
     final campaignJournalEntries = journalProvider.entries
         .where((e) => e.campaignId == activeCampaign.id)
         .toList();
+
+    final compendiumEntries =
+        compendiumProvider.getEntriesByCampaign(activeCampaign.id).toList();
 
     final query = _searchQuery.toLowerCase().trim();
 
@@ -123,92 +148,90 @@ class _TimelineScreenState extends State<TimelineScreen> {
         .toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
-    final hasContent = filteredSessions.isNotEmpty ||
+    final storyItems = CampaignStoryTimelineService.buildItems(
+      sessions: sessions,
+      events: campaignEvents,
+      entries: campaignJournalEntries,
+      isDm: isDm,
+      showPrivateNotes: _showPrivateNotes,
+      recapMode: _recapMode,
+    );
+
+    final filteredStoryItems = CampaignStoryTimelineService.filterItems(
+      items: storyItems,
+      query: query,
+      kindFilter: _storyFilter,
+      compendiumEntries: compendiumEntries,
+    );
+
+    final visibleJournalEntries =
+        CampaignStoryTimelineService.visibleJournalEntries(
+      entries: campaignJournalEntries,
+      isDm: isDm,
+      showPrivateNotes: _showPrivateNotes,
+    );
+
+    final storyStats = CampaignStoryTimelineService.buildStats(
+      sessions: sessions,
+      events: campaignEvents,
+      visibleJournalEntries: visibleJournalEntries,
+      items: storyItems,
+      compendiumEntries: compendiumEntries,
+    );
+
+    final hasSessionContent = filteredSessions.isNotEmpty ||
         orphanEvents.isNotEmpty ||
         (isDm && _showPrivateNotes && privateEntries.isNotEmpty);
 
+    final hasContent = _viewMode == 'story'
+        ? filteredStoryItems.isNotEmpty
+        : hasSessionContent;
+
     return Scaffold(
-      appBar: AppBar(
+      appBar: StitchAppBar(
         title: Text('${activeCampaign.name} Timeline'),
+        actions: [
+          PopupMenuButton<String>(
+            onSelected: (value) async {
+              if (value == 'seed-demo') {
+                await _seedDemoStory(context, activeCampaign.id);
+              } else if (value == 'clear-demo') {
+                await _clearDemoStory(context, activeCampaign.id);
+              }
+            },
+            itemBuilder: (context) {
+              final hasDemoData = DemoCampaignStorySeedService.hasDemoData(
+                campaignId: activeCampaign.id,
+                sessionProvider: sessionProvider,
+                eventProvider: eventProvider,
+                journalProvider: journalProvider,
+                compendiumProvider: compendiumProvider,
+              );
+
+              return [
+                const PopupMenuItem(
+                  value: 'seed-demo',
+                  child: Text('Load demo story'),
+                ),
+                if (hasDemoData)
+                  const PopupMenuItem(
+                    value: 'clear-demo',
+                    child: Text('Remove demo story'),
+                  ),
+              ];
+            },
+          ),
+        ],
       ),
       body: Column(
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-            child: TextField(
-              decoration: const InputDecoration(
-                labelText: 'Search timeline',
-                hintText: 'Search sessions, events or notes',
-                prefixIcon: Icon(Icons.search),
-                border: OutlineInputBorder(),
-              ),
-              onChanged: (value) {
-                setState(() {
-                  _searchQuery = value;
-                });
-              },
-            ),
-          ),
-          if (isDm)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-              child: SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Show private notes'),
-                subtitle: const Text(
-                  'Include notes that do not belong to a session',
-                ),
-                value: _showPrivateNotes,
-                onChanged: (value) {
-                  setState(() {
-                    _showPrivateNotes = value;
-                  });
-                },
-              ),
-            ),
-          if (isDm)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-              child: SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(
-                    value: 'player',
-                    label: Text('Player view'),
-                    icon: Icon(Icons.auto_stories_outlined),
-                  ),
-                  ButtonSegment(
-                    value: 'dm',
-                    label: Text('DM view'),
-                    icon: Icon(Icons.psychology_outlined),
-                  ),
-                ],
-                selected: {_recapMode},
-                onSelectionChanged: (value) {
-                  setState(() {
-                    _recapMode = value.first;
-                  });
-                },
-              ),
-            ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-            child: SegmentedButton<AppRole>(
-              segments: const [
-                ButtonSegment<AppRole>(
-                  value: AppRole.dm,
-                  label: Text('DM'),
-                  icon: Icon(Icons.shield_outlined),
-                ),
-                ButtonSegment<AppRole>(
-                  value: AppRole.player,
-                  label: Text('Player'),
-                  icon: Icon(Icons.person_outline),
-                ),
-              ],
-              selected: {roleProvider.role},
-              onSelectionChanged: (value) {
-                context.read<AppRoleProvider>().setRole(value.first);
-              },
+            child: _buildTimelineCommandDeck(
+              context,
+              campaignName: activeCampaign.name,
+              isDm: isDm,
+              roleProvider: roleProvider,
             ),
           ),
           Expanded(
@@ -216,98 +239,162 @@ class _TimelineScreenState extends State<TimelineScreen> {
                 ? Center(
                     child: Text(
                       query.isEmpty
-                          ? 'No timeline content yet'
+                          ? (_viewMode == 'story'
+                              ? 'No story beats yet'
+                              : 'No timeline content yet')
                           : 'No matching timeline content found',
                     ),
                   )
-                : ListView(
-                    padding: const EdgeInsets.all(12),
-                    children: [
-                      if (isDm &&
-                          _showPrivateNotes &&
-                          privateEntries.isNotEmpty) ...[
-                        _buildSectionHeader(
-                          context,
-                          'Private reflections',
-                          subtitle:
-                              '${privateEntries.length} private note${privateEntries.length == 1 ? '' : 's'}',
-                        ),
-                        const SizedBox(height: 8),
-                        ...privateEntries.map(
-                          (entry) => Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: _buildJournalCard(context, entry),
+                : _viewMode == 'story'
+                    ? ListView(
+                        padding: const EdgeInsets.all(12),
+                        children: [
+                          if (filteredStoryItems.isNotEmpty) ...[
+                            CampaignInteractiveTimeline(
+                              items: filteredStoryItems,
+                              compendiumEntries: compendiumEntries,
+                              onOpenDay: (date) {
+                                _openStoryDay(
+                                  context,
+                                  campaignName: activeCampaign.name,
+                                  itemDate: date,
+                                  storyItems: storyItems,
+                                  compendiumEntries: compendiumEntries,
+                                );
+                              },
+                              onOpenSession: (session) {
+                                _openSession(context, session);
+                              },
+                            ),
+                            const SizedBox(height: 12),
+                          ],
+                          CampaignStoryOverviewCard(
+                            stats: storyStats,
                           ),
-                        ),
-                        const SizedBox(height: 16),
-                      ],
-                      if (orphanEvents.isNotEmpty) ...[
-                        _buildSectionHeader(
-                          context,
-                          'Campaign-wide events',
-                          subtitle:
-                              '${orphanEvents.length} event${orphanEvents.length == 1 ? '' : 's'} not linked to a session',
-                        ),
-                        const SizedBox(height: 8),
-                        ...orphanEvents.map(
-                          (event) => Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: _buildEventCard(context, event, null),
+                          const SizedBox(height: 12),
+                          ...filteredStoryItems.map(
+                            (item) => CampaignStoryTimelineTile(
+                              item: item,
+                              compendiumEntries: compendiumEntries,
+                              isExpanded: _expandedStoryItems.contains(item.id),
+                              onToggleExpanded: () {
+                                setState(() {
+                                  if (_expandedStoryItems.contains(item.id)) {
+                                    _expandedStoryItems.remove(item.id);
+                                  } else {
+                                    _expandedStoryItems.add(item.id);
+                                  }
+                                });
+                              },
+                              onOpenDay: () {
+                                _openStoryDay(
+                                  context,
+                                  campaignName: activeCampaign.name,
+                                  itemDate: item.date,
+                                  storyItems: storyItems,
+                                  compendiumEntries: compendiumEntries,
+                                );
+                              },
+                              onOpenSession: (session) {
+                                _openSession(context, session);
+                              },
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 16),
-                      ],
-                      ...filteredSessions.map((session) {
-                        final sessionEvents = campaignEvents
-                            .where((e) => e.sessionId == session.id)
-                            .toList()
-                          ..sort((a, b) => b.date.compareTo(a.date));
+                        ],
+                      )
+                    : ListView(
+                        padding: const EdgeInsets.all(12),
+                        children: [
+                          if (isDm &&
+                              _showPrivateNotes &&
+                              privateEntries.isNotEmpty) ...[
+                            _buildSectionHeader(
+                              context,
+                              'Private reflections',
+                              subtitle:
+                                  '${privateEntries.length} private note${privateEntries.length == 1 ? '' : 's'}',
+                            ),
+                            const SizedBox(height: 8),
+                            ...privateEntries.map(
+                              (entry) => Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: _buildJournalCard(context, entry),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                          ],
+                          if (orphanEvents.isNotEmpty) ...[
+                            _buildSectionHeader(
+                              context,
+                              'Campaign-wide events',
+                              subtitle:
+                                  '${orphanEvents.length} event${orphanEvents.length == 1 ? '' : 's'} not linked to a session',
+                            ),
+                            const SizedBox(height: 8),
+                            ...orphanEvents.map(
+                              (event) => Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: _buildEventCard(context, event, null),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                          ],
+                          ...filteredSessions.map((session) {
+                            final sessionEvents = campaignEvents
+                                .where((e) => e.sessionId == session.id)
+                                .toList()
+                              ..sort((a, b) => b.date.compareTo(a.date));
 
-                        final sessionEntries = campaignJournalEntries
-                            .where((e) => e.sessionId == session.id)
-                            .toList()
-                          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+                            final sessionEntries = campaignJournalEntries
+                                .where((e) => e.sessionId == session.id)
+                                .toList()
+                              ..sort(
+                                  (a, b) => b.createdAt.compareTo(a.createdAt));
 
-                        final visibleEvents = sessionEvents.where((event) {
-                          return query.isEmpty ||
-                              matchesSearch(event.title) ||
-                              matchesSearch(event.description) ||
-                              matchesSearch(event.type);
-                        }).toList();
+                            final visibleEvents = sessionEvents.where((event) {
+                              return query.isEmpty ||
+                                  matchesSearch(event.title) ||
+                                  matchesSearch(event.description) ||
+                                  matchesSearch(event.type);
+                            }).toList();
 
-                        final visibleEntries = sessionEntries.where((entry) {
-                          return query.isEmpty ||
-                              matchesSearch(entry.content) ||
-                              matchesSearch(entry.authorName) ||
-                              matchesSearch(entry.authorCharacterName ?? '');
-                        }).toList();
+                            final visibleEntries =
+                                sessionEntries.where((entry) {
+                              return query.isEmpty ||
+                                  matchesSearch(entry.content) ||
+                                  matchesSearch(entry.authorName) ||
+                                  matchesSearch(
+                                      entry.authorCharacterName ?? '');
+                            }).toList();
 
-                        final sessionTitleMatches = query.isEmpty ||
-                            matchesSearch(session.title) ||
-                            matchesSearch(session.summary ?? '') ||
-                            matchesSearch(session.playerNarrativeRecap ?? '') ||
-                            (isDm && matchesSearch(session.rawNotes)) ||
-                            (isDm &&
-                                matchesSearch(session.dmNarrativeRecap ?? ''));
+                            final sessionTitleMatches = query.isEmpty ||
+                                matchesSearch(session.title) ||
+                                matchesSearch(session.summary ?? '') ||
+                                matchesSearch(
+                                    session.playerNarrativeRecap ?? '') ||
+                                (isDm && matchesSearch(session.rawNotes)) ||
+                                (isDm &&
+                                    matchesSearch(
+                                        session.dmNarrativeRecap ?? ''));
 
-                        if (!sessionTitleMatches &&
-                            visibleEvents.isEmpty &&
-                            visibleEntries.isEmpty) {
-                          return const SizedBox.shrink();
-                        }
+                            if (!sessionTitleMatches &&
+                                visibleEvents.isEmpty &&
+                                visibleEntries.isEmpty) {
+                              return const SizedBox.shrink();
+                            }
 
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 16),
-                          child: _buildSessionBlock(
-                            context,
-                            session,
-                            visibleEvents,
-                            visibleEntries,
-                          ),
-                        );
-                      }),
-                    ],
-                  ),
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 16),
+                              child: _buildSessionBlock(
+                                context,
+                                session,
+                                visibleEvents,
+                                visibleEntries,
+                              ),
+                            );
+                          }),
+                        ],
+                      ),
           ),
         ],
       ),
@@ -321,16 +408,244 @@ class _TimelineScreenState extends State<TimelineScreen> {
     );
   }
 
+  Widget _buildTimelineCommandDeck(
+    BuildContext context, {
+    required String campaignName,
+    required bool isDm,
+    required AppRoleProvider roleProvider,
+  }) {
+    final tokens = context.stitch;
+
+    return CampaignCodexFrame(
+      accentColor: tokens.accentRead,
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CampaignCodexHeader(
+            icon: Icons.route_outlined,
+            title: 'Campaign Codex',
+            subtitle: campaignName,
+            accentColor: tokens.accentReadSoft,
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            decoration: campaignCodexInputDecoration(
+              context,
+              labelText: 'Search timeline',
+              hintText: 'Search sessions, events or notes',
+            ).copyWith(prefixIcon: const Icon(Icons.search)),
+            onChanged: (value) {
+              setState(() {
+                _searchQuery = value;
+              });
+            },
+          ),
+          const SizedBox(height: 12),
+          _ScrollSafeSegmentedButton<String>(
+            segments: const [
+              ButtonSegment(
+                value: 'story',
+                label: Text('Story'),
+                icon: Icon(Icons.route_outlined),
+              ),
+              ButtonSegment(
+                value: 'sessions',
+                label: Text('Sessions'),
+                icon: Icon(Icons.view_agenda_outlined),
+              ),
+            ],
+            selected: {_viewMode},
+            onSelectionChanged: (value) {
+              setState(() {
+                _viewMode = value.first;
+              });
+            },
+          ),
+          if (_viewMode == 'story') ...[
+            const SizedBox(height: 10),
+            _ScrollSafeSegmentedButton<String>(
+              segments: const [
+                ButtonSegment(
+                  value: 'all',
+                  label: Text('All'),
+                  icon: Icon(Icons.all_inclusive),
+                ),
+                ButtonSegment(
+                  value: 'note',
+                  label: Text('Notes'),
+                  icon: Icon(Icons.edit_note),
+                ),
+                ButtonSegment(
+                  value: 'event',
+                  label: Text('Events'),
+                  icon: Icon(Icons.bolt_outlined),
+                ),
+                ButtonSegment(
+                  value: 'session',
+                  label: Text('Sessions'),
+                  icon: Icon(Icons.auto_stories_outlined),
+                ),
+              ],
+              selected: {_storyFilter},
+              onSelectionChanged: (value) {
+                setState(() {
+                  _storyFilter = value.first;
+                });
+              },
+            ),
+          ],
+          if (isDm) ...[
+            const SizedBox(height: 10),
+            _TimelineSwitchPanel(
+              title: 'Show private notes',
+              subtitle: 'Include notes that do not belong to a session',
+              value: _showPrivateNotes,
+              onChanged: (value) {
+                setState(() {
+                  _showPrivateNotes = value;
+                });
+              },
+            ),
+          ],
+          if (isDm && _viewMode == 'sessions') ...[
+            const SizedBox(height: 10),
+            _ScrollSafeSegmentedButton<String>(
+              segments: const [
+                ButtonSegment(
+                  value: 'player',
+                  label: Text('Player view'),
+                  icon: Icon(Icons.auto_stories_outlined),
+                ),
+                ButtonSegment(
+                  value: 'dm',
+                  label: Text('DM view'),
+                  icon: Icon(Icons.psychology_outlined),
+                ),
+              ],
+              selected: {_recapMode},
+              onSelectionChanged: (value) {
+                setState(() {
+                  _recapMode = value.first;
+                });
+              },
+            ),
+          ],
+          const SizedBox(height: 10),
+          _ScrollSafeSegmentedButton<AppRole>(
+            segments: const [
+              ButtonSegment<AppRole>(
+                value: AppRole.dm,
+                label: Text('DM'),
+                icon: Icon(Icons.shield_outlined),
+              ),
+              ButtonSegment<AppRole>(
+                value: AppRole.player,
+                label: Text('Player'),
+                icon: Icon(Icons.person_outline),
+              ),
+            ],
+            selected: {roleProvider.role},
+            onSelectionChanged: (value) {
+              context.read<AppRoleProvider>().setRole(value.first);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openSession(BuildContext context, Session session) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => SessionDetailScreen(session: session),
+      ),
+    );
+  }
+
+  void _openStoryDay(
+    BuildContext context, {
+    required String campaignName,
+    required DateTime itemDate,
+    required List<StoryTimelineItem> storyItems,
+    required List<CompendiumEntry> compendiumEntries,
+  }) {
+    final dayItems =
+        storyItems.where((item) => _isSameDay(item.date, itemDate)).toList();
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => StoryDayDetailScreen(
+          campaignName: campaignName,
+          date: itemDate,
+          items: dayItems,
+          compendiumEntries: compendiumEntries,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _seedDemoStory(BuildContext context, String campaignId) async {
+    final sessionProvider = context.read<SessionProvider>();
+    final eventProvider = context.read<CampaignEventProvider>();
+    final journalProvider = context.read<JournalEntryProvider>();
+    final compendiumProvider = context.read<CompendiumProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+
+    await DemoCampaignStorySeedService.seed(
+      campaignId: campaignId,
+      sessionProvider: sessionProvider,
+      eventProvider: eventProvider,
+      journalProvider: journalProvider,
+      compendiumProvider: compendiumProvider,
+    );
+
+    if (!mounted) return;
+
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Demo story loaded')),
+    );
+  }
+
+  Future<void> _clearDemoStory(BuildContext context, String campaignId) async {
+    final sessionProvider = context.read<SessionProvider>();
+    final eventProvider = context.read<CampaignEventProvider>();
+    final journalProvider = context.read<JournalEntryProvider>();
+    final compendiumProvider = context.read<CompendiumProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+
+    await DemoCampaignStorySeedService.clear(
+      campaignId: campaignId,
+      sessionProvider: sessionProvider,
+      eventProvider: eventProvider,
+      journalProvider: journalProvider,
+      compendiumProvider: compendiumProvider,
+    );
+
+    if (!mounted) return;
+
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Demo story removed')),
+    );
+  }
+
+  bool _isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
   Widget _buildSectionHeader(
     BuildContext context,
     String title, {
     String? subtitle,
   }) {
+    final tokens = context.stitch;
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(14),
+        color: tokens.panel,
+        borderRadius: BorderRadius.circular(tokens.radiusMd),
+        border: Border.all(color: tokens.border.withValues(alpha: 0.20)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -343,7 +658,9 @@ class _TimelineScreenState extends State<TimelineScreen> {
             const SizedBox(height: 4),
             Text(
               subtitle,
-              style: Theme.of(context).textTheme.bodySmall,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: tokens.textMuted,
+                  ),
             ),
           ],
         ],
@@ -372,11 +689,13 @@ class _TimelineScreenState extends State<TimelineScreen> {
 
     final hasRecap = (recap ?? '').trim().isNotEmpty;
     final isExpanded = _expandedRecaps.contains(session.id);
+    final tokens = context.stitch;
 
     return Container(
       decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).dividerColor),
-        borderRadius: BorderRadius.circular(16),
+        color: tokens.panel,
+        border: Border.all(color: tokens.border.withValues(alpha: 0.24)),
+        borderRadius: BorderRadius.circular(tokens.radiusMd),
       ),
       child: Column(
         children: [
@@ -384,9 +703,9 @@ class _TimelineScreenState extends State<TimelineScreen> {
             width: double.infinity,
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(16),
+              color: tokens.surfaceRaised,
+              borderRadius: BorderRadius.vertical(
+                top: Radius.circular(tokens.radiusMd),
               ),
             ),
             child: Column(
@@ -394,17 +713,25 @@ class _TimelineScreenState extends State<TimelineScreen> {
               children: [
                 Text(
                   session.title.isEmpty ? 'Untitled session' : session.title,
-                  style: Theme.of(context).textTheme.titleMedium,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                 ),
                 const SizedBox(height: 6),
                 Text(
                   _formatDate(session.date),
-                  style: Theme.of(context).textTheme.bodySmall,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: tokens.textMuted,
+                      ),
                 ),
                 if ((session.summary ?? '').trim().isNotEmpty) ...[
                   const SizedBox(height: 10),
                   Text(
                     session.summary!,
+                    maxLines: 4,
+                    overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ],
@@ -413,17 +740,15 @@ class _TimelineScreenState extends State<TimelineScreen> {
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    Chip(
-                      label: Text(
-                        '${mainEvents.length} event${mainEvents.length == 1 ? '' : 's'}',
-                      ),
-                      visualDensity: VisualDensity.compact,
+                    _TimelineInfoChip(
+                      icon: Icons.bolt_outlined,
+                      label:
+                          '${mainEvents.length} event${mainEvents.length == 1 ? '' : 's'}',
                     ),
-                    Chip(
-                      label: Text(
-                        '${characterEntries.length} perspective${characterEntries.length == 1 ? '' : 's'}',
-                      ),
-                      visualDensity: VisualDensity.compact,
+                    _TimelineInfoChip(
+                      icon: Icons.edit_note,
+                      label:
+                          '${characterEntries.length} perspective${characterEntries.length == 1 ? '' : 's'}',
                     ),
                   ],
                 ),
@@ -499,10 +824,10 @@ class _TimelineScreenState extends State<TimelineScreen> {
               margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: Colors.deepPurpleAccent.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(14),
+                color: Colors.deepPurpleAccent.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(tokens.radiusSm),
                 border: Border.all(
-                  color: Colors.deepPurpleAccent.withOpacity(0.25),
+                  color: tokens.accentMagic.withValues(alpha: 0.25),
                 ),
               ),
               child: Column(
@@ -510,13 +835,21 @@ class _TimelineScreenState extends State<TimelineScreen> {
                 children: [
                   Row(
                     children: [
-                      const Icon(Icons.auto_awesome, size: 18),
+                      Icon(
+                        Icons.auto_awesome,
+                        size: 18,
+                        color: tokens.accentMagic,
+                      ),
                       const SizedBox(width: 8),
-                      Text(
-                        effectiveRecapMode == 'player'
-                            ? 'Player recap'
-                            : 'DM recap',
-                        style: Theme.of(context).textTheme.titleSmall,
+                      Expanded(
+                        child: Text(
+                          effectiveRecapMode == 'player'
+                              ? 'Player recap'
+                              : 'DM recap',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
                       ),
                     ],
                   ),
@@ -586,123 +919,178 @@ class _TimelineScreenState extends State<TimelineScreen> {
     Session? linkedSession,
   ) {
     final isDm = context.watch<AppRoleProvider>().isDm;
+    final tokens = context.stitch;
+    final color = _colorForEventType(context, event.type);
 
-    return Card(
-      margin: EdgeInsets.zero,
-      child: ListTile(
-        contentPadding: const EdgeInsets.all(14),
-        leading: CircleAvatar(
-          child: Icon(_iconForType(event.type)),
-        ),
-        title: Text(event.title),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                _formatDate(event.date),
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 8),
-              LinkedCompendiumText(
-                text: event.description,
-                campaignId: event.campaignId,
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  Chip(
-                    label: Text(event.type),
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  if (linkedSession != null)
-                    Chip(
-                      label: Text(
-                        'Session: ${linkedSession.title.isEmpty ? 'Untitled' : linkedSession.title}',
-                      ),
-                      visualDensity: VisualDensity.compact,
-                    ),
-                ],
-              ),
-            ],
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: tokens.surface,
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _TimelineTypeBadge(
+            icon: _iconForType(event.type),
+            color: color,
           ),
-        ),
-        trailing: isDm
-            ? PopupMenuButton<String>(
-                onSelected: (value) async {
-                  if (value == 'edit') {
-                    _showEditEventDialog(context, event);
-                  } else if (value == 'delete') {
-                    await _confirmDeleteEvent(context, event);
-                  }
-                },
-                itemBuilder: (context) => const [
-                  PopupMenuItem(
-                    value: 'edit',
-                    child: Text('Edit'),
-                  ),
-                  PopupMenuItem(
-                    value: 'delete',
-                    child: Text('Delete'),
-                  ),
-                ],
-              )
-            : null,
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  event.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _formatDate(event.date),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: tokens.textMuted,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                LinkedCompendiumText(
+                  text: event.description,
+                  campaignId: event.campaignId,
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _TimelineInfoChip(
+                      icon: _iconForType(event.type),
+                      label: event.type,
+                    ),
+                    if (linkedSession != null)
+                      _TimelineInfoChip(
+                        icon: Icons.auto_stories_outlined,
+                        label: linkedSession.title.isEmpty
+                            ? 'Untitled session'
+                            : linkedSession.title,
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          if (isDm)
+            PopupMenuButton<String>(
+              tooltip: 'Event actions',
+              onSelected: (value) async {
+                if (value == 'edit') {
+                  _showEditEventDialog(context, event);
+                } else if (value == 'delete') {
+                  await _confirmDeleteEvent(context, event);
+                }
+              },
+              itemBuilder: (context) => const [
+                PopupMenuItem(
+                  value: 'edit',
+                  child: Text('Edit'),
+                ),
+                PopupMenuItem(
+                  value: 'delete',
+                  child: Text('Delete'),
+                ),
+              ],
+            ),
+        ],
       ),
     );
   }
 
   Widget _buildJournalCard(BuildContext context, JournalEntry entry) {
     final isPrivate = entry.sessionId == null || entry.sessionId!.isEmpty;
+    final tokens = context.stitch;
+    final title = entry.authorCharacterName ?? entry.authorName;
 
-    return Card(
-      margin: EdgeInsets.zero,
-      child: ListTile(
-        contentPadding: const EdgeInsets.all(14),
-        leading: const CircleAvatar(
-          child: Icon(Icons.menu_book_outlined),
-        ),
-        title: Text(
-          entry.authorCharacterName ?? entry.authorName,
-        ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                _formatDate(entry.createdAt),
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 8),
-              LinkedCompendiumText(
-                text: entry.content,
-                campaignId: entry.campaignId,
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  Chip(
-                    label: Text(isPrivate ? 'Private note' : 'Session note'),
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  if ((entry.imagePath ?? '').isNotEmpty)
-                    const Chip(
-                      label: Text('Image attached'),
-                      visualDensity: VisualDensity.compact,
-                    ),
-                ],
-              ),
-            ],
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: tokens.surface,
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(color: tokens.accentRead.withValues(alpha: 0.24)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _TimelineTypeBadge(
+            icon: Icons.menu_book_outlined,
+            color: tokens.accentRead,
           ),
-        ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _formatDate(entry.createdAt),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: tokens.textMuted,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                LinkedCompendiumText(
+                  text: entry.content,
+                  campaignId: entry.campaignId,
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _TimelineInfoChip(
+                      icon: isPrivate
+                          ? Icons.lock_outline
+                          : Icons.auto_stories_outlined,
+                      label: isPrivate ? 'Private note' : 'Session note',
+                    ),
+                    if ((entry.imagePath ?? '').isNotEmpty)
+                      const _TimelineInfoChip(
+                        icon: Icons.image_outlined,
+                        label: 'Image attached',
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
+  }
+
+  Color _colorForEventType(BuildContext context, String type) {
+    final tokens = context.stitch;
+    switch (type) {
+      case 'combat':
+        return tokens.accentAction;
+      case 'dialogue':
+        return tokens.accentInfo;
+      case 'travel':
+        return tokens.accentReadSoft;
+      case 'quest':
+        return tokens.accentWarning;
+      case 'rumor':
+        return tokens.accentMagic;
+      case 'discovery':
+      default:
+        return tokens.accentRead;
+    }
   }
 
   String _generateSessionRecap(
@@ -889,108 +1277,31 @@ class _TimelineScreenState extends State<TimelineScreen> {
   }
 
   void _showCreateEventDialog(BuildContext context, String campaignId) {
-    final titleController = TextEditingController();
-    final descriptionController = TextEditingController();
-    String selectedType = 'discovery';
+    final eventProvider = context.read<CampaignEventProvider>();
 
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Create event'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: titleController,
-                      decoration: const InputDecoration(
-                        labelText: 'Event title',
-                        hintText: 'Example: The gate was broken',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: descriptionController,
-                      decoration: const InputDecoration(
-                        labelText: 'Description',
-                        hintText: 'Describe what happened...',
-                      ),
-                      maxLines: 4,
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      value: selectedType,
-                      decoration: const InputDecoration(
-                        labelText: 'Event type',
-                      ),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'combat',
-                          child: Text('Combat'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'dialogue',
-                          child: Text('Dialogue'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'discovery',
-                          child: Text('Discovery'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'travel',
-                          child: Text('Travel'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'quest',
-                          child: Text('Quest'),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setDialogState(() {
-                          selectedType = value;
-                        });
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () async {
-                    final title = titleController.text.trim();
-                    final description = descriptionController.text.trim();
-
-                    if (title.isEmpty || description.isEmpty) return;
-
-                    final event = CampaignEvent(
-                      id: DateTime.now().millisecondsSinceEpoch.toString(),
-                      campaignId: campaignId,
-                      sessionId: null,
-                      title: title,
-                      description: description,
-                      date: DateTime.now(),
-                      type: selectedType,
-                    );
-
-                    await dialogContext
-                        .read<CampaignEventProvider>()
-                        .addEvent(event);
-
-                    if (!dialogContext.mounted) return;
-                    Navigator.of(dialogContext).pop();
-                  },
-                  child: const Text('Create'),
-                ),
-              ],
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) {
+        return CampaignEventComposerSheet(
+          title: 'Create event',
+          actionLabel: 'Create event',
+          campaignId: campaignId,
+          initialDate: DateTime.now(),
+          onSubmit: (draft) async {
+            final event = CampaignEvent(
+              id: DateTime.now().millisecondsSinceEpoch.toString(),
+              campaignId: campaignId,
+              sessionId: null,
+              title: draft.title,
+              description: draft.description,
+              date: draft.date,
+              type: draft.type,
             );
+
+            await eventProvider.addEvent(event);
+            return true;
           },
         );
       },
@@ -998,103 +1309,30 @@ class _TimelineScreenState extends State<TimelineScreen> {
   }
 
   void _showEditEventDialog(BuildContext context, CampaignEvent event) {
-    final titleController = TextEditingController(text: event.title);
-    final descriptionController =
-        TextEditingController(text: event.description);
-    String selectedType = event.type;
+    final eventProvider = context.read<CampaignEventProvider>();
 
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Edit event'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: titleController,
-                      decoration: const InputDecoration(
-                        labelText: 'Event title',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: descriptionController,
-                      decoration: const InputDecoration(
-                        labelText: 'Description',
-                      ),
-                      maxLines: 4,
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      value: selectedType,
-                      decoration: const InputDecoration(
-                        labelText: 'Event type',
-                      ),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'combat',
-                          child: Text('Combat'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'dialogue',
-                          child: Text('Dialogue'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'discovery',
-                          child: Text('Discovery'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'travel',
-                          child: Text('Travel'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'quest',
-                          child: Text('Quest'),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setDialogState(() {
-                          selectedType = value;
-                        });
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () async {
-                    final title = titleController.text.trim();
-                    final description = descriptionController.text.trim();
-
-                    if (title.isEmpty || description.isEmpty) return;
-
-                    final updatedEvent = event.copyWith(
-                      title: title,
-                      description: description,
-                      type: selectedType,
-                    );
-
-                    await dialogContext
-                        .read<CampaignEventProvider>()
-                        .updateEvent(updatedEvent);
-
-                    if (!dialogContext.mounted) return;
-                    Navigator.of(dialogContext).pop();
-                  },
-                  child: const Text('Save'),
-                ),
-              ],
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) {
+        return CampaignEventComposerSheet(
+          title: 'Edit event',
+          actionLabel: 'Save event',
+          campaignId: event.campaignId,
+          initialTitle: event.title,
+          initialDescription: event.description,
+          initialType: event.type,
+          initialDate: event.date,
+          onSubmit: (draft) async {
+            final updatedEvent = event.copyWith(
+              title: draft.title,
+              description: draft.description,
+              type: draft.type,
+              date: draft.date,
             );
+            await eventProvider.updateEvent(updatedEvent);
+            return true;
           },
         );
       },
@@ -1122,5 +1360,164 @@ class _TimelineScreenState extends State<TimelineScreen> {
     final month = date.month.toString().padLeft(2, '0');
     final year = date.year.toString();
     return '$day/$month/$year';
+  }
+}
+
+class _ScrollSafeSegmentedButton<T> extends StatelessWidget {
+  final List<ButtonSegment<T>> segments;
+  final Set<T> selected;
+  final ValueChanged<Set<T>> onSelectionChanged;
+
+  const _ScrollSafeSegmentedButton({
+    required this.segments,
+    required this.selected,
+    required this.onSelectionChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SegmentedButton<T>(
+          segments: segments,
+          selected: selected,
+          onSelectionChanged: onSelectionChanged,
+        ),
+      ),
+    );
+  }
+}
+
+class _TimelineSwitchPanel extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const _TimelineSwitchPanel({
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+      decoration: BoxDecoration(
+        color: tokens.panel,
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(color: tokens.border.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.lock_open_outlined,
+            size: 19,
+            color: tokens.accentReadSoft,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: tokens.textMuted,
+                      ),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            value: value,
+            onChanged: onChanged,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TimelineTypeBadge extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+
+  const _TimelineTypeBadge({
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
+    return Container(
+      width: 34,
+      height: 34,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(color: color.withValues(alpha: 0.38)),
+      ),
+      child: Icon(icon, size: 18, color: color),
+    );
+  }
+}
+
+class _TimelineInfoChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _TimelineInfoChip({
+    required this.icon,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 190),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: tokens.surfaceRaised,
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
+        border: Border.all(color: tokens.border.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: tokens.accentReadSoft),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: tokens.textSecondary,
+                  ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

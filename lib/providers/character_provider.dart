@@ -1,46 +1,133 @@
 import 'package:flutter/foundation.dart';
 
 import '../models/character.dart';
+import '../models/character_feature.dart';
 import '../models/character_inventory_item.dart';
+import '../models/character_option_definition.dart';
+import '../models/character_resource.dart';
 import '../models/dnd_background.dart';
 import '../models/dnd_subrace.dart';
-import '../services/character_storage.dart';
-import '../models/character_feature.dart';
-import '../models/character_resource.dart';
-import '../services/character_feature_sync_service.dart';
-import '../services/character_resource_factory.dart';
 import '../models/equipment_compendium_item.dart';
-import '../services/character_pact_service.dart';
+import '../services/character_cloud_repository.dart';
+import '../services/character_feature_sync_service.dart';
 import '../services/character_infusion_service.dart';
-import '../models/character_option_definition.dart';
+import '../services/character_pact_service.dart';
+import '../services/character_resource_factory.dart';
+import '../services/character_spell_slot_service.dart';
 import '../services/feat_data_service.dart';
 import '../services/feat_sync_service.dart';
+import '../services/race_sync_service.dart';
+
+enum CharacterCreationSource {
+  home,
+  campaignDetail,
+}
 
 class CharacterProvider extends ChangeNotifier {
+  final CharacterCloudRepository _cloudRepo = CharacterCloudRepository();
+
   Character? _character;
   List<Character> _characters = [];
+  List<Character> _campaignCharacters = [];
   int? _selectedIndex;
+  String? _activeUserId;
+  String? _creationCampaignId;
+  CharacterCreationSource? _creationSource;
+  Uint8List? _draftPortraitBytes;
+  String? _draftPortraitFileName;
 
   Character? get character => _character;
   List<Character> get characters => _characters;
+  List<Character> get campaignCharacters => _campaignCharacters;
   int? get selectedIndex => _selectedIndex;
+  String? get activeUserId => _activeUserId;
+  String? get creationCampaignId => _creationCampaignId;
+  CharacterCreationSource? get creationSource => _creationSource;
+  Uint8List? get draftPortraitBytes => _draftPortraitBytes;
+  String? get draftPortraitFileName => _draftPortraitFileName;
 
   List<Character> getCharactersByCampaignSafe(String? campaignId) {
     if (campaignId == null) return [];
-    return _characters.where((c) => c.campaignId == campaignId).toList();
+    return _campaignCharacters
+        .where((c) => c.campaignId == campaignId)
+        .toList();
   }
 
   Character? getCharacterById(String id) {
     try {
       return _characters.firstWhere((c) => c.id == id);
     } catch (_) {
-      return null;
+      try {
+        return _campaignCharacters.firstWhere((c) => c.id == id);
+      } catch (_) {
+        return null;
+      }
     }
   }
 
-  Future<void> loadCharacters() async {
-    _characters = await CharacterStorage.getCharacters();
+  Future<void> loadCharacters([String? userId]) async {
+    final resolvedUserId = userId ?? _activeUserId;
+    if (resolvedUserId == null || resolvedUserId.isEmpty) {
+      debugPrint('CharacterProvider.loadCharacters: missing userId');
+      return;
+    }
+
+    _activeUserId = resolvedUserId;
+    _characters = await _cloudRepo.getCharactersByUser(resolvedUserId);
+
+    if (_character != null) {
+      final existingIndex =
+          _characters.indexWhere((c) => c.id == _character!.id);
+      if (existingIndex != -1) {
+        _selectedIndex = existingIndex;
+        _character = _characters[existingIndex];
+      } else {
+        _character = null;
+        _selectedIndex = null;
+      }
+    }
+
     notifyListeners();
+  }
+
+  Future<void> loadCampaignCharacters(String campaignId) async {
+    if (campaignId.isEmpty) {
+      debugPrint(
+          'CharacterProvider.loadCampaignCharacters: missing campaignId');
+      return;
+    }
+
+    _campaignCharacters = await _cloudRepo.getCharactersByCampaign(campaignId);
+
+    if (_character != null) {
+      final existingIndex =
+          _campaignCharacters.indexWhere((c) => c.id == _character!.id);
+      if (existingIndex != -1) {
+        _character = _campaignCharacters[existingIndex];
+      }
+    }
+
+    notifyListeners();
+  }
+
+  void startNewCharacter({
+    String? campaignId,
+    required CharacterCreationSource source,
+  }) {
+    _creationCampaignId = campaignId;
+    _creationSource = source;
+
+    _character = Character.empty();
+    _character!.campaignId = campaignId;
+    _draftPortraitBytes = null;
+    _draftPortraitFileName = null;
+
+    _selectedIndex = null;
+    notifyListeners();
+  }
+
+  Future<void> loadCharactersFromCloud(String userId) async {
+    await loadCharacters(userId);
   }
 
   void create(Character c) {
@@ -55,35 +142,62 @@ class CharacterProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setDraftPortrait({
+    required Uint8List bytes,
+    required String fileName,
+  }) {
+    _draftPortraitBytes = Uint8List.fromList(bytes);
+    _draftPortraitFileName =
+        fileName.trim().isEmpty ? 'character-portrait.jpg' : fileName.trim();
+    notifyListeners();
+  }
+
+  void clearDraftPortrait() {
+    if (_draftPortraitBytes == null && _draftPortraitFileName == null) return;
+    _draftPortraitBytes = null;
+    _draftPortraitFileName = null;
+    notifyListeners();
+  }
+
   void setBackground(DndBackground background) {
     if (_character == null) return;
     _character!.background = background;
     notifyListeners();
   }
 
-  Future<void> saveCharacter() async {
+  Future<void> saveCharacter([String? userId]) async {
     if (_character == null) return;
 
-    final hasValidId = _character!.id.isNotEmpty;
-
-    if (!hasValidId) {
-      _character!.id = DateTime.now().millisecondsSinceEpoch.toString();
-      await CharacterStorage.addCharacter(_character!);
-    } else {
-      final existing = await CharacterStorage.getCharacterById(_character!.id);
-
-      if (existing == null) {
-        await CharacterStorage.addCharacter(_character!);
-      } else {
-        await CharacterStorage.updateCharacterById(
-          _character!.id,
-          _character!,
-        );
-      }
+    final characterToSave = _character!;
+    final resolvedUserId =
+        _resolveUserId(characterToSave, explicitUserId: userId);
+    if (resolvedUserId == null || resolvedUserId.isEmpty) {
+      debugPrint('CharacterProvider.saveCharacter: missing userId');
+      return;
     }
 
-    await loadCharacters();
-    _syncSelectedCharacterById(_character!.id);
+    if (characterToSave.id.isEmpty) {
+      characterToSave.id = DateTime.now().millisecondsSinceEpoch.toString();
+    }
+
+    characterToSave.ownerUserId = resolvedUserId;
+    _activeUserId = resolvedUserId;
+
+    await _applyFeatureAndResourceSync(characterToSave);
+
+    final savedCharacterId = characterToSave.id;
+    final savedCampaignId = characterToSave.campaignId;
+
+    await _cloudRepo.saveCharacter(characterToSave);
+    await loadCharacters(resolvedUserId);
+    if ((savedCampaignId ?? '').isNotEmpty) {
+      await loadCampaignCharacters(savedCampaignId!);
+    }
+    _syncSelectedCharacterById(savedCharacterId);
+  }
+
+  Future<void> saveCharacterToCloud(String userId) async {
+    await saveCharacter(userId);
   }
 
   void selectCharacterByObject(Character character) {
@@ -92,6 +206,7 @@ class CharacterProvider extends ChangeNotifier {
 
     _selectedIndex = index;
     _character = _characters[index];
+
     notifyListeners();
   }
 
@@ -107,31 +222,21 @@ class CharacterProvider extends ChangeNotifier {
     if (index < 0 || index >= _characters.length) return;
 
     final character = _characters[index];
-    await CharacterStorage.deleteCharacterById(character.id);
-
-    if (_character?.id == character.id) {
-      _character = null;
-      _selectedIndex = null;
-    }
-
-    await loadCharacters();
-    notifyListeners();
+    await _deleteAndRefreshCharacter(character);
   }
 
   Future<void> deleteCharacterById(String id) async {
-    await CharacterStorage.deleteCharacterById(id);
+    final character = getCharacterById(id);
+    if (character == null) return;
 
-    if (_character?.id == id) {
-      _character = null;
-      _selectedIndex = null;
-    }
-
-    await loadCharacters();
-    notifyListeners();
+    await _deleteAndRefreshCharacter(character);
   }
 
   void resetCharacter() {
     _character = Character.empty();
+    _character!.campaignId = _creationCampaignId;
+    _draftPortraitBytes = null;
+    _draftPortraitFileName = null;
     _selectedIndex = null;
     notifyListeners();
   }
@@ -139,6 +244,10 @@ class CharacterProvider extends ChangeNotifier {
   void clear() {
     _character = null;
     _selectedIndex = null;
+    _creationCampaignId = null;
+    _creationSource = null;
+    _draftPortraitBytes = null;
+    _draftPortraitFileName = null;
     notifyListeners();
   }
 
@@ -158,10 +267,7 @@ class CharacterProvider extends ChangeNotifier {
     _character!.subrace = subrace.name;
 
     for (final bonus in subrace.abilityBonuses) {
-      final raw = bonus["ability_score"];
-      if (raw is! Map) continue;
-
-      final ability = raw["name"]?.toString();
+      final ability = bonus["ability"]?.toString();
       final value = bonus["bonus"] is int ? bonus["bonus"] as int : null;
 
       if (ability == null || value == null) continue;
@@ -176,7 +282,7 @@ class CharacterProvider extends ChangeNotifier {
   void setSubclass(String subclassName, {Map<String, int>? bonuses}) {
     if (_character == null) return;
 
-    _character!.subclass = subclassName;
+    _character!.setSubclassForPrimaryClass(subclassName);
 
     if (bonuses != null) {
       bonuses.forEach((ability, value) {
@@ -187,6 +293,17 @@ class CharacterProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> assignCharacterToCampaign(
+    String characterId,
+    String? campaignId,
+  ) async {
+    final character = getCharacterById(characterId);
+    if (character == null) return;
+
+    character.campaignId = campaignId;
+    await _saveAndRefreshCharacter(character);
+  }
+
   Future<void> updateCharacterById(
     String characterId,
     void Function(Character) updates,
@@ -195,10 +312,7 @@ class CharacterProvider extends ChangeNotifier {
     if (character == null) return;
 
     updates(character);
-
-    await CharacterStorage.updateCharacterById(character.id, character);
-    await loadCharacters();
-    _syncSelectedCharacterById(characterId);
+    await _saveAndRefreshCharacter(character);
   }
 
   Future<void> applyInfusionToCharacterItem(
@@ -255,9 +369,54 @@ class CharacterProvider extends ChangeNotifier {
       infusion: infusion,
     );
 
-    await CharacterStorage.updateCharacterById(character.id, character);
-    await loadCharacters();
-    _syncSelectedCharacterById(characterId);
+    await _saveAndRefreshCharacter(character);
+  }
+
+  void applyCombatSnapshotToCharacterById(
+    String characterId, {
+    required int currentHp,
+    required int tempHp,
+    required Map<String, int> resources,
+  }) {
+    var updated = false;
+    void apply(Character? character) {
+      if (character == null || character.id != characterId) return;
+      _applyCombatSnapshot(
+        character,
+        currentHp: currentHp,
+        tempHp: tempHp,
+        resources: resources,
+      );
+      updated = true;
+    }
+
+    apply(_character);
+    for (final character in _characters) {
+      apply(character);
+    }
+    for (final character in _campaignCharacters) {
+      apply(character);
+    }
+
+    if (updated) notifyListeners();
+  }
+
+  Future<void> saveCombatSnapshotToCharacterById(
+    String characterId, {
+    required int currentHp,
+    required int tempHp,
+    required Map<String, int> resources,
+  }) async {
+    final character = getCharacterById(characterId);
+    if (character == null) return;
+
+    _applyCombatSnapshot(
+      character,
+      currentHp: currentHp,
+      tempHp: tempHp,
+      resources: resources,
+    );
+    await _saveAndRefreshCharacter(character);
   }
 
   Future<void> removeInfusionFromCharacterItem(
@@ -272,12 +431,9 @@ class CharacterProvider extends ChangeNotifier {
     if (index == -1) return;
 
     final item = character.inventory[index];
-
     character.inventory[index] = removeInfusionFromItem(item);
 
-    await CharacterStorage.updateCharacterById(character.id, character);
-    await loadCharacters();
-    _syncSelectedCharacterById(characterId);
+    await _saveAndRefreshCharacter(character);
   }
 
   Future<void> clearInvalidInfusionsForCharacter(
@@ -288,10 +444,7 @@ class CharacterProvider extends ChangeNotifier {
     if (character == null) return;
 
     clearInvalidInfusions(character, selectedInfusionIds);
-
-    await CharacterStorage.updateCharacterById(character.id, character);
-    await loadCharacters();
-    _syncSelectedCharacterById(characterId);
+    await _saveAndRefreshCharacter(character);
   }
 
   Future<void> syncPactWeaponWithEquipment(
@@ -302,10 +455,7 @@ class CharacterProvider extends ChangeNotifier {
     if (character == null) return;
 
     syncPactOfTheBlade(character, equipmentItems);
-
-    await CharacterStorage.updateCharacterById(character.id, character);
-    await loadCharacters();
-    _syncSelectedCharacterById(characterId);
+    await _saveAndRefreshCharacter(character);
   }
 
   Future<void> setPactWeaponBaseItem(
@@ -317,12 +467,9 @@ class CharacterProvider extends ChangeNotifier {
     if (character == null) return;
 
     character.pactWeaponBaseItemId = baseItemId;
-
     syncPactOfTheBlade(character, equipmentItems);
 
-    await CharacterStorage.updateCharacterById(character.id, character);
-    await loadCharacters();
-    _syncSelectedCharacterById(characterId);
+    await _saveAndRefreshCharacter(character);
   }
 
   Future<void> addInventoryItemToCharacter(
@@ -347,9 +494,7 @@ class CharacterProvider extends ChangeNotifier {
       character.inventory = [...character.inventory, item];
     }
 
-    await CharacterStorage.updateCharacterById(character.id, character);
-    await loadCharacters();
-    _syncSelectedCharacterById(characterId);
+    await _saveAndRefreshCharacter(character);
   }
 
   Future<void> updateCharacterFeatures(
@@ -360,10 +505,7 @@ class CharacterProvider extends ChangeNotifier {
     if (character == null) return;
 
     character.features = features;
-
-    await CharacterStorage.updateCharacterById(character.id, character);
-    await loadCharacters();
-    _syncSelectedCharacterById(characterId);
+    await _saveAndRefreshCharacter(character);
   }
 
   Future<void> updateCharacterResources(
@@ -374,10 +516,7 @@ class CharacterProvider extends ChangeNotifier {
     if (character == null) return;
 
     character.resources = resources;
-
-    await CharacterStorage.updateCharacterById(character.id, character);
-    await loadCharacters();
-    _syncSelectedCharacterById(characterId);
+    await _saveAndRefreshCharacter(character);
   }
 
   Future<void> spendResource(
@@ -394,10 +533,7 @@ class CharacterProvider extends ChangeNotifier {
     if (resource.current <= 0) return;
 
     resource.current = resource.current - 1;
-
-    await CharacterStorage.updateCharacterById(character.id, character);
-    await loadCharacters();
-    _syncSelectedCharacterById(characterId);
+    await _saveAndRefreshCharacter(character);
   }
 
   Future<void> recoverResource(
@@ -418,9 +554,7 @@ class CharacterProvider extends ChangeNotifier {
       resource.current = resource.max;
     }
 
-    await CharacterStorage.updateCharacterById(character.id, character);
-    await loadCharacters();
-    _syncSelectedCharacterById(characterId);
+    await _saveAndRefreshCharacter(character);
   }
 
   Future<void> setResourceCurrentValue(
@@ -438,10 +572,7 @@ class CharacterProvider extends ChangeNotifier {
     final safeValue = value.clamp(0, resource.max);
 
     resource.current = safeValue;
-
-    await CharacterStorage.updateCharacterById(character.id, character);
-    await loadCharacters();
-    _syncSelectedCharacterById(characterId);
+    await _saveAndRefreshCharacter(character);
   }
 
   Future<void> setResourceMaxValue(
@@ -463,9 +594,7 @@ class CharacterProvider extends ChangeNotifier {
       resource.current = resource.max;
     }
 
-    await CharacterStorage.updateCharacterById(character.id, character);
-    await loadCharacters();
-    _syncSelectedCharacterById(characterId);
+    await _saveAndRefreshCharacter(character);
   }
 
   Future<void> recoverResourcesByType(
@@ -488,9 +617,7 @@ class CharacterProvider extends ChangeNotifier {
       }
     }
 
-    await CharacterStorage.updateCharacterById(character.id, character);
-    await loadCharacters();
-    _syncSelectedCharacterById(characterId);
+    await _saveAndRefreshCharacter(character);
   }
 
   Future<void> addManualResourceToCharacter(
@@ -504,10 +631,7 @@ class CharacterProvider extends ChangeNotifier {
     if (exists) return;
 
     character.resources = [...character.resources, resource];
-
-    await CharacterStorage.updateCharacterById(character.id, character);
-    await loadCharacters();
-    _syncSelectedCharacterById(characterId);
+    await _saveAndRefreshCharacter(character);
   }
 
   Future<void> removeResourceFromCharacter(
@@ -520,9 +644,7 @@ class CharacterProvider extends ChangeNotifier {
     character.resources =
         character.resources.where((r) => r.id != resourceId).toList();
 
-    await CharacterStorage.updateCharacterById(character.id, character);
-    await loadCharacters();
-    _syncSelectedCharacterById(characterId);
+    await _saveAndRefreshCharacter(character);
   }
 
   Future<void> syncFeats(String characterId) async {
@@ -537,9 +659,7 @@ class CharacterProvider extends ChangeNotifier {
         feats: const [],
       );
 
-      await CharacterStorage.updateCharacterById(character.id, character);
-      await loadCharacters();
-      _syncSelectedCharacterById(characterId);
+      await _saveAndRefreshCharacter(character);
       return;
     }
 
@@ -550,20 +670,27 @@ class CharacterProvider extends ChangeNotifier {
       feats: feats,
     );
 
-    await CharacterStorage.updateCharacterById(character.id, character);
-    await loadCharacters();
-    _syncSelectedCharacterById(characterId);
+    await _saveAndRefreshCharacter(character);
   }
 
   Future<void> syncFeaturesAndResources(String characterId) async {
     final character = getCharacterById(characterId);
     if (character == null) return;
 
-    final syncedFeatures =
+    await _applyFeatureAndResourceSync(character);
+    await _saveAndRefreshCharacter(character);
+  }
+
+  Future<void> _applyFeatureAndResourceSync(Character character) async {
+    final classAndSubclassFeatures =
         await CharacterFeatureSyncService.buildFeaturesForCharacter(character);
 
-    final generatedResources =
-        CharacterResourceFactory.buildResources(character);
+    final raceSync = await RaceSyncService.buildForCharacter(character);
+
+    final generatedResources = [
+      ...CharacterResourceFactory.buildResources(character),
+      ...raceSync.resources,
+    ];
 
     final existingById = {
       for (final resource in character.resources) resource.id: resource,
@@ -588,17 +715,26 @@ class CharacterProvider extends ChangeNotifier {
     final selectedFeats = await FeatDataService.getFeatsByIds(
       character.selectedFeatIds,
     );
+
     FeatSyncService.applyFeatsToCharacter(
       character: character,
       feats: selectedFeats,
     );
 
-    character.features = syncedFeatures;
-    character.resources = mergedResources;
+    character.features = [
+      ...classAndSubclassFeatures,
+      ...raceSync.features,
+    ];
 
-    await CharacterStorage.updateCharacterById(character.id, character);
-    await loadCharacters();
-    _syncSelectedCharacterById(characterId);
+    character.racialArmorProficiencies = raceSync.armorProficiencies;
+    character.racialWeaponProficiencies = raceSync.weaponProficiencies;
+    character.racialToolProficiencies = raceSync.toolProficiencies;
+    character.racialLanguageProficiencies = raceSync.languageProficiencies;
+    character.racialResistances = raceSync.resistances;
+    character.racialImmunities = raceSync.immunities;
+    character.racialConditionImmunities = raceSync.conditionImmunities;
+    character.racialSenses = raceSync.senses;
+    character.resources = mergedResources;
   }
 
   Future<void> equipItemToCharacter(
@@ -616,9 +752,7 @@ class CharacterProvider extends ChangeNotifier {
     _clearEquippedReferenceFromAllSlots(character, inventoryItemId);
     _setEquippedSlot(character, slot, inventoryItemId);
 
-    await CharacterStorage.updateCharacterById(character.id, character);
-    await loadCharacters();
-    _syncSelectedCharacterById(characterId);
+    await _saveAndRefreshCharacter(character);
   }
 
   Future<void> unequipItemFromCharacter(
@@ -629,10 +763,7 @@ class CharacterProvider extends ChangeNotifier {
     if (character == null) return;
 
     _setEquippedSlot(character, slot, null);
-
-    await CharacterStorage.updateCharacterById(character.id, character);
-    await loadCharacters();
-    _syncSelectedCharacterById(characterId);
+    await _saveAndRefreshCharacter(character);
   }
 
   String? getEquippedItemIdForSlot(
@@ -658,9 +789,7 @@ class CharacterProvider extends ChangeNotifier {
         .where((item) => item.id != inventoryItemId)
         .toList();
 
-    await CharacterStorage.updateCharacterById(character.id, character);
-    await loadCharacters();
-    _syncSelectedCharacterById(characterId);
+    await _saveAndRefreshCharacter(character);
   }
 
   void _setEquippedSlot(
@@ -735,6 +864,150 @@ class CharacterProvider extends ChangeNotifier {
     if (character.equippedAccessory2ItemId == inventoryItemId) {
       character.equippedAccessory2ItemId = null;
     }
+  }
+
+  void _applyCombatSnapshot(
+    Character character, {
+    required int currentHp,
+    required int tempHp,
+    required Map<String, int> resources,
+  }) {
+    final maxHp = (character.maxHp ?? 0) > 0 ? character.maxHp! : currentHp;
+    final nextCurrentHp = currentHp.clamp(0, maxHp).toInt();
+    character.currentHp = nextCurrentHp;
+    character.tempHp = tempHp.clamp(0, 999).toInt();
+    if (nextCurrentHp > 0) {
+      character.deathSaveSuccesses = 0;
+      character.deathSaveFailures = 0;
+    }
+
+    for (final entry in resources.entries) {
+      final key = entry.key.trim();
+      if (key.isEmpty) continue;
+      final remaining = entry.value < 0 ? 0 : entry.value;
+
+      final spellSlotLevel = _resourceLevel(key, 'spellSlot:');
+      if (spellSlotLevel != null) {
+        _applySpellSlotRemaining(
+          character.spellSlots,
+          spellSlotLevel,
+          remaining,
+        );
+        continue;
+      }
+
+      final pactSlotLevel = _resourceLevel(key, 'pactMagicSlot:');
+      if (pactSlotLevel != null) {
+        _applySpellSlotRemaining(
+          character.pactMagicSlots,
+          pactSlotLevel,
+          remaining,
+        );
+        continue;
+      }
+
+      final index = character.resources.indexWhere((item) => item.id == key);
+      if (index == -1) {
+        final generatedResources =
+            CharacterResourceFactory.buildResources(character);
+        CharacterResource? generated;
+        for (final resource in generatedResources) {
+          if (resource.id == key) {
+            generated = resource;
+            break;
+          }
+        }
+        if (generated == null) continue;
+        generated.current = remaining.clamp(0, generated.max).toInt();
+        character.resources = [...character.resources, generated];
+        continue;
+      }
+      final resource = character.resources[index];
+      resource.current = remaining.clamp(0, resource.max).toInt();
+    }
+  }
+
+  int? _resourceLevel(String key, String prefix) {
+    if (!key.startsWith(prefix)) return null;
+    final level = int.tryParse(key.substring(prefix.length));
+    if (level == null || level < 1 || level > 9) return null;
+    return level;
+  }
+
+  void _applySpellSlotRemaining(
+    Map<String, int> slots,
+    int level,
+    int remaining,
+  ) {
+    final max = CharacterSpellSlotService.slotMaxFromState(slots, level);
+    if (max <= 0) return;
+    final used = (max - remaining).clamp(0, max).toInt();
+    slots['${level}_max'] = max;
+    slots['${level}_used'] = used;
+    slots.remove('$level');
+  }
+
+  String? _resolveUserId(
+    Character? character, {
+    String? explicitUserId,
+  }) {
+    return explicitUserId ?? character?.ownerUserId ?? _activeUserId;
+  }
+
+  Future<void> _saveAndRefreshCharacter(
+    Character character, {
+    String? explicitUserId,
+  }) async {
+    final resolvedOwnerUserId = _resolveUserId(
+      character,
+      explicitUserId: explicitUserId,
+    );
+
+    if (resolvedOwnerUserId == null || resolvedOwnerUserId.isEmpty) {
+      debugPrint(
+        'CharacterProvider._saveAndRefreshCharacter: missing userId for ${character.id}',
+      );
+      return;
+    }
+
+    final refreshUserId = _activeUserId ?? resolvedOwnerUserId;
+
+    character.ownerUserId = resolvedOwnerUserId;
+    await _cloudRepo.saveCharacter(character);
+    await loadCharacters(refreshUserId);
+
+    if ((character.campaignId ?? '').isNotEmpty) {
+      await loadCampaignCharacters(character.campaignId!);
+    }
+
+    _syncSelectedCharacterById(character.id);
+  }
+
+  Future<void> _deleteAndRefreshCharacter(
+    Character character, {
+    String? explicitUserId,
+  }) async {
+    final resolvedUserId = _resolveUserId(
+      character,
+      explicitUserId: explicitUserId,
+    );
+
+    if (resolvedUserId == null || resolvedUserId.isEmpty) {
+      debugPrint(
+        'CharacterProvider._deleteAndRefreshCharacter: missing userId for ${character.id}',
+      );
+      return;
+    }
+
+    await _cloudRepo.deleteCharacter(character.id);
+    _activeUserId = resolvedUserId;
+
+    if (_character?.id == character.id) {
+      _character = null;
+      _selectedIndex = null;
+    }
+
+    await loadCharacters(resolvedUserId);
   }
 
   void _syncSelectedCharacterById(String id) {

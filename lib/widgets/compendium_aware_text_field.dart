@@ -9,7 +9,10 @@ class CompendiumAwareTextField extends StatefulWidget {
   final String campaignId;
   final InputDecoration? decoration;
   final int? maxLines;
+  final int? minLines;
   final int minQueryLength;
+  final TextInputType? keyboardType;
+  final TextStyle? style;
 
   const CompendiumAwareTextField({
     super.key,
@@ -17,7 +20,10 @@ class CompendiumAwareTextField extends StatefulWidget {
     required this.campaignId,
     this.decoration,
     this.maxLines,
+    this.minLines,
     this.minQueryLength = 2,
+    this.keyboardType,
+    this.style,
   });
 
   @override
@@ -114,16 +120,14 @@ class _CompendiumAwareTextFieldState extends State<CompendiumAwareTextField> {
     int start = cursorIndex;
     while (start > 0) {
       final char = text[start - 1];
-      final isBoundary = RegExp(r'[\s,.!?:;\(\)\[\]\{\}"“”]').hasMatch(char);
-      if (isBoundary) break;
+      if (_isTokenBoundary(char)) break;
       start--;
     }
 
     int end = cursorIndex;
     while (end < text.length) {
       final char = text[end];
-      final isBoundary = RegExp(r'[\s,.!?:;\(\)\[\]\{\}"“”]').hasMatch(char);
-      if (isBoundary) break;
+      if (_isTokenBoundary(char)) break;
       end++;
     }
 
@@ -140,22 +144,19 @@ class _CompendiumAwareTextFieldState extends State<CompendiumAwareTextField> {
     int start = cursorIndex;
     while (start > 0) {
       final char = text[start - 1];
-      final isBoundary = RegExp(r'[\s,.!?:;\(\)\[\]\{\}"“”]').hasMatch(char);
-      if (isBoundary) break;
+      if (_isTokenBoundary(char)) break;
       start--;
     }
 
     int end = cursorIndex;
     while (end < text.length) {
       final char = text[end];
-      final isBoundary = RegExp(r'[\s,.!?:;\(\)\[\]\{\}"“”]').hasMatch(char);
-      if (isBoundary) break;
+      if (_isTokenBoundary(char)) break;
       end++;
     }
 
-    final replacement = entry.title;
+    final replacement = '[[${entry.type}:${entry.title}]]';
     final newText = text.replaceRange(start, end, replacement);
-
     final newCursor = start + replacement.length;
 
     widget.controller.value = TextEditingValue(
@@ -164,6 +165,10 @@ class _CompendiumAwareTextFieldState extends State<CompendiumAwareTextField> {
     );
 
     _clearSuggestions();
+  }
+
+  bool _isTokenBoundary(String char) {
+    return RegExp(r'''[\s,.!?:;()\[\]{}"']''').hasMatch(char);
   }
 
   IconData _iconForType(String type) {
@@ -190,7 +195,10 @@ class _CompendiumAwareTextFieldState extends State<CompendiumAwareTextField> {
         TextField(
           controller: widget.controller,
           decoration: widget.decoration,
+          keyboardType: widget.keyboardType,
+          minLines: widget.minLines,
           maxLines: widget.maxLines,
+          style: widget.style,
         ),
         if (_suggestions.isNotEmpty) ...[
           const SizedBox(height: 8),

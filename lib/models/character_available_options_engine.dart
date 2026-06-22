@@ -237,31 +237,14 @@ class CharacterAvailableOptionsEngine {
     Character character,
     CharacterOptionDefinition option,
   ) {
-    final className = character.charClass.trim().toLowerCase();
-    if (className != 'warlock') return false;
-
-    final warlockLevel = character.level;
+    final warlockLevel = character.levelForClass('warlock');
+    if (warlockLevel <= 0) return false;
 
     final metadata = option.metadata;
     final requiredLevel = _toInt(metadata['requiredLevel']);
     final requiresPact =
         metadata['requiresPact']?.toString().trim().toLowerCase();
     final requiresHexOrCurse = metadata['requiresHexOrCurse'] == true;
-
-    print('--- INVOCATION DEBUG ---');
-    print('Name: ${option.name}');
-    print('ID: ${option.id}');
-    print('Metadata: ${option.metadata}');
-    print(
-      'Prerequisites: ${option.prerequisites.map((p) => {
-            'type': p.type,
-            'data': p.data,
-          }).toList()}',
-    );
-    print('Required level resolved: $requiredLevel');
-    print('Requires pact resolved: $requiresPact');
-    print('Requires hex/curse resolved: $requiresHexOrCurse');
-    print('Character level: $warlockLevel');
 
     // 1) Filtro por nivel
     if (requiredLevel != null && warlockLevel < requiredLevel) {

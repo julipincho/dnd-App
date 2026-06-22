@@ -1,0 +1,376 @@
+import 'package:flutter/material.dart';
+import 'package:stitch_app/models/character.dart';
+import 'package:stitch_app/theme.dart';
+import 'package:stitch_app/utils/image_path_utils.dart';
+
+class CharacterSheetHeader extends StatelessWidget {
+  final Character character;
+
+  const CharacterSheetHeader({
+    super.key,
+    required this.character,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isTablet = screenWidth >= 600;
+    final isLargeTablet = screenWidth >= 900;
+    final isDesktopCompact = screenWidth >= 1180;
+
+    final cardPadding = isDesktopCompact
+        ? 16.0
+        : (isLargeTablet ? 24.0 : (isTablet ? 20.0 : 16.0));
+    final portraitSize = isDesktopCompact
+        ? 82.0
+        : (isLargeTablet ? 128.0 : (isTablet ? 112.0 : 92.0));
+    final titleSize = isDesktopCompact
+        ? 27.0
+        : (isLargeTablet ? 36.0 : (isTablet ? 31.0 : 25.0));
+    final subtitleSize = isLargeTablet ? 15.0 : (isTablet ? 14.0 : 13.0);
+    final smallSubtitleSize = isLargeTablet ? 13.0 : (isTablet ? 12.0 : 11.0);
+    final minHeight = isDesktopCompact
+        ? 166.0
+        : (isLargeTablet ? 246.0 : (isTablet ? 226.0 : 286.0));
+
+    final portrait = _CharacterHeaderPortrait(
+      character: character,
+      size: portraitSize,
+    );
+
+    return Container(
+      width: double.infinity,
+      constraints: BoxConstraints(minHeight: minHeight),
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: StitchCodexPalette.card,
+        borderRadius: BorderRadius.circular(2),
+        border: Border.all(
+          color: StitchCodexPalette.bronze.withValues(alpha: 0.46),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: StitchCodexPalette.crimson.withValues(alpha: 0.10),
+            blurRadius: 24,
+            offset: const Offset(0, 16),
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: Image.asset(
+              _classImagePath(character.charClass),
+              fit: BoxFit.cover,
+              alignment: Alignment.centerRight,
+              filterQuality: FilterQuality.high,
+              errorBuilder: (_, __, ___) => const ColoredBox(
+                color: StitchCodexPalette.card,
+              ),
+            ),
+          ),
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: [
+                    StitchCodexPalette.ground,
+                    StitchCodexPalette.card.withValues(alpha: 0.94),
+                    StitchCodexPalette.card.withValues(alpha: 0.42),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.bottomCenter,
+                  end: Alignment.topCenter,
+                  colors: [
+                    StitchCodexPalette.ground.withValues(alpha: 0.88),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: EdgeInsets.all(cardPadding),
+            child: isTablet
+                ? Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      portrait,
+                      const SizedBox(width: 20),
+                      Expanded(
+                        child: _CharacterHeaderTextBlock(
+                          character: character,
+                          titleSize: titleSize,
+                          subtitleSize: subtitleSize,
+                          smallSubtitleSize: smallSubtitleSize,
+                          isCentered: false,
+                        ),
+                      ),
+                    ],
+                  )
+                : Column(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      portrait,
+                      const SizedBox(height: 14),
+                      _CharacterHeaderTextBlock(
+                        character: character,
+                        titleSize: titleSize,
+                        subtitleSize: subtitleSize,
+                        smallSubtitleSize: smallSubtitleSize,
+                        isCentered: true,
+                      ),
+                    ],
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+String _classImagePath(String className) {
+  final slug = className.trim().toLowerCase().replaceAll(' ', '-');
+  return 'assets/images/classes/$slug.png';
+}
+
+String buildCharacterClassIdentityLabel(Character character) {
+  return buildCharacterClassIdentityParts(character).join(' + ');
+}
+
+List<String> buildCharacterClassIdentityParts(Character character) {
+  final orderedClassNames = <String>[];
+  final seen = <String>{};
+
+  void addClassName(String? className) {
+    final trimmed = className?.trim();
+    if (trimmed == null || trimmed.isEmpty) return;
+
+    final key = trimmed.toLowerCase();
+    if (seen.add(key)) {
+      orderedClassNames.add(trimmed);
+    }
+  }
+
+  addClassName(character.charClass);
+  for (final level in character.normalizedProgression.levels) {
+    addClassName(level.className);
+  }
+  for (final className in character.classLevels.keys) {
+    addClassName(className);
+  }
+
+  if (orderedClassNames.isEmpty) {
+    return [
+      character.charClass.trim().isEmpty
+          ? 'No class selected'
+          : character.charClass,
+    ];
+  }
+
+  final isMulticlass = orderedClassNames.length > 1;
+
+  return orderedClassNames.map((className) {
+    final classLevel = character.levelForClass(className);
+    final subclassName = (character.subclassForClass(className) ??
+            (className.trim().toLowerCase() ==
+                    character.charClass.trim().toLowerCase()
+                ? character.subclass
+                : null))
+        ?.trim();
+
+    final subclassSuffix =
+        subclassName == null || subclassName.isEmpty ? '' : ' / $subclassName';
+    final levelSuffix = isMulticlass && classLevel > 0 ? ' $classLevel' : '';
+
+    return '$className$subclassSuffix$levelSuffix';
+  }).toList();
+}
+
+class _CharacterHeaderPortrait extends StatelessWidget {
+  final Character character;
+  final double size;
+
+  const _CharacterHeaderPortrait({
+    required this.character,
+    required this.size,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasPortrait = hasDisplayableImagePath(character.portraitPath);
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: StitchCodexPalette.surfaceRaised,
+        borderRadius: BorderRadius.circular(2),
+        border: Border.all(
+          color: StitchCodexPalette.bronze.withValues(alpha: 0.74),
+          width: 2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.38),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+        image: hasPortrait
+            ? DecorationImage(
+                image: imageProviderFromPath(character.portraitPath!),
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.high,
+              )
+            : null,
+      ),
+      child: !hasPortrait
+          ? const Icon(
+              Icons.person,
+              size: 34,
+              color: StitchCodexPalette.bronze,
+            )
+          : null,
+    );
+  }
+}
+
+class _CharacterHeaderTextBlock extends StatelessWidget {
+  final Character character;
+  final double titleSize;
+  final double subtitleSize;
+  final double smallSubtitleSize;
+  final bool isCentered;
+
+  const _CharacterHeaderTextBlock({
+    required this.character,
+    required this.titleSize,
+    required this.subtitleSize,
+    required this.smallSubtitleSize,
+    required this.isCentered,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final ancestryLabel =
+        "${character.race}${character.subrace != null ? ' (${character.subrace})' : ''}";
+    final classIdentityParts = buildCharacterClassIdentityParts(character);
+
+    return Column(
+      crossAxisAlignment:
+          isCentered ? CrossAxisAlignment.center : CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'LIVING CHARACTER RECORD',
+          style: TextStyle(
+            color: StitchCodexPalette.bronze,
+            fontFamily: StitchTypography.data,
+            fontSize: 8,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.8,
+          ),
+        ),
+        const SizedBox(height: 7),
+        Text(
+          character.name.isEmpty ? 'Unnamed Character' : character.name,
+          textAlign: isCentered ? TextAlign.center : TextAlign.start,
+          style: TextStyle(
+            shadows: [
+              Shadow(
+                color: Colors.black.withValues(alpha: 0.65),
+                blurRadius: 12,
+              ),
+            ],
+            fontSize: titleSize,
+            fontFamily: StitchTypography.display,
+            fontWeight: FontWeight.w600,
+            color: StitchCodexPalette.textPrimary,
+            height: 1,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          '$ancestryLabel - Level ${character.level}',
+          textAlign: isCentered ? TextAlign.center : TextAlign.start,
+          style: TextStyle(
+            fontSize: subtitleSize,
+            color: StitchCodexPalette.textSecondary,
+            fontFamily: StitchTypography.body,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          alignment: isCentered ? WrapAlignment.center : WrapAlignment.start,
+          spacing: 6,
+          runSpacing: 6,
+          children: classIdentityParts
+              .map(
+                (label) => _ClassIdentityChip(
+                  label: label,
+                  fontSize: smallSubtitleSize,
+                ),
+              )
+              .toList(),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          '${character.background.name} - ${character.alignment ?? 'True Neutral'}',
+          textAlign: isCentered ? TextAlign.center : TextAlign.start,
+          style: TextStyle(
+            fontSize: smallSubtitleSize,
+            color: StitchCodexPalette.textMuted,
+            fontFamily: StitchTypography.body,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ClassIdentityChip extends StatelessWidget {
+  final String label;
+  final double fontSize;
+
+  const _ClassIdentityChip({
+    required this.label,
+    required this.fontSize,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: StitchCodexPalette.crimson.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(2),
+        border: Border.all(
+          color: StitchCodexPalette.crimsonBright.withValues(alpha: 0.42),
+        ),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: StitchCodexPalette.textSecondary,
+          fontFamily: StitchTypography.data,
+          fontSize: fontSize,
+          fontWeight: FontWeight.w700,
+          height: 1,
+        ),
+      ),
+    );
+  }
+}

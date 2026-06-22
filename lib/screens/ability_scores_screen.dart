@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../providers/character_provider.dart';
@@ -23,7 +25,7 @@ class _AbilityScoresScreenState extends State<AbilityScoresScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
+      appBar: StitchAppBar(
         title: const Text("Assign Ability Scores"),
       ),
       body: ListView(

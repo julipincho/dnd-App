@@ -1,4 +1,3 @@
-// lib/services/dnd_data_service.dart
 import 'dart:convert';
 import 'package:flutter/services.dart' show rootBundle;
 
@@ -6,7 +5,6 @@ import '../models/dnd_background.dart';
 import '../models/dnd_race.dart';
 import '../models/dnd_class.dart';
 
-import 'data_merger.dart';
 import 'class_data_service.dart';
 
 class DndDataService {
@@ -17,9 +15,6 @@ class DndDataService {
     final jsonStr = await rootBundle.loadString('assets/data/backgrounds.json');
     final data = jsonDecode(jsonStr);
 
-    // ✅ soporta:
-    // - raíz List
-    // - raíz Map { background: [] }
     final List rawList;
     if (data is List) {
       rawList = data;
@@ -38,7 +33,6 @@ class DndDataService {
 
       final bg = DndBackground.fromJson(map);
 
-      // dedupe por nombre + source si existe
       final source = map['source']?.toString() ?? '';
       final key = '${bg.name}|$source'.toLowerCase().trim();
 
@@ -52,7 +46,7 @@ class DndDataService {
   }
 
   // -------------------------------------------------------------
-  // RACES (SRD + 5eTools via DataMerger)
+  // RACES (JSON único limpio)
   // -------------------------------------------------------------
   static List<DndRace>? _cachedRaces;
 
@@ -60,12 +54,27 @@ class DndDataService {
     if (_cachedRaces != null) return _cachedRaces!;
 
     try {
-      final merged = await DataMerger.loadMergedRaces();
-      merged.sort((a, b) => a.name.compareTo(b.name));
-      _cachedRaces = merged;
-      return merged;
-    } catch (e) {
-      print('ERROR loading merged races → $e');
+      final jsonStr = await rootBundle.loadString(
+        'assets/data/races_2014_compatible.json',
+      );
+
+      final data = jsonDecode(jsonStr);
+
+      if (data is! List) {
+        return [];
+      }
+
+      final races = data
+          .whereType<Map>()
+          .map((e) => DndRace.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+
+      races.sort((a, b) => a.name.compareTo(b.name));
+      _cachedRaces = races;
+      return races;
+    } catch (e, st) {
+      print('ERROR loading races_2014_compatible.json → $e');
+      print(st);
       return [];
     }
   }

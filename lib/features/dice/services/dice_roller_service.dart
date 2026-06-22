@@ -6,6 +6,8 @@ class DiceRollerService {
   DiceRollerService._();
 
   static final Random _random = Random();
+  static final RegExp _tokenPattern = RegExp(r'[+-]?[^+-]+');
+  static final RegExp _diceTermPattern = RegExp(r'^(\d*)d(\d+)$');
 
   static DiceRollResult roll({
     required int sides,
@@ -38,6 +40,12 @@ class DiceRollerService {
         total: selected + modifier,
         timestamp: DateTime.now(),
         label: label,
+        formula: modifier == 0
+            ? '1d20'
+            : modifier > 0
+                ? '1d20+$modifier'
+                : '1d20$modifier',
+        flatModifier: modifier,
       );
     }
 
@@ -58,6 +66,154 @@ class DiceRollerService {
       total: total,
       timestamp: DateTime.now(),
       label: label,
+      formula: modifier == 0
+          ? '${diceCount}d$sides'
+          : modifier > 0
+              ? '${diceCount}d$sides+$modifier'
+              : '${diceCount}d$sides$modifier',
+      flatModifier: modifier,
+    );
+  }
+
+  static DiceRollResult rollFormula({
+    required String formula,
+    String label = 'Roll',
+    bool advantage = false,
+    bool disadvantage = false,
+  }) {
+    final normalized = formula.replaceAll(' ', '').toLowerCase();
+    if (normalized.isEmpty) {
+      throw const FormatException('Formula cannot be empty.');
+    }
+
+    final tokens = _tokenPattern
+        .allMatches(normalized)
+        .map((match) => match.group(0)!)
+        .where((token) => token.isNotEmpty)
+        .toList();
+
+    if (tokens.isEmpty) {
+      throw FormatException('Invalid dice formula: $formula');
+    }
+
+    final terms = <DiceRollTermResult>[];
+    var flatModifier = 0;
+    int? firstD20;
+    int? secondD20;
+    int? selectedD20;
+
+    for (final rawToken in tokens) {
+      var sign = 1;
+      var token = rawToken;
+
+      if (token.startsWith('+')) {
+        token = token.substring(1);
+      } else if (token.startsWith('-')) {
+        sign = -1;
+        token = token.substring(1);
+      }
+
+      if (token.isEmpty) {
+        throw FormatException('Invalid dice formula: $formula');
+      }
+
+      final diceMatch = _diceTermPattern.firstMatch(token);
+      if (diceMatch != null) {
+        final countText = diceMatch.group(1)!;
+        final diceCount = countText.isEmpty ? 1 : int.parse(countText);
+        final sides = int.parse(diceMatch.group(2)!);
+
+        if (diceCount < 1 || diceCount > 100 || sides < 2 || sides > 1000) {
+          throw FormatException('Unsupported dice term: $rawToken');
+        }
+
+        final rolls = <int>[];
+        if (sides == 20 &&
+            diceCount == 1 &&
+            (advantage || disadvantage) &&
+            firstD20 == null) {
+          final first = _random.nextInt(sides) + 1;
+          final second = _random.nextInt(sides) + 1;
+          final selected = advantage
+              ? (first >= second ? first : second)
+              : (first <= second ? first : second);
+          firstD20 = first;
+          secondD20 = second;
+          selectedD20 = selected;
+          rolls.add(selected);
+        } else {
+          rolls.addAll(
+            List.generate(
+              diceCount,
+              (_) => _random.nextInt(sides) + 1,
+            ),
+          );
+        }
+
+        terms.add(
+          DiceRollTermResult(
+            diceCount: diceCount,
+            sides: sides,
+            rolls: rolls,
+            sign: sign,
+          ),
+        );
+        continue;
+      }
+
+      final flat = int.tryParse(token);
+      if (flat == null) {
+        throw FormatException('Invalid dice term: $rawToken');
+      }
+
+      flatModifier += flat * sign;
+    }
+
+    if (terms.isEmpty) {
+      return DiceRollResult(
+        sides: 0,
+        diceCount: 0,
+        rolls: const [],
+        modifier: flatModifier,
+        formula: _prettyFormula(normalized),
+        terms: const [],
+        flatModifier: flatModifier,
+        advantage: false,
+        disadvantage: false,
+        total: flatModifier,
+        timestamp: DateTime.now(),
+        label: label,
+      );
+    }
+
+    final total =
+        terms.fold<int>(0, (sum, term) => sum + term.subtotal) + flatModifier;
+    final primary = terms.first;
+    final allRolls = terms.expand((term) => term.rolls).toList();
+
+    return DiceRollResult(
+      sides: primary.sides,
+      diceCount: primary.diceCount,
+      rolls: allRolls,
+      modifier: flatModifier,
+      formula: _prettyFormula(normalized),
+      terms: terms,
+      flatModifier: flatModifier,
+      advantage: firstD20 != null && advantage,
+      disadvantage: firstD20 != null && disadvantage,
+      firstD20: firstD20,
+      secondD20: secondD20,
+      selectedD20: selectedD20,
+      total: total,
+      timestamp: DateTime.now(),
+      label: label,
+    );
+  }
+
+  static String _prettyFormula(String normalized) {
+    return normalized.replaceAllMapped(
+      RegExp(r'([+-])'),
+      (match) => ' ${match.group(1)} ',
     );
   }
 }

@@ -1,13 +1,25 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+
+import '../widgets/stitch_navigation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 
+import '../providers/auth_provider.dart';
+import '../providers/app_role_provider.dart';
 import '../providers/campaign_provider.dart';
+import '../providers/compendium_provider.dart';
 import '../providers/session_provider.dart';
+import '../theme.dart';
 import '../models/session.dart';
+import '../services/supabase_storage_service.dart';
+import '../utils/compendium_linking.dart';
+import '../utils/image_path_utils.dart';
+import '../widgets/campaign_codex_ui.dart';
+import '../widgets/compendium_mention_chips.dart';
+import '../widgets/session_composer_sheet.dart';
 
 class SessionListScreen extends StatefulWidget {
   const SessionListScreen({super.key});
@@ -23,21 +35,28 @@ class _SessionListScreenState extends State<SessionListScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
 
-    if (!_didLoad) {
-      _didLoad = true;
-      context.read<SessionProvider>().loadSessions();
-    }
+    if (_didLoad) return;
+    _didLoad = true;
+
+    final activeCampaign = context.read<CampaignProvider>().activeCampaign;
+    if (activeCampaign == null) return;
+
+    context.read<SessionProvider>().loadSessions(activeCampaign.id);
+    context.read<CompendiumProvider>().loadEntries();
   }
 
   @override
   Widget build(BuildContext context) {
     final campaignProvider = context.watch<CampaignProvider>();
     final sessionProvider = context.watch<SessionProvider>();
+    final compendiumProvider = context.watch<CompendiumProvider>();
+    final roleProvider = context.watch<AppRoleProvider>();
+    final currentUserId = context.watch<AuthProvider>().userId;
     final activeCampaign = campaignProvider.activeCampaign;
 
     if (activeCampaign == null) {
       return Scaffold(
-        appBar: AppBar(
+        appBar: StitchAppBar(
           title: const Text('Sessions'),
         ),
         body: const Center(
@@ -49,15 +68,38 @@ class _SessionListScreenState extends State<SessionListScreen> {
     final sessions = sessionProvider
         .getSessionsByCampaign(activeCampaign.id)
         .toList()
-      ..sort((a, b) => b.date.compareTo(a.date));
+      ..sort((a, b) => a.date.compareTo(b.date));
+    final compendiumEntries =
+        compendiumProvider.getEntriesByCampaign(activeCampaign.id);
+    final isOwner =
+        currentUserId != null && activeCampaign.ownerUserId == currentUserId;
+    final canManageSessions = isOwner || roleProvider.isDm;
+    final ownerUserId = currentUserId ?? activeCampaign.ownerUserId;
 
     return Scaffold(
-      appBar: AppBar(
+      appBar: StitchAppBar(
         title: Text('${activeCampaign.name} Sessions'),
+        actions: [
+          if (canManageSessions)
+            IconButton(
+              onPressed: () => _showCreateSessionSheet(
+                context,
+                activeCampaign.id,
+                ownerUserId,
+              ),
+              icon: const Icon(Icons.add),
+              tooltip: 'Create session',
+            ),
+        ],
       ),
       body: sessions.isEmpty
-          ? const Center(
-              child: Text('No sessions yet'),
+          ? _EmptySessionsState(
+              canManageSessions: canManageSessions,
+              onCreateSession: () => _showCreateSessionSheet(
+                context,
+                activeCampaign.id,
+                ownerUserId,
+              ),
             )
           : ListView.separated(
               itemCount: sessions.length,
@@ -66,82 +108,43 @@ class _SessionListScreenState extends State<SessionListScreen> {
               itemBuilder: (context, index) {
                 final session = sessions[index];
 
-                final hasImage = session.imagePath != null &&
-                    session.imagePath!.isNotEmpty &&
-                    File(session.imagePath!).existsSync();
+                final mentionText = _buildMentionText(session);
+                final mentionCount = CompendiumLinking.mentionedEntries(
+                  text: mentionText,
+                  entries: compendiumEntries,
+                ).length;
 
-                return Card(
-                  clipBehavior: Clip.antiAlias,
-                  child: InkWell(
-                    onTap: () {
-                      context.push(
-                        '/session-detail',
-                        extra: session,
-                      );
-                    },
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (hasImage)
-                          Image.file(
-                            File(session.imagePath!),
-                            width: double.infinity,
-                            height: 160,
-                            fit: BoxFit.cover,
-                          ),
-                        ListTile(
-                          contentPadding: const EdgeInsets.all(16),
-                          leading: !hasImage
-                              ? const CircleAvatar(
-                                  child: Icon(Icons.auto_stories_outlined),
-                                )
-                              : null,
-                          title: Text(
-                            session.title,
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          subtitle: Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _formatDate(session.date),
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  _buildPreviewText(session),
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ),
-                          ),
-                          trailing: PopupMenuButton<String>(
-                            onSelected: (value) async {
-                              if (value == 'delete') {
-                                await _confirmDeleteSession(context, session);
-                              }
-                            },
-                            itemBuilder: (context) => const [
-                              PopupMenuItem(
-                                value: 'delete',
-                                child: Text('Delete'),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                return _SessionChronicleCard(
+                  session: session,
+                  chapterNumber: index + 1,
+                  campaignId: activeCampaign.id,
+                  mentionText: mentionText,
+                  mentionCount: mentionCount,
+                  canManageSessions: canManageSessions,
+                  showUnresolvedMentions: canManageSessions,
+                  previewText: _buildPreviewText(session),
+                  formattedDate: _formatDate(session.date),
+                  onOpen: () {
+                    context.push(
+                      '/session-detail',
+                      extra: session,
+                    );
+                  },
+                  onDelete: () => _confirmDeleteSession(context, session),
                 );
               },
             ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showCreateSessionDialog(context, activeCampaign.id),
-        child: const Icon(Icons.add),
-      ),
+      floatingActionButton: canManageSessions
+          ? FloatingActionButton.extended(
+              onPressed: () => _showCreateSessionSheet(
+                context,
+                activeCampaign.id,
+                ownerUserId,
+              ),
+              icon: const Icon(Icons.add),
+              label: const Text('Session'),
+            )
+          : null,
     );
   }
 
@@ -158,6 +161,16 @@ class _SessionListScreenState extends State<SessionListScreen> {
     }
 
     return 'No notes yet';
+  }
+
+  String _buildMentionText(Session session) {
+    return [
+      session.title,
+      session.summary ?? '',
+      session.playerNarrativeRecap ?? '',
+      session.dmNarrativeRecap ?? '',
+      session.rawNotes,
+    ].where((part) => part.trim().isNotEmpty).join('\n\n');
   }
 
   Future<String?> _pickSessionImage() async {
@@ -211,124 +224,87 @@ class _SessionListScreenState extends State<SessionListScreen> {
     );
   }
 
-  void _showCreateSessionDialog(BuildContext context, String campaignId) {
-    final titleController = TextEditingController();
-    final notesController = TextEditingController();
-    String? selectedImagePath;
+  Future<String?> _uploadSessionImageIfNeeded(
+    String? imagePath, {
+    required String ownerUserId,
+    required String sessionId,
+  }) async {
+    if (imagePath == null || imagePath.trim().isEmpty) return null;
+    if (isRemoteImagePath(imagePath) || isAssetImagePath(imagePath)) {
+      return imagePath;
+    }
+    if (!File(imagePath).existsSync()) {
+      throw StateError(
+        'Cannot upload session image because the file is missing.',
+      );
+    }
 
-    showDialog(
+    return SupabaseStorageService.uploadUserImage(
+      file: File(imagePath),
+      ownerUserId: ownerUserId,
+      folder: 'session-covers',
+      entityId: sessionId,
+    );
+  }
+
+  void _showCreateSessionSheet(
+    BuildContext context,
+    String campaignId,
+    String ownerUserId,
+  ) {
+    final sessionProvider = context.read<SessionProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+
+    showModalBottomSheet(
       context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Create session'),
-              content: SingleChildScrollView(
-                child: SizedBox(
-                  width: 320,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      TextField(
-                        controller: titleController,
-                        decoration: const InputDecoration(
-                          labelText: 'Session title',
-                          hintText: 'Example: Session 1 - The Broken Gate',
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: notesController,
-                        decoration: const InputDecoration(
-                          labelText: 'Initial notes',
-                          hintText: 'Write the session notes...',
-                        ),
-                        maxLines: 5,
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () async {
-                                final path = await _pickSessionImage();
-                                if (path == null) return;
-
-                                setDialogState(() {
-                                  selectedImagePath = path;
-                                });
-                              },
-                              icon: const Icon(Icons.image_outlined),
-                              label: Text(
-                                selectedImagePath == null
-                                    ? 'Attach image'
-                                    : 'Change image',
-                              ),
-                            ),
-                          ),
-                          if (selectedImagePath != null) ...[
-                            const SizedBox(width: 8),
-                            IconButton(
-                              onPressed: () {
-                                setDialogState(() {
-                                  selectedImagePath = null;
-                                });
-                              },
-                              icon: const Icon(Icons.close),
-                              tooltip: 'Remove image',
-                            ),
-                          ],
-                        ],
-                      ),
-                      if (selectedImagePath != null) ...[
-                        const SizedBox(height: 12),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: Image.file(
-                            File(selectedImagePath!),
-                            height: 150,
-                            width: 320,
-                            fit: BoxFit.cover,
-                          ),
-                        ),
-                      ],
-                    ],
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) {
+        return SessionComposerSheet(
+          title: 'Create session',
+          actionLabel: 'Create session',
+          campaignId: campaignId,
+          initialDate: DateTime.now(),
+          onPickImage: _pickSessionImage,
+          onSubmit: (draft) async {
+            final sessionId = DateTime.now().millisecondsSinceEpoch.toString();
+            String? imagePath;
+            try {
+              imagePath = await _uploadSessionImageIfNeeded(
+                draft.imagePath,
+                ownerUserId: ownerUserId,
+                sessionId: sessionId,
+              );
+            } catch (e) {
+              if (mounted) {
+                messenger.showSnackBar(
+                  const SnackBar(
+                    content: Text('Could not upload the cover image.'),
                   ),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () async {
-                    final title = titleController.text.trim();
-                    final notes = notesController.text.trim();
+                );
+              }
+              return false;
+            }
 
-                    if (title.isEmpty) return;
-
-                    final session = Session(
-                      id: DateTime.now().millisecondsSinceEpoch.toString(),
-                      campaignId: campaignId,
-                      title: title,
-                      date: DateTime.now(),
-                      rawNotes: notes,
-                      summary: null,
-                      imagePath: selectedImagePath,
-                    );
-
-                    await dialogContext
-                        .read<SessionProvider>()
-                        .addSession(session);
-
-                    if (!dialogContext.mounted) return;
-                    Navigator.of(dialogContext).pop();
-                  },
-                  child: const Text('Create'),
-                ),
-              ],
+            final session = Session(
+              id: sessionId,
+              campaignId: campaignId,
+              title: draft.title,
+              date: draft.date,
+              rawNotes: draft.rawNotes,
+              summary: null,
+              imagePath: imagePath,
             );
+
+            await sessionProvider.addSession(session);
+
+            if (mounted) {
+              messenger.showSnackBar(
+                const SnackBar(content: Text('Session created')),
+              );
+            }
+
+            return true;
           },
         );
       },
@@ -340,5 +316,215 @@ class _SessionListScreenState extends State<SessionListScreen> {
     final month = date.month.toString().padLeft(2, '0');
     final year = date.year.toString();
     return '$day/$month/$year';
+  }
+}
+
+class _EmptySessionsState extends StatelessWidget {
+  final bool canManageSessions;
+  final VoidCallback onCreateSession;
+
+  const _EmptySessionsState({
+    required this.canManageSessions,
+    required this.onCreateSession,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: CampaignCodexFrame(
+          accentColor: tokens.accentRead,
+          padding: const EdgeInsets.all(18),
+          backgroundColor: tokens.panel,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CampaignCodexIconBadge(
+                icon: Icons.auto_stories_outlined,
+                accentColor: tokens.accentReadSoft,
+                size: 46,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'No sessions yet',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Sessions are the anchor points for notes, events and the shared timeline.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: tokens.textSecondary,
+                    ),
+              ),
+              if (canManageSessions) ...[
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: onCreateSession,
+                  icon: const Icon(Icons.add),
+                  label: const Text('Create first session'),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SessionChronicleCard extends StatelessWidget {
+  final Session session;
+  final int chapterNumber;
+  final String campaignId;
+  final String mentionText;
+  final int mentionCount;
+  final bool canManageSessions;
+  final bool showUnresolvedMentions;
+  final String previewText;
+  final String formattedDate;
+  final VoidCallback onOpen;
+  final Future<void> Function() onDelete;
+
+  const _SessionChronicleCard({
+    required this.session,
+    required this.chapterNumber,
+    required this.campaignId,
+    required this.mentionText,
+    required this.mentionCount,
+    required this.canManageSessions,
+    required this.showUnresolvedMentions,
+    required this.previewText,
+    required this.formattedDate,
+    required this.onOpen,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.stitch;
+    final hasImage = hasDisplayableImagePath(session.imagePath);
+    final title = session.title.isEmpty ? 'Untitled session' : session.title;
+
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(tokens.radiusMd),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onOpen,
+        child: CampaignCodexFrame(
+          accentColor: tokens.accentRead,
+          padding: EdgeInsets.zero,
+          backgroundColor: tokens.panel,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (hasImage)
+                buildImageFromPath(
+                  session.imagePath!,
+                  width: double.infinity,
+                  height: 148,
+                  fit: BoxFit.cover,
+                ),
+              Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (!hasImage) ...[
+                          CampaignCodexIconBadge(
+                            icon: Icons.auto_stories_outlined,
+                            accentColor: tokens.accentReadSoft,
+                          ),
+                          const SizedBox(width: 10),
+                        ],
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleMedium
+                                    ?.copyWith(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                              ),
+                              const SizedBox(height: 7),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  CampaignCodexBadge(
+                                    icon: Icons.flag_outlined,
+                                    label: 'Chapter $chapterNumber',
+                                  ),
+                                  CampaignCodexBadge(
+                                    icon: Icons.calendar_today_outlined,
+                                    label: formattedDate,
+                                  ),
+                                  if (mentionCount > 0)
+                                    CampaignCodexBadge(
+                                      icon: Icons.link,
+                                      label: '$mentionCount link'
+                                          '${mentionCount == 1 ? '' : 's'}',
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (canManageSessions)
+                          PopupMenuButton<String>(
+                            tooltip: 'Session actions',
+                            onSelected: (value) async {
+                              if (value == 'delete') {
+                                await onDelete();
+                              }
+                            },
+                            itemBuilder: (context) => const [
+                              PopupMenuItem(
+                                value: 'delete',
+                                child: Text('Delete'),
+                              ),
+                            ],
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      previewText,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: tokens.textSecondary,
+                          ),
+                    ),
+                    if (mentionCount > 0) ...[
+                      const SizedBox(height: 12),
+                      CompendiumMentionChips(
+                        text: mentionText,
+                        campaignId: campaignId,
+                        maxItems: 4,
+                        showUnresolved: showUnresolvedMentions,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
