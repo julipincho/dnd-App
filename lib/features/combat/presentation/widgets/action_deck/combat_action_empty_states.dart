@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../../../../../theme.dart';
 import 'combat_action_frame.dart';
 
-const _emptyActionGold = Color(0xFF9C7140);
-const _emptyActionPaper = Color(0xFFF2D8B5);
+const _emptyActionGold = StitchCodexPalette.bronzeMuted;
+const _emptyActionPaper = StitchCodexPalette.textPrimary;
 
 class CombatEmptyActionCard extends StatelessWidget {
   const CombatEmptyActionCard({super.key});
@@ -42,8 +43,8 @@ class CombatActionListEmpty extends StatelessWidget {
     return Container(
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(8),
+        color: StitchCodexPalette.surfaceMuted,
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(
           color: _emptyActionGold.withValues(alpha: 0.18),
         ),

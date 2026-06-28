@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
-const _actionChipPaper = Color(0xFFF2D8B5);
-const _actionChipBlood = Color(0xFF8F1E19);
+import '../../../../../theme.dart';
+
+const _actionChipPaper = StitchCodexPalette.textPrimary;
+const _actionChipBlood = StitchCodexPalette.crimson;
 
 class CombatActionInfoChip extends StatelessWidget {
   final IconData icon;
@@ -30,7 +32,7 @@ class CombatActionInfoChip extends StatelessWidget {
       ),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(color: color.withValues(alpha: 0.30)),
       ),
       child: Row(
@@ -45,6 +47,7 @@ class CombatActionInfoChip extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: _actionChipPaper,
+                fontFamily: StitchTypography.data,
                 fontSize: compact ? 9 : 10.5,
                 fontWeight: FontWeight.w900,
                 height: 1,
@@ -72,7 +75,7 @@ class CombatActionInlineWarning extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 9),
       decoration: BoxDecoration(
         color: _actionChipBlood.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(
           color: _actionChipBlood.withValues(alpha: 0.36),
         ),
@@ -92,6 +95,7 @@ class CombatActionInlineWarning extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 color: _actionChipPaper,
+                fontFamily: StitchTypography.data,
                 fontSize: 10,
                 fontWeight: FontWeight.w900,
                 height: 1,

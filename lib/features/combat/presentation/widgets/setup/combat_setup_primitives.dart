@@ -5,12 +5,38 @@ import '../../../../../services/monster_repository.dart';
 import '../../../../../theme.dart';
 import '../../../../../utils/image_path_utils.dart';
 import '../shared/combat_cinematic_buttons.dart';
-import '../shared/combat_cinematic_primitives.dart';
 
-const _setupGold = Color(0xFF9C7140);
-const _setupGoldBright = Color(0xFFE5B46C);
-const _setupPaper = Color(0xFFF2D8B5);
-const _setupTextMuted = Color(0xFFC3A57E);
+const _setupGold = StitchCodexPalette.bronzeMuted;
+const _setupGoldBright = StitchCodexPalette.bronze;
+const _setupPaper = StitchCodexPalette.textPrimary;
+const _setupTextMuted = StitchCodexPalette.textMuted;
+
+class CombatSetupSectionFrame extends StatelessWidget {
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+  final Color borderColor;
+
+  const CombatSetupSectionFrame({
+    super.key,
+    required this.child,
+    this.padding = const EdgeInsets.all(12),
+    this.borderColor = StitchCodexPalette.textFaint,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      clipBehavior: Clip.hardEdge,
+      padding: padding,
+      decoration: BoxDecoration(
+        color: StitchCodexPalette.surfaceMuted,
+        borderRadius: BorderRadius.circular(2),
+        border: Border.all(color: borderColor.withValues(alpha: 0.72)),
+      ),
+      child: child,
+    );
+  }
+}
 
 class CombatCompactNumberField extends StatelessWidget {
   final TextEditingController controller;
@@ -48,8 +74,8 @@ class CombatSetupPanelTitle extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Icon(icon, color: _setupGoldBright, size: 17),
-        const SizedBox(width: 8),
+        Icon(icon, color: _setupGoldBright, size: 15),
+        const SizedBox(width: 7),
         Expanded(
           child: Text(
             label.toUpperCase(),
@@ -57,8 +83,10 @@ class CombatSetupPanelTitle extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               color: _setupPaper,
-              fontSize: 12,
-              fontWeight: FontWeight.w900,
+              fontFamily: StitchTypography.data,
+              fontSize: 9,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.5,
               height: 1,
             ),
           ),
@@ -86,7 +114,7 @@ class CombatMiniSetupBadge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
       decoration: BoxDecoration(
         color: _setupGold.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(5),
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(
           color: _setupGold.withValues(alpha: 0.22),
         ),
@@ -95,6 +123,7 @@ class CombatMiniSetupBadge extends StatelessWidget {
         label,
         style: const TextStyle(
           color: _setupPaper,
+          fontFamily: StitchTypography.data,
           fontSize: 10,
           fontWeight: FontWeight.w900,
         ),
@@ -117,14 +146,14 @@ class CombatSetupCountButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(5),
+      borderRadius: BorderRadius.circular(2),
       child: Container(
         width: 30,
         height: 28,
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: _setupGold.withValues(alpha: 0.14),
-          borderRadius: BorderRadius.circular(5),
+          borderRadius: BorderRadius.circular(2),
           border: Border.all(
             color: _setupGold.withValues(alpha: 0.28),
           ),
@@ -185,12 +214,13 @@ class _CombatSetupMonsterSearchFieldState
       onChanged: widget.onChanged,
       style: const TextStyle(
         color: _setupPaper,
-        fontSize: 13,
-        fontWeight: FontWeight.w800,
+        fontFamily: StitchTypography.body,
+        fontSize: 14,
+        fontWeight: FontWeight.w600,
       ),
       decoration: InputDecoration(
         isDense: true,
-        hintText: 'Buscar por nombre, tipo o CR',
+        hintText: 'Buscar monstruo...',
         hintStyle: TextStyle(color: tokens.textMuted),
         prefixIcon: const Icon(
           Icons.search_rounded,
@@ -205,21 +235,21 @@ class _CombatSetupMonsterSearchFieldState
                 onPressed: () => widget.onChanged(''),
               ),
         filled: true,
-        fillColor: Colors.black.withValues(alpha: 0.22),
+        fillColor: StitchCodexPalette.surface,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(7),
+          borderRadius: BorderRadius.circular(2),
           borderSide: BorderSide(
             color: _setupGold.withValues(alpha: 0.18),
           ),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(7),
+          borderRadius: BorderRadius.circular(2),
           borderSide: BorderSide(
             color: _setupGold.withValues(alpha: 0.18),
           ),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(7),
+          borderRadius: BorderRadius.circular(2),
           borderSide: const BorderSide(color: _setupGoldBright),
         ),
       ),
@@ -326,68 +356,134 @@ class CombatSetupMonsterTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final selected = count > 0;
     return Container(
-      padding: const EdgeInsets.all(8),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: selected
-            ? const Color(0xFF8F1E19).withValues(alpha: 0.20)
-            : Colors.black.withValues(alpha: 0.22),
-        borderRadius: BorderRadius.circular(7),
+            ? StitchCodexPalette.crimson.withValues(alpha: 0.10)
+            : StitchCodexPalette.surface,
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(
           color: selected
-              ? _setupGoldBright.withValues(alpha: 0.44)
-              : _setupGold.withValues(alpha: 0.18),
+              ? StitchCodexPalette.crimsonBright.withValues(alpha: 0.46)
+              : _setupGold.withValues(alpha: 0.28),
         ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            monster.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: _setupPaper,
-              fontSize: 12,
-              fontWeight: FontWeight.w900,
-              height: 1,
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                margin: const EdgeInsets.only(top: 2),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: selected
+                      ? StitchCodexPalette.crimsonBright
+                      : _setupGold,
+                ),
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: Text(
+                  monster.name.toUpperCase(),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: _setupPaper,
+                    fontFamily: StitchTypography.display,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    height: 1.05,
+                  ),
+                ),
+              ),
+              if (monster.challengeRating != null) ...[
+                const SizedBox(width: 5),
+                CombatMiniSetupBadge(
+                  label: 'CR ${monster.challengeRating}',
+                  visible: true,
+                ),
+              ],
+            ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           Text(
-            '${monster.size} ${monster.type}${monster.challengeRating == null ? '' : ' - CR ${monster.challengeRating}'}',
+            '${monster.size} ${monster.type}',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               color: _setupTextMuted,
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
+              fontFamily: StitchTypography.body,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            'CA ${monster.armorClass}   HP ${monster.hitPoints}',
+            style: const TextStyle(
+              color: StitchCodexPalette.bronze,
+              fontFamily: StitchTypography.data,
+              fontSize: 9,
+              fontWeight: FontWeight.w700,
             ),
           ),
           const Spacer(),
-          Row(
-            children: [
-              CombatSetupCountButton(
-                icon: Icons.remove,
-                onTap: () => onChangeCount(count - 1),
-              ),
-              Expanded(
-                child: Text(
-                  '$count',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: _setupPaper,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w900,
-                    height: 1,
+          if (!selected)
+            SizedBox(
+              width: double.infinity,
+              height: 28,
+              child: OutlinedButton.icon(
+                onPressed: () => onChangeCount(1),
+                icon: const Icon(Icons.add, size: 14),
+                label: const Text('Añadir'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: StitchCodexPalette.success,
+                  side: BorderSide(
+                    color:
+                        StitchCodexPalette.success.withValues(alpha: 0.36),
                   ),
+                  textStyle: const TextStyle(
+                    fontFamily: StitchTypography.body,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                  padding: EdgeInsets.zero,
                 ),
               ),
-              CombatSetupCountButton(
-                icon: Icons.add,
-                onTap: () => onChangeCount(count + 1),
-              ),
-            ],
-          ),
+            )
+          else
+            Row(
+              children: [
+                CombatSetupCountButton(
+                  icon: Icons.remove,
+                  onTap: () => onChangeCount(count - 1),
+                ),
+                Expanded(
+                  child: Text(
+                    '$count',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: _setupPaper,
+                      fontFamily: StitchTypography.data,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      height: 1,
+                    ),
+                  ),
+                ),
+                CombatSetupCountButton(
+                  icon: Icons.add,
+                  onTap: () => onChangeCount(count + 1),
+                ),
+              ],
+            ),
         ],
       ),
     );
@@ -436,19 +532,18 @@ class CombatSetupCustomMonsterTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.stitch;
     final selected = count > 0;
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: selected
-            ? const Color(0xFF8F1E19).withValues(alpha: 0.20)
-            : Colors.black.withValues(alpha: 0.22),
-        borderRadius: BorderRadius.circular(7),
+            ? StitchCodexPalette.crimson.withValues(alpha: 0.10)
+            : StitchCodexPalette.surface,
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(
           color: selected
-              ? _setupGoldBright.withValues(alpha: 0.44)
-              : _setupGold.withValues(alpha: 0.18),
+              ? StitchCodexPalette.crimsonBright.withValues(alpha: 0.46)
+              : _setupGold.withValues(alpha: 0.28),
         ),
       ),
       child: Row(
@@ -457,13 +552,14 @@ class CombatSetupCustomMonsterTile extends StatelessWidget {
             width: 52,
             height: 52,
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(7),
+              borderRadius: BorderRadius.circular(2),
               child: monster.portraitPath == null
                   ? Container(
-                      color: const Color(0xFF8F1E19).withValues(alpha: 0.18),
+                      color:
+                          StitchCodexPalette.crimson.withValues(alpha: 0.12),
                       child: const Icon(
                         Icons.crisis_alert_outlined,
-                        color: _setupPaper,
+                        color: StitchCodexPalette.crimsonBright,
                       ),
                     )
                   : buildImageFromPath(
@@ -485,8 +581,9 @@ class CombatSetupCustomMonsterTile extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: _setupPaper,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w900,
+                    fontFamily: StitchTypography.display,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
                 const SizedBox(height: 3),
@@ -494,10 +591,11 @@ class CombatSetupCustomMonsterTile extends StatelessWidget {
                   monster.role,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: tokens.textSecondary,
+                  style: const TextStyle(
+                    color: StitchCodexPalette.textMuted,
+                    fontFamily: StitchTypography.body,
                     fontSize: 11,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
                 const SizedBox(height: 5),
@@ -542,8 +640,9 @@ class CombatSetupCustomMonsterTile extends StatelessWidget {
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       color: _setupPaper,
+                      fontFamily: StitchTypography.data,
                       fontSize: 16,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
@@ -615,9 +714,8 @@ class CombatSetupMonsterCatalogPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CombatCinematicPanelFrame(
-      borderColor: CombatCinematicColors.gold,
-      backgroundAlpha: 0.78,
+    return CombatSetupSectionFrame(
+      padding: const EdgeInsets.all(12),
       child: DefaultTabController(
         length: 2,
         child: Column(
@@ -638,18 +736,25 @@ class CombatSetupMonsterCatalogPanel extends StatelessWidget {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 else
-                  CombatCinematicRoundIconButton(
-                    icon: Icons.refresh,
+                  IconButton(
+                    icon: const Icon(Icons.refresh, size: 18),
+                    color: StitchCodexPalette.bronze,
                     tooltip: 'Recargar',
-                    onTap: onReload,
+                    visualDensity: VisualDensity.compact,
+                    onPressed: onReload,
                   ),
               ],
             ),
             const SizedBox(height: 8),
             TabBar(
-              indicatorColor: CombatCinematicColors.goldBright,
-              labelColor: CombatCinematicColors.paper,
-              unselectedLabelColor: CombatCinematicColors.actionTextMuted,
+              indicatorColor: StitchCodexPalette.crimsonBright,
+              labelColor: StitchCodexPalette.textPrimary,
+              unselectedLabelColor: StitchCodexPalette.textMuted,
+              labelStyle: const TextStyle(
+                fontFamily: StitchTypography.data,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+              ),
               tabs: [
                 Tab(text: 'SRD ($totalMonsterCount)'),
                 Tab(text: 'Custom (${customMonsters.length})'),
@@ -679,8 +784,8 @@ class CombatSetupMonsterCatalogPanel extends StatelessWidget {
                                 : GridView.builder(
                                     gridDelegate:
                                         const SliverGridDelegateWithMaxCrossAxisExtent(
-                                      maxCrossAxisExtent: 230,
-                                      mainAxisExtent: 104,
+                                      maxCrossAxisExtent: 190,
+                                      mainAxisExtent: 130,
                                       crossAxisSpacing: 8,
                                       mainAxisSpacing: 8,
                                     ),

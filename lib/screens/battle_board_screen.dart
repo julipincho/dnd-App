@@ -12,7 +12,10 @@ import '../models/board_token.dart';
 import '../providers/battle_board_provider.dart';
 import '../services/battle_board_dice_roll_sync_service.dart';
 import '../services/dice_color_preferences_service.dart';
+import '../theme.dart';
 import '../utils/image_path_utils.dart';
+import '../widgets/battle_board_dice_box_overlay.dart'
+    hide BoardDiceRollOutcome;
 import '../widgets/battle_board_view.dart';
 import '../widgets/stitch_navigation.dart';
 import '../features/dice/models/dice_roll_result.dart';
@@ -272,6 +275,23 @@ class _BattleBoardScreenState extends State<BattleBoardScreen> {
     final activeToken = _activeTokenOf(visibleTokens);
     final targetToken = _targetTokenOf(visibleTokens);
     final eventToken = _latestEventToken(visibleTokens);
+    final manualEventToken = _latestEventToken(
+      tokens
+          .where(
+            (token) =>
+                token.lastEventLabel.isNotEmpty &&
+                token.lastEventId.isNotEmpty &&
+                token.lastEventKind.toLowerCase() == 'manual' &&
+                token.id != _manualRollToken?.id &&
+                token.id != eventToken?.id,
+          )
+          .toList(growable: false),
+    );
+    final diceEventToken = _latestEventToken([
+      if (eventToken != null) eventToken,
+      if (_manualRollToken != null) _manualRollToken!,
+      if (manualEventToken != null) manualEventToken,
+    ]);
     final selectedTokenId = _selectedMoveTokenId;
     final selectedToken = selectedTokenId == null
         ? null
@@ -290,29 +310,59 @@ class _BattleBoardScreenState extends State<BattleBoardScreen> {
     );
 
     return Scaffold(
-      backgroundColor: const Color(0xFF05070B),
+      backgroundColor: StitchCodexPalette.ground,
       appBar: StitchAppBar(
-        title: Text(scene?.name ?? 'Battle Board'),
-        backgroundColor: const Color(0xFF05070B),
+        title: Text(
+          scene?.name.toUpperCase() ?? 'TABLERO DE COMBATE',
+          style: const TextStyle(
+            color: StitchCodexPalette.textPrimary,
+            fontFamily: StitchTypography.display,
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.8,
+          ),
+        ),
+        backgroundColor: StitchCodexPalette.ground,
         actions: [
           if (scene != null)
             Padding(
               padding: const EdgeInsets.only(right: 8),
-              child: Chip(
-                avatar: Icon(
-                  widget.readOnly
-                      ? _editUnlocked
-                          ? Icons.edit_location_alt_outlined
-                          : Icons.visibility_outlined
-                      : Icons.sports_esports_rounded,
-                  size: 16,
+              child: Container(
+                height: 30,
+                padding: const EdgeInsets.symmetric(horizontal: 9),
+                decoration: BoxDecoration(
+                  color: StitchCodexPalette.surface,
+                  border: Border.all(
+                    color:
+                        StitchCodexPalette.bronzeMuted.withValues(alpha: 0.46),
+                  ),
                 ),
-                label: Text(
-                  widget.readOnly
-                      ? _editUnlocked
-                          ? 'Display Edit'
-                          : 'Display'
-                      : 'Controller',
+                child: Row(
+                  children: [
+                    Icon(
+                      widget.readOnly
+                          ? _editUnlocked
+                              ? Icons.edit_location_alt_outlined
+                              : Icons.visibility_outlined
+                          : Icons.sports_esports_rounded,
+                      size: 14,
+                      color: StitchCodexPalette.bronzeBright,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      widget.readOnly
+                          ? _editUnlocked
+                              ? 'DISPLAY EDIT'
+                              : 'DISPLAY'
+                          : 'CONTROLADOR',
+                      style: const TextStyle(
+                        color: StitchCodexPalette.textSecondary,
+                        fontFamily: StitchTypography.data,
+                        fontSize: 7,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -379,11 +429,24 @@ class _BattleBoardScreenState extends State<BattleBoardScreen> {
                             y,
                           );
                         },
+                  enableDiceOverlay: false,
                   manualRollToken: _manualRollToken,
                   onDiceRollClaimRequested: _claimDiceRollEvent,
                   onDiceRollResolved: _persistDiceRollOutcome,
                 ),
               ),
+              if (kIsWeb && _shouldShowBoardDiceStage(diceEventToken))
+                Positioned(
+                  left: 18,
+                  right: 18,
+                  bottom: 52,
+                  child: _BoardDiceOverlayStage(
+                    scene: scene,
+                    token: diceEventToken,
+                    onRollClaimRequested: _claimDiceRollEvent,
+                    onRollResolved: _persistDiceRollOutcome,
+                  ),
+                ),
               Positioned.fill(
                 child: IgnorePointer(
                   ignoring: !_hudVisible,
@@ -924,25 +987,41 @@ class _BoardTacticalHud extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final compact = constraints.maxWidth < 980;
-        final railWidth = compact ? 150.0 : 212.0;
-        final railTop = compact ? 148.0 : 166.0;
+        final focusWidth =
+            ((constraints.maxWidth - 36) / 2).clamp(150.0, 310.0).toDouble();
+        final initiative = [...allies, ...enemies]..sort((a, b) {
+            final compare = b.initiative.compareTo(a.initiative);
+            if (compare != 0) return compare;
+            if (a.isActive) return -1;
+            if (b.isActive) return 1;
+            return a.name.compareTo(b.name);
+          });
         return Stack(
           children: [
             Positioned(
-              top: 16,
-              left: 16,
+              top: 12,
+              left: 12,
+              right: 12,
+              height: 62,
+              child: _BoardInitiativeStrip(
+                tokens: initiative,
+                onSelectToken: onSelectToken,
+              ),
+            ),
+            Positioned(
+              top: 82,
+              left: 12,
               child: _BoardFocusCard(
                 label: 'Turno',
                 token: activeToken,
                 icon: Icons.bolt_rounded,
-                accent: const Color(0xFF64F4A2),
-                width: compact ? 250 : 360,
+                accent: StitchCodexPalette.success,
+                width: focusWidth,
               ),
             ),
             Positioned(
-              top: 16,
-              right: 16,
+              top: 82,
+              right: 12,
               child: _BoardFocusCard(
                 label: 'Objetivo',
                 token: targetToken,
@@ -950,40 +1029,14 @@ class _BoardTacticalHud extends StatelessWidget {
                     ? Icons.warning_amber_rounded
                     : Icons.center_focus_strong_rounded,
                 accent: targetToken?.isTargetInRange == false
-                    ? const Color(0xFFFF5C6C)
-                    : const Color(0xFFFFB454),
-                width: compact ? 250 : 360,
-              ),
-            ),
-            Positioned(
-              top: railTop,
-              bottom: 92,
-              left: 16,
-              width: railWidth,
-              child: _BoardInitiativeRail(
-                title: 'Aliados',
-                icon: Icons.groups_rounded,
-                tokens: allies,
-                accent: const Color(0xFF7DD3FC),
-                onSelectToken: onSelectToken,
-              ),
-            ),
-            Positioned(
-              top: railTop,
-              bottom: 92,
-              right: 16,
-              width: railWidth,
-              child: _BoardInitiativeRail(
-                title: 'Enemigos',
-                icon: Icons.crisis_alert_rounded,
-                tokens: enemies,
-                accent: const Color(0xFFFF5C6C),
-                onSelectToken: onSelectToken,
+                    ? StitchCodexPalette.crimsonBright
+                    : StitchCodexPalette.bronzeBright,
+                width: focusWidth,
               ),
             ),
             if (!kIsWeb)
               Positioned(
-                top: 18,
+                top: 156,
                 left: _centeredOverlayLeft(constraints.maxWidth),
                 width: _centeredOverlayWidth(constraints.maxWidth),
                 child: _BoardDiceToast(token: eventToken),
@@ -991,6 +1044,371 @@ class _BoardTacticalHud extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+class _BoardDiceOverlayStage extends StatelessWidget {
+  final BattleScene scene;
+  final BoardToken? token;
+  final Future<bool> Function(BoardToken token)? onRollClaimRequested;
+  final FutureOr<void> Function(BoardToken token, BoardDiceRollOutcome outcome)?
+      onRollResolved;
+
+  const _BoardDiceOverlayStage({
+    required this.scene,
+    required this.token,
+    required this.onRollClaimRequested,
+    required this.onRollResolved,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final resolvedToken = token;
+    if (!_shouldShowBoardDiceStage(resolvedToken)) {
+      return const SizedBox.shrink();
+    }
+
+    final isPending = resolvedToken!.lastEventRollValues.isEmpty;
+    final accent = isPending
+        ? StitchCodexPalette.bronzeBright
+        : StitchCodexPalette.success;
+    final resultLabel = resolvedToken.lastEventResultLabel.trim();
+
+    return IgnorePointer(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 680),
+          child: SizedBox(
+            height: 390,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: StitchCodexPalette.ground.withValues(alpha: 0.58),
+                border: Border.all(color: accent.withValues(alpha: 0.58)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.34),
+                    blurRadius: 16,
+                    offset: const Offset(0, 8),
+                  ),
+                  BoxShadow(
+                    color: accent.withValues(alpha: 0.12),
+                    blurRadius: 34,
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  Container(
+                    height: 42,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: StitchCodexPalette.surface.withValues(alpha: 0.78),
+                      border: Border(
+                        bottom: BorderSide(
+                          color: StitchCodexPalette.bronzeMuted
+                              .withValues(alpha: 0.40),
+                        ),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          isPending
+                              ? Icons.casino_rounded
+                              : Icons.check_circle_outline_rounded,
+                          color: accent,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 9),
+                        Expanded(
+                          child: Text(
+                            isPending
+                                ? 'TIRADA EN CURSO'
+                                : (resultLabel.isEmpty
+                                    ? 'TIRADA RESUELTA'
+                                    : resultLabel.toUpperCase()),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: accent,
+                              fontFamily: StitchTypography.display,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 1.0,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          resolvedToken.lastEventDiceNotation.toUpperCase(),
+                          style: const TextStyle(
+                            color: StitchCodexPalette.textSecondary,
+                            fontFamily: StitchTypography.data,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: ClipRect(
+                      child: BattleBoardDiceBoxOverlay(
+                        key: ValueKey('dice-box-stage-${scene.id}'),
+                        boardViewportId: '${scene.id}-dice-stage',
+                        token: resolvedToken,
+                        gridSize: scene.gridSize.toDouble(),
+                        onRollClaimRequested: onRollClaimRequested,
+                        onRollResolved: onRollResolved,
+                      ),
+                    ),
+                  ),
+                  Container(
+                    height: 28,
+                    alignment: Alignment.center,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: StitchCodexPalette.surfaceMuted
+                          .withValues(alpha: 0.48),
+                      border: Border(
+                        top: BorderSide(
+                          color: StitchCodexPalette.textFaint
+                              .withValues(alpha: 0.55),
+                        ),
+                      ),
+                    ),
+                    child: Text(
+                      isPending
+                          ? resolvedToken.lastEventLabel
+                          : resolvedToken.lastEventResultDetail,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: StitchCodexPalette.textMuted,
+                        fontFamily: StitchTypography.body,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BoardInitiativeStrip extends StatelessWidget {
+  final List<BoardToken> tokens;
+  final ValueChanged<BoardToken>? onSelectToken;
+
+  const _BoardInitiativeStrip({
+    required this.tokens,
+    required this.onSelectToken,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: StitchCodexPalette.ground.withValues(alpha: 0.92),
+        border: Border.all(
+          color: StitchCodexPalette.bronzeMuted.withValues(alpha: 0.48),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.30),
+            blurRadius: 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 104,
+            height: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              color: StitchCodexPalette.surface,
+              border: Border(
+                right: BorderSide(
+                  color: StitchCodexPalette.textFaint.withValues(alpha: 0.78),
+                ),
+              ),
+            ),
+            child: const Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'INICIATIVA',
+                  style: TextStyle(
+                    color: StitchCodexPalette.bronzeBright,
+                    fontFamily: StitchTypography.display,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+                SizedBox(height: 3),
+                Text(
+                  'ORDEN DE TURNO',
+                  style: TextStyle(
+                    color: StitchCodexPalette.textMuted,
+                    fontFamily: StitchTypography.data,
+                    fontSize: 6.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: tokens.isEmpty
+                ? const Center(
+                    child: Text(
+                      'Sin combatientes',
+                      style: TextStyle(
+                        color: StitchCodexPalette.textMuted,
+                        fontFamily: StitchTypography.body,
+                        fontSize: 10,
+                      ),
+                    ),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 6,
+                    ),
+                    scrollDirection: Axis.horizontal,
+                    itemCount: tokens.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 5),
+                    itemBuilder: (context, index) {
+                      final token = tokens[index];
+                      return _BoardInitiativeStripTile(
+                        token: token,
+                        position: index + 1,
+                        onTap: onSelectToken == null
+                            ? null
+                            : () => onSelectToken!(token),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BoardInitiativeStripTile extends StatelessWidget {
+  final BoardToken token;
+  final int position;
+  final VoidCallback? onTap;
+
+  const _BoardInitiativeStripTile({
+    required this.token,
+    required this.position,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final enemy = _isEnemyToken(token);
+    final color = token.isActive
+        ? StitchCodexPalette.success
+        : token.isTargeted
+            ? StitchCodexPalette.bronzeBright
+            : enemy
+                ? StitchCodexPalette.crimsonBright
+                : StitchCodexPalette.cold;
+
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        width: 142,
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        decoration: BoxDecoration(
+          color: token.isActive
+              ? color.withValues(alpha: 0.15)
+              : StitchCodexPalette.card.withValues(alpha: 0.84),
+          border: Border.all(
+            color: color.withValues(alpha: token.isActive ? 0.88 : 0.34),
+          ),
+        ),
+        child: Row(
+          children: [
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                _BoardTokenAvatar(
+                  token: token,
+                  size: 34,
+                  showHpBar: false,
+                ),
+                Positioned(
+                  left: -3,
+                  top: -3,
+                  child: Container(
+                    width: 13,
+                    height: 13,
+                    alignment: Alignment.center,
+                    decoration: const BoxDecoration(
+                      color: StitchCodexPalette.ground,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Text(
+                      '$position',
+                      style: const TextStyle(
+                        color: StitchCodexPalette.bronzeBright,
+                        fontFamily: StitchTypography.data,
+                        fontSize: 6,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(width: 7),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    token.name.toUpperCase(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: StitchCodexPalette.textPrimary,
+                      fontFamily: StitchTypography.display,
+                      fontSize: 7.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  _MiniHpBar(token: token),
+                ],
+              ),
+            ),
+            const SizedBox(width: 5),
+            Text(
+              '${token.initiative}',
+              style: TextStyle(
+                color: color,
+                fontFamily: StitchTypography.data,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1013,23 +1431,24 @@ class _BoardFocusCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final resolvedToken = token;
+    final compact = width < 220;
     return SizedBox(
       width: width,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.74),
-          borderRadius: BorderRadius.circular(18),
+          color: StitchCodexPalette.surfaceMuted.withValues(alpha: 0.93),
+          borderRadius: BorderRadius.circular(2),
           border: Border.all(color: accent.withValues(alpha: 0.48)),
           boxShadow: [
             BoxShadow(
-              color: accent.withValues(alpha: 0.18),
-              blurRadius: 22,
-              offset: const Offset(0, 10),
+              color: Colors.black.withValues(alpha: 0.28),
+              blurRadius: 10,
+              offset: const Offset(0, 5),
             ),
           ],
         ),
         child: Padding(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(8),
           child: resolvedToken == null
               ? Row(
                   children: [
@@ -1041,8 +1460,10 @@ class _BoardFocusCard extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w900,
+                          color: StitchCodexPalette.textPrimary,
+                          fontFamily: StitchTypography.display,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ),
@@ -1050,8 +1471,11 @@ class _BoardFocusCard extends StatelessWidget {
                 )
               : Row(
                   children: [
-                    _BoardTokenAvatar(token: resolvedToken, size: 56),
-                    const SizedBox(width: 12),
+                    _BoardTokenAvatar(
+                      token: resolvedToken,
+                      size: compact ? 34 : 42,
+                    ),
+                    SizedBox(width: compact ? 7 : 9),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1065,9 +1489,10 @@ class _BoardFocusCard extends StatelessWidget {
                                 label.toUpperCase(),
                                 style: TextStyle(
                                   color: accent,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: 0,
+                                  fontFamily: StitchTypography.data,
+                                  fontSize: 7,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.8,
                                 ),
                               ),
                             ],
@@ -1078,203 +1503,65 @@ class _BoardFocusCard extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 19,
-                              fontWeight: FontWeight.w900,
+                              color: StitchCodexPalette.textPrimary,
+                              fontFamily: StitchTypography.display,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
-                          const SizedBox(height: 7),
-                          Wrap(
-                            spacing: 6,
-                            runSpacing: 6,
-                            children: [
-                              _BoardMetricPill(
-                                icon: Icons.favorite_rounded,
-                                label:
-                                    '${resolvedToken.currentHp}/${resolvedToken.maxHp}',
-                                color: _hpColor(resolvedToken.hpRatio),
+                          const SizedBox(height: 5),
+                          if (compact)
+                            Text(
+                              '${resolvedToken.currentHp}/${resolvedToken.maxHp} HP'
+                              '${resolvedToken.targetDistanceFeet > 0 ? ' - ${resolvedToken.targetDistanceFeet} FT' : ''}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: StitchCodexPalette.textMuted,
+                                fontFamily: StitchTypography.data,
+                                fontSize: 7,
                               ),
-                              _BoardMetricPill(
-                                icon: Icons.casino_rounded,
-                                label: '${resolvedToken.initiative}',
-                                color: const Color(0xFFFFD27A),
-                              ),
-                              if (resolvedToken.isActive)
+                            )
+                          else
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: [
                                 _BoardMetricPill(
-                                  icon: Icons.directions_run_rounded,
+                                  icon: Icons.favorite_rounded,
                                   label:
-                                      '${resolvedToken.remainingMovementFeet}/${resolvedToken.speedFeet} ft',
-                                  color: const Color(0xFF64F4A2),
+                                      '${resolvedToken.currentHp}/${resolvedToken.maxHp}',
+                                  color: _hpColor(resolvedToken.hpRatio),
                                 ),
-                              if (resolvedToken.isTargeted &&
-                                  resolvedToken.targetDistanceFeet > 0)
                                 _BoardMetricPill(
-                                  icon: Icons.straighten_rounded,
-                                  label:
-                                      '${resolvedToken.targetDistanceFeet} ft',
-                                  color: resolvedToken.isTargetInRange
-                                      ? const Color(0xFFFFB454)
-                                      : const Color(0xFFFF5C6C),
+                                  icon: Icons.casino_rounded,
+                                  label: '${resolvedToken.initiative}',
+                                  color: StitchCodexPalette.bronzeBright,
                                 ),
-                            ],
-                          ),
+                                if (resolvedToken.isActive)
+                                  _BoardMetricPill(
+                                    icon: Icons.directions_run_rounded,
+                                    label:
+                                        '${resolvedToken.remainingMovementFeet}/${resolvedToken.speedFeet} ft',
+                                    color: StitchCodexPalette.success,
+                                  ),
+                                if (resolvedToken.isTargeted &&
+                                    resolvedToken.targetDistanceFeet > 0)
+                                  _BoardMetricPill(
+                                    icon: Icons.straighten_rounded,
+                                    label:
+                                        '${resolvedToken.targetDistanceFeet} ft',
+                                    color: resolvedToken.isTargetInRange
+                                        ? StitchCodexPalette.bronzeBright
+                                        : StitchCodexPalette.crimsonBright,
+                                  ),
+                              ],
+                            ),
                         ],
                       ),
                     ),
                   ],
                 ),
-        ),
-      ),
-    );
-  }
-}
-
-class _BoardInitiativeRail extends StatelessWidget {
-  final String title;
-  final IconData icon;
-  final List<BoardToken> tokens;
-  final Color accent;
-  final ValueChanged<BoardToken>? onSelectToken;
-
-  const _BoardInitiativeRail({
-    required this.title,
-    required this.icon,
-    required this.tokens,
-    required this.accent,
-    required this.onSelectToken,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.58),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: accent.withValues(alpha: 0.36)),
-      ),
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-            child: Row(
-              children: [
-                Icon(icon, color: accent, size: 18),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    title.toUpperCase(),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
-                Text(
-                  '${tokens.length}',
-                  style: TextStyle(
-                    color: accent,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: ListView.separated(
-              padding: const EdgeInsets.fromLTRB(10, 0, 10, 12),
-              itemBuilder: (context, index) {
-                final token = tokens[index];
-                return _BoardInitiativeTile(
-                  token: token,
-                  accent: token.isActive
-                      ? const Color(0xFF64F4A2)
-                      : token.isTargeted
-                          ? const Color(0xFFFFB454)
-                          : accent,
-                  onTap: onSelectToken == null
-                      ? null
-                      : () => onSelectToken!(token),
-                );
-              },
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
-              itemCount: tokens.length,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _BoardInitiativeTile extends StatelessWidget {
-  final BoardToken token;
-  final Color accent;
-  final VoidCallback? onTap;
-
-  const _BoardInitiativeTile({
-    required this.token,
-    required this.accent,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Ink(
-          decoration: BoxDecoration(
-            color: accent.withValues(alpha: token.isActive ? 0.18 : 0.10),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: accent.withValues(alpha: 0.34)),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(8),
-            child: Row(
-              children: [
-                _BoardTokenAvatar(
-                  token: token,
-                  size: 38,
-                  showHpBar: false,
-                ),
-                const SizedBox(width: 9),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        token.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      _MiniHpBar(token: token),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '${token.initiative}',
-                  style: TextStyle(
-                    color: accent,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ],
-            ),
-          ),
         ),
       ),
     );
@@ -1326,13 +1613,13 @@ class _BoardDiceToast extends StatelessWidget {
         },
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.80),
-            borderRadius: BorderRadius.circular(999),
+            color: StitchCodexPalette.surfaceMuted.withValues(alpha: 0.95),
+            borderRadius: BorderRadius.circular(2),
             border: Border.all(color: color.withValues(alpha: 0.58)),
             boxShadow: [
               BoxShadow(
                 color: color.withValues(alpha: 0.24),
-                blurRadius: 22,
+                blurRadius: 12,
               ),
             ],
           ),
@@ -1349,8 +1636,10 @@ class _BoardDiceToast extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w900,
+                      color: StitchCodexPalette.textPrimary,
+                      fontFamily: StitchTypography.display,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
@@ -1438,9 +1727,18 @@ class _BoardToolsDock extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.72),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+        color: StitchCodexPalette.surfaceMuted.withValues(alpha: 0.94),
+        borderRadius: BorderRadius.circular(2),
+        border: Border.all(
+          color: StitchCodexPalette.bronzeMuted.withValues(alpha: 0.48),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.28),
+            blurRadius: 9,
+            offset: const Offset(0, 5),
+          ),
+        ],
       ),
       child: Padding(
         padding: const EdgeInsets.all(6),
@@ -1535,20 +1833,20 @@ class _BoardSelectedTokenPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = token.currentHp <= 0
-        ? const Color(0xFFFF5C6C)
-        : const Color(0xFFFFD27A);
+        ? StitchCodexPalette.crimsonBright
+        : StitchCodexPalette.bronzeBright;
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 310),
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.78),
-          borderRadius: BorderRadius.circular(14),
+          color: StitchCodexPalette.surfaceMuted.withValues(alpha: 0.95),
+          borderRadius: BorderRadius.circular(2),
           border: Border.all(color: accent.withValues(alpha: 0.36)),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.36),
-              blurRadius: 18,
-              offset: const Offset(0, 10),
+              blurRadius: 10,
+              offset: const Offset(0, 5),
             ),
           ],
         ),
@@ -1569,9 +1867,10 @@ class _BoardSelectedTokenPanel extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w900,
+                        color: StitchCodexPalette.textPrimary,
+                        fontFamily: StitchTypography.display,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -1582,9 +1881,10 @@ class _BoardSelectedTokenPanel extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.72),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
+                        color: StitchCodexPalette.textMuted,
+                        fontFamily: StitchTypography.body,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
@@ -1593,7 +1893,10 @@ class _BoardSelectedTokenPanel extends StatelessWidget {
               const SizedBox(width: 10),
               FilledButton.icon(
                 style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFFFF5C6C),
+                  backgroundColor: StitchCodexPalette.crimson,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                   foregroundColor: Colors.white,
                   visualDensity: VisualDensity.compact,
                 ),
@@ -1626,16 +1929,16 @@ class _BoardSelectedGroupPanel extends StatelessWidget {
       constraints: const BoxConstraints(maxWidth: 330),
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.80),
-          borderRadius: BorderRadius.circular(14),
+          color: StitchCodexPalette.surfaceMuted.withValues(alpha: 0.95),
+          borderRadius: BorderRadius.circular(2),
           border: Border.all(
-            color: const Color(0xFFFFD166).withValues(alpha: 0.42),
+            color: StitchCodexPalette.bronzeBright.withValues(alpha: 0.42),
           ),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.36),
-              blurRadius: 18,
-              offset: const Offset(0, 10),
+              blurRadius: 10,
+              offset: const Offset(0, 5),
             ),
           ],
         ),
@@ -1644,7 +1947,10 @@ class _BoardSelectedGroupPanel extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.select_all_rounded, color: Color(0xFFFFD166)),
+              const Icon(
+                Icons.select_all_rounded,
+                color: StitchCodexPalette.bronzeBright,
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -1656,9 +1962,10 @@ class _BoardSelectedGroupPanel extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w900,
+                        color: StitchCodexPalette.textPrimary,
+                        fontFamily: StitchTypography.display,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -1667,9 +1974,10 @@ class _BoardSelectedGroupPanel extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.72),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
+                        color: StitchCodexPalette.textMuted,
+                        fontFamily: StitchTypography.body,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w600,
                         height: 1.12,
                       ),
                     ),
@@ -1707,21 +2015,25 @@ class _RoundToolButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final color = danger
+        ? StitchCodexPalette.crimsonBright
+        : active
+            ? StitchCodexPalette.success
+            : StitchCodexPalette.bronzeBright;
     return Tooltip(
       message: tooltip,
-      child: IconButton.filledTonal(
-        style: IconButton.styleFrom(
-          fixedSize: const Size.square(46),
-          shape: const CircleBorder(),
-          backgroundColor: danger
-              ? const Color(0xFFFF5C6C).withValues(alpha: 0.20)
-              : active
-                  ? const Color(0xFF64F4A2).withValues(alpha: 0.22)
-                  : Colors.white.withValues(alpha: 0.08),
-          foregroundColor: danger ? const Color(0xFFFFB4BC) : null,
+      child: InkWell(
+        onTap: onPressed,
+        child: Container(
+          width: 40,
+          height: 40,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: active || danger ? 0.14 : 0.07),
+            border: Border.all(color: color.withValues(alpha: 0.34)),
+          ),
+          child: Icon(icon, color: color, size: 19),
         ),
-        onPressed: onPressed,
-        icon: Icon(icon),
       ),
     );
   }
@@ -1750,15 +2062,16 @@ class _BoardSetupPanel extends StatelessWidget {
       width: 360,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.82),
-          borderRadius: BorderRadius.circular(18),
+          color: StitchCodexPalette.surfaceMuted.withValues(alpha: 0.97),
+          borderRadius: BorderRadius.circular(2),
           border: Border.all(
-              color: const Color(0xFF7DD3FC).withValues(alpha: 0.38)),
+            color: StitchCodexPalette.bronzeMuted.withValues(alpha: 0.48),
+          ),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.44),
-              blurRadius: 24,
-              offset: const Offset(0, 12),
+              blurRadius: 12,
+              offset: const Offset(0, 6),
             ),
           ],
         ),
@@ -1770,15 +2083,19 @@ class _BoardSetupPanel extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  const Icon(Icons.tune_rounded, color: Color(0xFF7DD3FC)),
+                  const Icon(
+                    Icons.tune_rounded,
+                    color: StitchCodexPalette.bronzeBright,
+                  ),
                   const SizedBox(width: 9),
                   const Expanded(
                     child: Text(
-                      'Setup del tablero',
+                      'CONFIGURACION DEL TABLERO',
                       style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
+                        color: StitchCodexPalette.textPrimary,
+                        fontFamily: StitchTypography.display,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ),
@@ -1790,27 +2107,15 @@ class _BoardSetupPanel extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 14),
-              DropdownButtonFormField<String>(
-                value: currentMap,
-                decoration: const InputDecoration(
-                  labelText: 'Fondo',
-                  prefixIcon: Icon(Icons.image_rounded),
-                ),
-                items: [
-                  for (final option in mapOptions)
-                    DropdownMenuItem<String>(
-                      value: option.path,
-                      child: Text(option.label),
-                    ),
-                ],
-                onChanged: saving
-                    ? null
-                    : (value) {
-                        if (value == null) return;
-                        onChanged(scene.copyWith(mapImageUrl: value));
-                      },
+              _BoardMapSetupSection(
+                scene: scene,
+                currentMapLabel: mapOptions
+                    .firstWhere((option) => option.path == currentMap)
+                    .label,
+                saving: saving,
+                onChanged: onChanged,
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
               _BoardStepperRow(
                 label: 'Grilla',
                 value: '${scene.gridSize}px',
@@ -1825,6 +2130,19 @@ class _BoardSetupPanel extends StatelessWidget {
                     : () => onChanged(
                           scene.copyWith(gridSize: scene.gridSize + 8),
                         ),
+              ),
+              const SizedBox(height: 10),
+              _BoardGridPresetStrip(
+                saving: saving,
+                onSelected: (gridSize, columns, rows) {
+                  onChanged(
+                    scene.copyWith(
+                      gridSize: gridSize,
+                      gridColumns: columns,
+                      gridRows: rows,
+                    ),
+                  );
+                },
               ),
               const SizedBox(height: 8),
               Row(
@@ -1887,6 +2205,295 @@ class _BoardSetupPanel extends StatelessWidget {
   }
 }
 
+class _BoardMapSetupSection extends StatelessWidget {
+  final BattleScene scene;
+  final String currentMapLabel;
+  final bool saving;
+  final ValueChanged<BattleScene> onChanged;
+
+  const _BoardMapSetupSection({
+    required this.scene,
+    required this.currentMapLabel,
+    required this.saving,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: StitchCodexPalette.card.withValues(alpha: 0.86),
+        border: Border.all(
+          color: StitchCodexPalette.textFaint.withValues(alpha: 0.76),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                const Icon(
+                  Icons.map_outlined,
+                  color: StitchCodexPalette.bronzeBright,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'ESCENARIO · $currentMapLabel'.toUpperCase(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: StitchCodexPalette.textPrimary,
+                      fontFamily: StitchTypography.display,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 9),
+            SizedBox(
+              height: 104,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: ClipRect(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: StitchCodexPalette.ground,
+                          border: Border.all(
+                            color: StitchCodexPalette.bronzeMuted
+                                .withValues(alpha: 0.44),
+                          ),
+                        ),
+                        child: hasDisplayableImagePath(scene.mapImageUrl)
+                            ? buildImageFromPath(
+                                scene.mapImageUrl,
+                                width: double.infinity,
+                                height: double.infinity,
+                                fit: BoxFit.cover,
+                                filterQuality: FilterQuality.medium,
+                              )
+                            : const Center(
+                                child: Icon(
+                                  Icons.grid_on_rounded,
+                                  color: StitchCodexPalette.bronzeMuted,
+                                  size: 30,
+                                ),
+                              ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 118,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _BoardSetupActionButton(
+                          label: 'Dungeon',
+                          icon: Icons.castle_rounded,
+                          onPressed: saving
+                              ? null
+                              : () => onChanged(
+                                    scene.copyWith(
+                                      mapImageUrl:
+                                          'assets/images/combat/dungeon_battlefield.png',
+                                    ),
+                                  ),
+                        ),
+                        const SizedBox(height: 6),
+                        _BoardSetupActionButton(
+                          label: 'Mapa vacio',
+                          icon: Icons.grid_3x3_rounded,
+                          onPressed: saving
+                              ? null
+                              : () => onChanged(
+                                    scene.copyWith(mapImageUrl: ''),
+                                  ),
+                        ),
+                        const SizedBox(height: 6),
+                        _BoardSetupActionButton(
+                          label: 'URL',
+                          icon: Icons.link_rounded,
+                          onPressed: saving
+                              ? null
+                              : () async {
+                                  final value = await _promptMapUrl(
+                                    context,
+                                    scene.mapImageUrl,
+                                  );
+                                  if (value == null) return;
+                                  onChanged(scene.copyWith(mapImageUrl: value));
+                                },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BoardSetupActionButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final VoidCallback? onPressed;
+
+  const _BoardSetupActionButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onPressed,
+      child: Container(
+        height: 29,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          color: onPressed == null
+              ? StitchCodexPalette.surfaceMuted.withValues(alpha: 0.36)
+              : StitchCodexPalette.surface.withValues(alpha: 0.82),
+          border: Border.all(
+            color: StitchCodexPalette.bronzeMuted.withValues(
+              alpha: onPressed == null ? 0.22 : 0.48,
+            ),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: StitchCodexPalette.bronzeBright, size: 14),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                label.toUpperCase(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: StitchCodexPalette.textSecondary,
+                  fontFamily: StitchTypography.data,
+                  fontSize: 7,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BoardGridPresetStrip extends StatelessWidget {
+  final bool saving;
+  final void Function(int gridSize, int columns, int rows) onSelected;
+
+  const _BoardGridPresetStrip({
+    required this.saving,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: _BoardGridPresetButton(
+            label: 'Compacto',
+            detail: '18×12 · 56',
+            onPressed: saving ? null : () => onSelected(56, 18, 12),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: _BoardGridPresetButton(
+            label: 'Dungeon',
+            detail: '24×16 · 64',
+            onPressed: saving ? null : () => onSelected(64, 24, 16),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: _BoardGridPresetButton(
+            label: 'Amplio',
+            detail: '32×20 · 56',
+            onPressed: saving ? null : () => onSelected(56, 32, 20),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _BoardGridPresetButton extends StatelessWidget {
+  final String label;
+  final String detail;
+  final VoidCallback? onPressed;
+
+  const _BoardGridPresetButton({
+    required this.label,
+    required this.detail,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onPressed,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
+        decoration: BoxDecoration(
+          color: StitchCodexPalette.ground.withValues(alpha: 0.42),
+          border: Border.all(
+            color: StitchCodexPalette.textFaint.withValues(alpha: 0.72),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label.toUpperCase(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: StitchCodexPalette.bronzeBright,
+                fontFamily: StitchTypography.display,
+                fontSize: 7,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              detail,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: StitchCodexPalette.textMuted,
+                fontFamily: StitchTypography.data,
+                fontSize: 6.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _BoardStepperRow extends StatelessWidget {
   final String label;
   final String value;
@@ -1906,15 +2513,17 @@ class _BoardStepperRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+        color: StitchCodexPalette.card,
+        borderRadius: BorderRadius.circular(2),
+        border: Border.all(
+          color: StitchCodexPalette.textFaint.withValues(alpha: 0.80),
+        ),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
         child: Row(
           children: [
-            Icon(icon, color: const Color(0xFF7DD3FC), size: 18),
+            Icon(icon, color: StitchCodexPalette.bronzeBright, size: 18),
             const SizedBox(width: 7),
             Expanded(
               child: Column(
@@ -1923,17 +2532,19 @@ class _BoardStepperRow extends StatelessWidget {
                   Text(
                     label,
                     style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.62),
-                      fontSize: 10,
-                      fontWeight: FontWeight.w900,
+                      color: StitchCodexPalette.textMuted,
+                      fontFamily: StitchTypography.data,
+                      fontSize: 8,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                   Text(
                     value,
                     style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w900,
+                      color: StitchCodexPalette.textPrimary,
+                      fontFamily: StitchTypography.data,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ],
@@ -1970,12 +2581,12 @@ class _BoardTokenAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = token.isActive
-        ? const Color(0xFF64F4A2)
+        ? StitchCodexPalette.success
         : token.isTargeted
-            ? const Color(0xFFFFB454)
+            ? StitchCodexPalette.bronzeBright
             : _isEnemyToken(token)
-                ? const Color(0xFFFF5C6C)
-                : const Color(0xFF7DD3FC);
+                ? StitchCodexPalette.crimsonBright
+                : StitchCodexPalette.cold;
     return SizedBox(
       width: size,
       height: size,
@@ -1986,7 +2597,7 @@ class _BoardTokenAvatar extends StatelessWidget {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.black.withValues(alpha: 0.55),
+                color: StitchCodexPalette.ground.withValues(alpha: 0.86),
                 border: Border.all(color: accent, width: 2),
               ),
               child: ClipOval(
@@ -2001,7 +2612,7 @@ class _BoardTokenAvatar extends StatelessWidget {
                         _isEnemyToken(token)
                             ? Icons.crisis_alert_outlined
                             : Icons.person_outline_rounded,
-                        color: Colors.white,
+                        color: StitchCodexPalette.textPrimary,
                         size: size * 0.46,
                       ),
               ),
@@ -2027,17 +2638,14 @@ class _MiniHpBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(999),
-      child: SizedBox(
-        height: 5,
+    return Container(
+      height: 5,
+      color: StitchCodexPalette.textFaint,
+      child: FractionallySizedBox(
+        alignment: Alignment.centerLeft,
+        widthFactor: token.hpRatio,
         child: ColoredBox(
-          color: Colors.black.withValues(alpha: 0.70),
-          child: FractionallySizedBox(
-            alignment: Alignment.centerLeft,
-            widthFactor: token.hpRatio,
-            child: ColoredBox(color: _hpColor(token.hpRatio)),
-          ),
+          color: _hpColor(token.hpRatio),
         ),
       ),
     );
@@ -2060,7 +2668,7 @@ class _BoardMetricPill extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(color: color.withValues(alpha: 0.32)),
       ),
       child: Padding(
@@ -2073,9 +2681,10 @@ class _BoardMetricPill extends StatelessWidget {
             Text(
               label,
               style: const TextStyle(
-                color: Colors.white,
-                fontSize: 11,
-                fontWeight: FontWeight.w900,
+                color: StitchCodexPalette.textPrimary,
+                fontFamily: StitchTypography.data,
+                fontSize: 8,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ],
@@ -2090,6 +2699,51 @@ class _MapOption {
   final String path;
 
   const _MapOption(this.label, this.path);
+}
+
+Future<String?> _promptMapUrl(BuildContext context, String initialValue) async {
+  final controller = TextEditingController(
+    text: isRemoteImagePath(initialValue) ? initialValue : '',
+  );
+  try {
+    return showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: StitchCodexPalette.surface,
+          title: const Text('Usar mapa desde URL'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            keyboardType: TextInputType.url,
+            decoration: const InputDecoration(
+              labelText: 'URL publica de imagen',
+              hintText: 'https://...',
+              prefixIcon: Icon(Icons.link_rounded),
+            ),
+            onSubmitted: (value) {
+              Navigator.of(context).pop(value.trim());
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.of(context).pop(controller.text.trim());
+              },
+              icon: const Icon(Icons.check_rounded),
+              label: const Text('Aplicar'),
+            ),
+          ],
+        );
+      },
+    );
+  } finally {
+    controller.dispose();
+  }
 }
 
 List<_MapOption> _mapOptionsFor(String currentPath) {
@@ -2171,6 +2825,12 @@ int _eventDicePriority(BoardToken token) {
   return 0;
 }
 
+bool _shouldShowBoardDiceStage(BoardToken? token) {
+  return token != null &&
+      token.lastEventLabel.isNotEmpty &&
+      token.lastEventDiceNotation.trim().isNotEmpty;
+}
+
 bool _stringListsMatch(List<String> a, List<String> b) {
   if (a.length != b.length) return false;
   for (var index = 0; index < a.length; index++) {
@@ -2220,9 +2880,9 @@ int _tokenAxisDistanceSquares(
 }
 
 Color _hpColor(double ratio) {
-  if (ratio <= 0.30) return const Color(0xFFFF5C6C);
-  if (ratio <= 0.60) return const Color(0xFFFFB454);
-  return const Color(0xFF64F4A2);
+  if (ratio <= 0.30) return StitchCodexPalette.crimsonBright;
+  if (ratio <= 0.60) return StitchCodexPalette.bronzeBright;
+  return StitchCodexPalette.success;
 }
 
 Color _eventColor(String eventKind, [String damageType = '']) {
@@ -2231,13 +2891,13 @@ Color _eventColor(String eventKind, [String damageType = '']) {
     return typeColor;
   }
   return switch (eventKind) {
-    'damage' => const Color(0xFFFF5C6C),
-    'hit' => const Color(0xFFFFB454),
-    'critical' => const Color(0xFF64F4A2),
-    'heal' => const Color(0xFF64F4A2),
-    'miss' => const Color(0xFF7DD3FC),
-    'blocked' => const Color(0xFFFF5C6C),
-    _ => const Color(0xFF7DD3FC),
+    'damage' => StitchCodexPalette.crimsonBright,
+    'hit' => StitchCodexPalette.bronzeBright,
+    'critical' => StitchCodexPalette.success,
+    'heal' => StitchCodexPalette.success,
+    'miss' => StitchCodexPalette.cold,
+    'blocked' => StitchCodexPalette.crimsonBright,
+    _ => StitchCodexPalette.cold,
   };
 }
 

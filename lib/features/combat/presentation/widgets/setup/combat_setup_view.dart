@@ -7,8 +7,6 @@ import '../../../domain/models/combat_turn_models.dart';
 import '../../../../../models/custom_monster.dart';
 import '../../../../../services/monster_repository.dart';
 import '../../../../../theme.dart';
-import '../shared/combat_cinematic_buttons.dart';
-import '../shared/combat_cinematic_primitives.dart';
 import '../shared/combat_portrait_widgets.dart';
 import 'combat_setup_primitives.dart';
 
@@ -70,7 +68,6 @@ class CombatSetupView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.stitch;
     final party =
         combatants.where((item) => item.team == CombatTeam.party).toList();
     final activePartyCount = party
@@ -80,23 +77,30 @@ class CombatSetupView extends StatelessWidget {
         combatants.where((item) => item.team == CombatTeam.enemy).toList();
     final visibleMonsters = monsterCatalog;
 
-    return Padding(
-      padding: const EdgeInsets.all(12),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(tokens.radiusSm),
+    return ColoredBox(
+      color: StitchCodexPalette.ground,
+      child: Padding(
+        padding: const EdgeInsets.all(10),
         child: Stack(
           children: [
-            const Positioned.fill(child: CombatCinematicDungeonBackdrop()),
-            Positioned.fill(
+            const Positioned.fill(
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.36),
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      StitchCodexPalette.ground,
+                      Color(0xFF110C07),
+                      StitchCodexPalette.ground,
+                    ],
+                  ),
                 ),
               ),
             ),
             Positioned.fill(
               child: Padding(
-                padding: const EdgeInsets.all(14),
+                padding: const EdgeInsets.all(2),
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     final wide = constraints.maxWidth >= 980;
@@ -105,41 +109,67 @@ class CombatSetupView extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'Configurar combate',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: CombatCinematicColors.paper,
-                              fontSize: 24,
-                              fontWeight: FontWeight.w900,
-                              height: 1,
-                            ),
+                          Row(
+                            children: [
+                              const Text(
+                                'STITCH',
+                                style: TextStyle(
+                                  color: StitchCodexPalette.textPrimary,
+                                  fontFamily: StitchTypography.display,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 2,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              const Text(
+                                '◆',
+                                style: TextStyle(
+                                  color: StitchCodexPalette.bronze,
+                                  fontSize: 8,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  'CONFIGURAR COMBATE',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: StitchCodexPalette.bronze
+                                        .withValues(alpha: 0.92),
+                                    fontFamily: StitchTypography.display,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: 0.6,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 5),
                           Text(
-                            '$activePartyCount/${party.length} personajes activos contra ${enemies.length} enemigos',
+                            '$activePartyCount/${party.length} personajes activos · ${enemies.length} enemigos preparados',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: tokens.textSecondary,
+                            style: const TextStyle(
+                              color: StitchCodexPalette.textMuted,
+                              fontFamily: StitchTypography.body,
                               fontSize: 12,
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                         ],
                       ),
                     );
-                    final beginButton = CombatCinematicConfirmButton(
+                    final beginButton = _SetupBeginButton(
                       enabled: enemies.isNotEmpty && activePartyCount > 0,
-                      label: 'Comenzar combate',
+                      label: 'Iniciar combate',
                       onTap: () => onBeginCombat(),
                     );
-                    final customEnemyButton = CombatCinematicFooterButton(
-                      icon: Icons.add_circle_outline,
-                      label: 'Crear enemigo',
-                      color: CombatCinematicColors.goldBright,
-                      compact: true,
+                    final customEnemyButton = _SetupOutlineButton(
+                      icon: Icons.add,
+                      label: 'Monstruo custom',
                       onTap: () => onCreateCustomEnemy(),
                     );
                     final header = compactHeader
@@ -148,10 +178,11 @@ class CombatSetupView extends StatelessWidget {
                             children: [
                               Row(
                                 children: [
-                                  CombatCinematicRoundIconButton(
-                                    icon: Icons.arrow_back_rounded,
+                                  IconButton(
+                                    icon: const Icon(Icons.arrow_back),
+                                    color: StitchCodexPalette.textSecondary,
                                     tooltip: 'Volver',
-                                    onTap: onBack,
+                                    onPressed: onBack,
                                   ),
                                   const SizedBox(width: 12),
                                   titleBlock,
@@ -165,17 +196,18 @@ class CombatSetupView extends StatelessWidget {
                           )
                         : Row(
                             children: [
-                              CombatCinematicRoundIconButton(
-                                icon: Icons.arrow_back_rounded,
+                              IconButton(
+                                icon: const Icon(Icons.arrow_back),
+                                color: StitchCodexPalette.textSecondary,
                                 tooltip: 'Volver',
-                                onTap: onBack,
+                                onPressed: onBack,
                               ),
                               const SizedBox(width: 12),
                               titleBlock,
                               const SizedBox(width: 12),
-                              SizedBox(width: 190, child: customEnemyButton),
+                              SizedBox(width: 178, child: customEnemyButton),
                               const SizedBox(width: 10),
-                              SizedBox(width: 220, child: beginButton),
+                              SizedBox(width: 190, child: beginButton),
                             ],
                           );
                     final catalogPanel = CombatSetupMonsterCatalogPanel(
@@ -207,7 +239,7 @@ class CombatSetupView extends StatelessWidget {
                               ? Row(
                                   children: [
                                     SizedBox(
-                                      width: 290,
+                                      width: 220,
                                       child: _SetupPartyPanel(
                                         party: party,
                                         inactivePartyCombatantIds:
@@ -220,9 +252,12 @@ class CombatSetupView extends StatelessWidget {
                                     Expanded(child: catalogPanel),
                                     const SizedBox(width: 12),
                                     SizedBox(
-                                      width: 300,
+                                      width: 260,
                                       child: _SetupEnemyPreview(
+                                        party: party,
                                         enemies: enemies,
+                                        inactivePartyCombatantIds:
+                                            inactivePartyCombatantIds,
                                         onRemoveCustomEnemy:
                                             onRemoveCustomEnemy,
                                       ),
@@ -257,7 +292,10 @@ class CombatSetupView extends StatelessWidget {
                                     SizedBox(
                                       height: 240,
                                       child: _SetupEnemyPreview(
+                                        party: party,
                                         enemies: enemies,
+                                        inactivePartyCombatantIds:
+                                            inactivePartyCombatantIds,
                                         onRemoveCustomEnemy:
                                             onRemoveCustomEnemy,
                                       ),
@@ -278,6 +316,172 @@ class CombatSetupView extends StatelessWidget {
   }
 }
 
+class _SetupBeginButton extends StatelessWidget {
+  final bool enabled;
+  final String label;
+  final VoidCallback onTap;
+
+  const _SetupBeginButton({
+    required this.enabled,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 42,
+      child: FilledButton.icon(
+        onPressed: enabled ? onTap : null,
+        icon: const Icon(Icons.sports_mma, size: 16),
+        label: Text(label.toUpperCase()),
+        style: FilledButton.styleFrom(
+          backgroundColor: StitchCodexPalette.crimson,
+          foregroundColor: StitchCodexPalette.textPrimary,
+          disabledBackgroundColor:
+              StitchCodexPalette.crimson.withValues(alpha: 0.26),
+          disabledForegroundColor:
+              StitchCodexPalette.textMuted.withValues(alpha: 0.72),
+          textStyle: const TextStyle(
+            fontFamily: StitchTypography.display,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.6,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SetupOutlineButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _SetupOutlineButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 40,
+      child: OutlinedButton.icon(
+        onPressed: onTap,
+        icon: Icon(icon, size: 15),
+        label: Text(label.toUpperCase()),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: StitchCodexPalette.bronze,
+          side: BorderSide(
+            color: StitchCodexPalette.bronze.withValues(alpha: 0.52),
+          ),
+          textStyle: const TextStyle(
+            fontFamily: StitchTypography.display,
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.5,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SetupGroupLabel extends StatelessWidget {
+  final String label;
+
+  const _SetupGroupLabel({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label.toUpperCase(),
+      style: const TextStyle(
+        color: StitchCodexPalette.textFaint,
+        fontFamily: StitchTypography.data,
+        fontSize: 8,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 1.4,
+      ),
+    );
+  }
+}
+
+class _SetupEncounterRow extends StatelessWidget {
+  final Combatant combatant;
+  final VoidCallback? onRemove;
+
+  const _SetupEncounterRow({
+    required this.combatant,
+    this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = combatant.team == CombatTeam.party
+        ? StitchCodexPalette.success
+        : StitchCodexPalette.crimsonBright;
+    return Row(
+      children: [
+        Container(
+          width: 14,
+          height: 14,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: color,
+          ),
+        ),
+        const SizedBox(width: 9),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                combatant.name.toUpperCase(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: StitchCodexPalette.textPrimary,
+                  fontFamily: StitchTypography.display,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              Text(
+                combatant.role,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: StitchCodexPalette.textMuted,
+                  fontFamily: StitchTypography.body,
+                  fontSize: 10,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (onRemove != null)
+          IconButton(
+            onPressed: onRemove,
+            icon: const Icon(Icons.close, size: 14),
+            color: StitchCodexPalette.textMuted,
+            visualDensity: VisualDensity.compact,
+            tooltip: 'Quitar',
+          ),
+      ],
+    );
+  }
+}
+
 class _SetupPartyPanel extends StatelessWidget {
   final List<Combatant> party;
   final Set<String> inactivePartyCombatantIds;
@@ -291,14 +495,15 @@ class _SetupPartyPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CombatCinematicPanelFrame(
-      borderColor: CombatCinematicColors.gold,
-      backgroundAlpha: 0.76,
+    return CombatSetupSectionFrame(
+      borderColor: StitchCodexPalette.bronzeMuted,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const CombatSetupPanelTitle(
-              icon: Icons.groups_outlined, label: 'Party'),
+            icon: Icons.groups_outlined,
+            label: 'Partido',
+          ),
           const SizedBox(height: 10),
           Expanded(
             child: ListView.separated(
@@ -324,58 +529,69 @@ class _SetupPartyPanel extends StatelessWidget {
 }
 
 class _SetupEnemyPreview extends StatelessWidget {
+  final List<Combatant> party;
   final List<Combatant> enemies;
+  final Set<String> inactivePartyCombatantIds;
   final Future<void> Function(String combatantId) onRemoveCustomEnemy;
 
   const _SetupEnemyPreview({
+    required this.party,
     required this.enemies,
+    required this.inactivePartyCombatantIds,
     required this.onRemoveCustomEnemy,
   });
 
   @override
   Widget build(BuildContext context) {
-    return CombatCinematicPanelFrame(
-      borderColor: CombatCinematicColors.blood,
-      backgroundAlpha: 0.76,
+    final activeParty = party
+        .where((item) => !inactivePartyCombatantIds.contains(item.id))
+        .toList();
+    return CombatSetupSectionFrame(
+      borderColor: StitchCodexPalette.bronzeMuted,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const CombatSetupPanelTitle(
-            icon: Icons.crisis_alert_outlined,
-            label: 'Enemigos',
+            icon: Icons.sports_mma,
+            label: 'Encuentro',
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 14),
           Expanded(
-            child: enemies.isEmpty
-                ? const Center(
+            child: ListView(
+              children: [
+                const _SetupGroupLabel(label: 'Jugadores'),
+                const SizedBox(height: 8),
+                for (final combatant in activeParty) ...[
+                  _SetupEncounterRow(combatant: combatant),
+                  const SizedBox(height: 8),
+                ],
+                const SizedBox(height: 8),
+                const _SetupGroupLabel(label: 'Enemigos'),
+                const SizedBox(height: 8),
+                if (enemies.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 18),
                     child: Text(
-                      'Agrega enemigos para comenzar.',
-                      textAlign: TextAlign.center,
+                      'Agrega monstruos desde el catálogo.',
                       style: TextStyle(
-                        color: CombatCinematicColors.paper,
-                        fontWeight: FontWeight.w800,
+                        color: StitchCodexPalette.textMuted,
+                        fontFamily: StitchTypography.body,
+                        fontSize: 13,
                       ),
                     ),
                   )
-                : ListView.separated(
-                    itemCount: enemies.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
-                    itemBuilder: (context, index) {
-                      final enemy = enemies[index];
-                      final canRemove = enemy.id.startsWith('custom_monster_');
-                      return _SetupCombatantRow(
-                        combatant: enemy,
-                        trailing: canRemove
-                            ? IconButton(
-                                onPressed: () => onRemoveCustomEnemy(enemy.id),
-                                icon: const Icon(Icons.delete_outline),
-                                color: CombatCinematicColors.paper,
-                                tooltip: 'Quitar enemigo personalizado',
-                              )
-                            : null,
-                      );
-                    },
-                  ),
+                else
+                  for (final enemy in enemies) ...[
+                    _SetupEncounterRow(
+                      combatant: enemy,
+                      onRemove: enemy.id.startsWith('custom_monster_')
+                          ? () => onRemoveCustomEnemy(enemy.id)
+                          : null,
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+              ],
+            ),
           ),
         ],
       ),
@@ -387,13 +603,11 @@ class _SetupCombatantRow extends StatelessWidget {
   final Combatant combatant;
   final bool active;
   final ValueChanged<bool>? onToggleActive;
-  final Widget? trailing;
 
   const _SetupCombatantRow({
     required this.combatant,
     this.active = true,
     this.onToggleActive,
-    this.trailing,
   });
 
   @override
@@ -404,19 +618,53 @@ class _SetupCombatantRow extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: active ? 0.24 : 0.36),
-        borderRadius: BorderRadius.circular(7),
-        border: Border.all(color: accent.withValues(alpha: 0.22)),
+        color: active
+            ? StitchCodexPalette.surface
+            : StitchCodexPalette.ground.withValues(alpha: 0.56),
+        borderRadius: BorderRadius.circular(2),
+        border: Border.all(
+          color: active
+              ? StitchCodexPalette.bronze.withValues(alpha: 0.44)
+              : StitchCodexPalette.textFaint.withValues(alpha: 0.54),
+        ),
       ),
       child: Row(
         children: [
+          if (onToggleActive != null) ...[
+            InkWell(
+              onTap: () => onToggleActive!(!active),
+              child: Container(
+                width: 18,
+                height: 18,
+                decoration: BoxDecoration(
+                  color: active
+                      ? StitchCodexPalette.bronze
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(2),
+                  border: Border.all(
+                    color: active
+                        ? StitchCodexPalette.bronze
+                        : StitchCodexPalette.textFaint,
+                  ),
+                ),
+                child: active
+                    ? const Icon(
+                        Icons.check,
+                        size: 13,
+                        color: StitchCodexPalette.ground,
+                      )
+                    : null,
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
           SizedBox(
-            width: 42,
-            height: 42,
+            width: 30,
+            height: 30,
             child: CombatCinematicPortraitBox(
               combatant: combatant,
               color: accent,
-              iconSize: 18,
+              iconSize: 14,
             ),
           ),
           const SizedBox(width: 9),
@@ -429,36 +677,27 @@ class _SetupCombatantRow extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    color: CombatCinematicColors.paper,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
+                    color: StitchCodexPalette.textPrimary,
+                    fontFamily: StitchTypography.display,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'HP ${combatant.hp}/${combatant.maxHp}  CA ${combatant.ac}',
+                  combatant.role,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: active ? tokens.textSecondary : tokens.textMuted,
+                    fontFamily: StitchTypography.body,
                     fontSize: 10,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
             ),
           ),
-          if (trailing != null) ...[
-            const SizedBox(width: 6),
-            trailing!,
-          ] else if (onToggleActive != null) ...[
-            const SizedBox(width: 6),
-            Switch(
-              value: active,
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              onChanged: onToggleActive,
-            ),
-          ],
         ],
       ),
     );

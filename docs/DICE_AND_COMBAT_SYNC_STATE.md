@@ -1,6 +1,6 @@
 # Dice, Board Sync And Spell Combat State
 
-Last updated: 2026-05-24
+Last updated: 2026-06-28
 
 ## Current Result Flow
 
@@ -42,7 +42,7 @@ Last updated: 2026-05-24
 ## Visibility Timing
 
 - Board token event badges and synced result payloads now stay visible for about 15 seconds.
-- DiceBox popup stays visible for about 11 seconds.
+- DiceBox popup stays visible for about 6.5 seconds.
 - DiceBox auto-clear runs after about 15 seconds.
 - This keeps the board readable while still clearing stale damage/result banners automatically.
 - Combat Mode disables its primary roll controls while a board-authoritative roll is in flight and labels the main confirmation control as `Rolling...`, preventing repeated ghost launches before the 3D result returns.
@@ -52,6 +52,7 @@ Last updated: 2026-05-24
 
 - DiceBox 1.1 expects `container`; the bridge also keeps `selector` for compatibility.
 - `BattleBoardView` now chooses one `diceEventToken` and mounts one DiceBox overlay per board, preventing duplicate overlays and small corner dice.
+- The board DiceBox scale is intentionally large (`10.0` on desktop board displays and `8.5` on narrower windows) so the physical die reads clearly without enlarging the result popup.
 - The overlay event key is based on `lastEventId` and result payload, not `updatedAt`, so normal token sync updates do not re-roll the same event.
 - When an event disappears or the overlay is disposed, `clearDice` is called to avoid stale dice/popup artifacts.
 

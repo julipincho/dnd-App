@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
-const _cinematicPaper = Color(0xFFF2D8B5);
-const _cinematicGold = Color(0xFF9C7140);
+import '../../../../../theme.dart';
+
+const _cinematicPaper = StitchCodexPalette.textPrimary;
+const _cinematicGold = StitchCodexPalette.bronzeMuted;
 
 class CombatCinematicFooterButton extends StatelessWidget {
   final IconData icon;
@@ -23,13 +25,13 @@ class CombatCinematicFooterButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(7),
+      borderRadius: BorderRadius.circular(2),
       child: Container(
         height: compact ? 40 : 42,
         padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 12),
         decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.38),
-          borderRadius: BorderRadius.circular(7),
+          color: StitchCodexPalette.surface.withValues(alpha: 0.86),
+          borderRadius: BorderRadius.circular(2),
           border: Border.all(color: color.withValues(alpha: 0.30)),
         ),
         child: LayoutBuilder(
@@ -92,27 +94,21 @@ class CombatCinematicConfirmButton extends StatelessWidget {
       opacity: enabled ? 1 : 0.52,
       child: InkWell(
         onTap: enabled ? onTap : null,
-        borderRadius: BorderRadius.circular(7),
+        borderRadius: BorderRadius.circular(2),
         child: Container(
           height: 46,
           padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [
-                Color(0xFF5F1510),
-                Color(0xFF9D241A),
-                Color(0xFF4E100E),
-              ],
-            ),
-            borderRadius: BorderRadius.circular(7),
+            color: StitchCodexPalette.crimson,
+            borderRadius: BorderRadius.circular(2),
             border: Border.all(
-              color: const Color(0xFFD66B42).withValues(alpha: 0.62),
+              color: StitchCodexPalette.crimsonBright.withValues(alpha: 0.72),
             ),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF9D241A).withValues(alpha: 0.28),
-                blurRadius: 18,
-                offset: const Offset(0, 8),
+                color: StitchCodexPalette.crimson.withValues(alpha: 0.22),
+                blurRadius: 10,
+                offset: const Offset(0, 5),
               ),
             ],
           ),
@@ -166,12 +162,12 @@ class CombatCinematicRoundIconButton extends StatelessWidget {
       message: tooltip,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(2),
         child: Container(
           width: 36,
           height: 36,
           decoration: BoxDecoration(
-            shape: BoxShape.circle,
+            borderRadius: BorderRadius.circular(2),
             color: _cinematicGold.withValues(alpha: 0.12),
             border: Border.all(
               color: _cinematicGold.withValues(alpha: 0.28),
@@ -202,13 +198,13 @@ class CombatHpSheetButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(7),
+      borderRadius: BorderRadius.circular(2),
       child: Container(
         height: 44,
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.14),
-          borderRadius: BorderRadius.circular(7),
+          borderRadius: BorderRadius.circular(2),
           border: Border.all(color: color.withValues(alpha: 0.34)),
         ),
         child: Row(

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../../theme.dart';
 import '../shared/combat_cinematic_primitives.dart';
 
 class CombatRollModeOption<T> {
@@ -34,8 +35,8 @@ class CombatRollModeToggle<T> extends StatelessWidget {
       height: 42,
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.34),
-        borderRadius: BorderRadius.circular(7),
+        color: StitchCodexPalette.surface,
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(
           color: CombatCinematicColors.gold.withValues(alpha: 0.24),
         ),

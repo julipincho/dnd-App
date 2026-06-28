@@ -1,8 +1,8 @@
 import 'dart:async';
 // ignore: avoid_web_libraries_in_flutter
 import 'dart:html' as html;
-// ignore: avoid_web_libraries_in_flutter
-import 'dart:js_util' as js_util;
+import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
 import 'dart:ui_web' as ui_web;
 
 import 'package:flutter/material.dart';
@@ -33,6 +33,7 @@ class BattleBoardDiceBoxOverlay extends StatefulWidget {
 }
 
 class _BattleBoardDiceBoxOverlayState extends State<BattleBoardDiceBoxOverlay> {
+  static const bool _diceDebugTracing = false;
   static const Duration _claimTimeout = Duration(milliseconds: 1200);
   static final Set<String> _registeredViewTypes = {};
   static final Set<String> _completedEventKeys = {};
@@ -190,10 +191,10 @@ class _BattleBoardDiceBoxOverlayState extends State<BattleBoardDiceBoxOverlay> {
     }
 
     try {
-      final rawStatus = js_util.callMethod<Object?>(
+      final rawStatus = _jsCall(
         bridge,
         'createDiceOverlay',
-        [_viewType],
+        [_viewType.toJS],
       );
       final ok = rawStatus == null || _jsBool(rawStatus, 'ok') != false;
       final reason = _jsString(rawStatus, 'reason') ?? 'legacy/no-status';
@@ -220,9 +221,6 @@ class _BattleBoardDiceBoxOverlayState extends State<BattleBoardDiceBoxOverlay> {
     final token = widget.token;
 
     if (token == null || token.lastEventLabel.isEmpty) {
-      debugPrint(
-        '[BattleBoardDiceBoxOverlay] no roll token or empty label',
-      );
       _trace('no roll token/label; leaving dice until auto-clear');
 
       _lastEventKey = null;
@@ -393,10 +391,10 @@ class _BattleBoardDiceBoxOverlayState extends State<BattleBoardDiceBoxOverlay> {
     try {
       final bridge = _bridge();
       if (bridge == null) return;
-      js_util.callMethod(
+      _jsCall(
         bridge,
         'showRollResult',
-        [_viewType, label, detail],
+        [_viewType.toJS, label.toJS, detail.toJS],
       );
       _trace('resolved result popup label=$label');
     } catch (error) {
@@ -429,28 +427,25 @@ class _BattleBoardDiceBoxOverlayState extends State<BattleBoardDiceBoxOverlay> {
         _trace('waiting JS dice outcome ${waitingSeconds}s');
         _traceOverlayStatus();
       });
-      final rawOutcome = await js_util
-          .promiseToFuture(
-        js_util.callMethod(
-          bridge,
-          'rollDice',
-          [
-            _viewType,
-            notation,
-            js_util.jsify({
-              if (diceColorHex != null) 'themeColor': diceColorHex,
-              'eventKey': eventKey,
-            }),
-          ],
-        ),
-      )
-          .timeout(
+      final rollPromise = _jsCall<JSPromise<JSAny?>>(
+        bridge,
+        'rollDice',
+        [
+          _viewType.toJS,
+          notation.toJS,
+          <String, Object?>{
+            if (diceColorHex != null) 'themeColor': diceColorHex,
+            'eventKey': eventKey,
+          }.jsify(),
+        ],
+      );
+      final rawOutcome = await rollPromise.toDart.timeout(
         const Duration(seconds: 24),
         onTimeout: () {
           _trace('Dart timed out waiting for JS dice outcome');
-          return js_util.jsify({
+          return <String, Object?>{
             'error': 'dart-roll-timeout',
-          });
+          }.jsify();
         },
       );
       final outcome = _outcomeFromJsResult(rawOutcome);
@@ -508,14 +503,17 @@ class _BattleBoardDiceBoxOverlayState extends State<BattleBoardDiceBoxOverlay> {
     return false;
   }
 
-  dynamic _bridge() {
-    return js_util.getProperty(
-      html.window,
+  JSObject? _bridge() {
+    final bridge = _jsGetRaw(
+      JSObject.fromInteropObject(html.window),
       'stitchDiceBoxBridge',
     );
+    if (bridge == null) return null;
+    return bridge as JSObject;
   }
 
   void _trace(String message) {
+    if (!_diceDebugTracing) return;
     final line =
         '${DateTime.now().toIso8601String().substring(11, 19)} $message';
     debugPrint('[BattleBoardDiceDebug] $line');
@@ -535,13 +533,13 @@ class _BattleBoardDiceBoxOverlayState extends State<BattleBoardDiceBoxOverlay> {
     try {
       final bridge = _bridge();
       if (bridge == null) return;
-      js_util.callMethod(
+      _jsCall(
         bridge,
         'appendDiceDebugLog',
         [
-          'dart',
-          stage,
-          js_util.jsify(data),
+          'dart'.toJS,
+          stage.toJS,
+          data.jsify(),
         ],
       );
     } catch (error) {
@@ -584,10 +582,10 @@ class _BattleBoardDiceBoxOverlayState extends State<BattleBoardDiceBoxOverlay> {
         _trace('status bridge=missing');
         return;
       }
-      final status = js_util.callMethod<Object?>(
+      final status = _jsCall(
         bridge,
         'getOverlayStatus',
-        [_viewType],
+        [_viewType.toJS],
       );
       _trace(
         'status container=${_jsBool(status, 'hasContainer')} '
@@ -613,27 +611,20 @@ class _BattleBoardDiceBoxOverlayState extends State<BattleBoardDiceBoxOverlay> {
     final label = token.lastEventLabel.trim();
     final kind = token.lastEventKind.toLowerCase().trim();
 
-    debugPrint(
-      '[BattleBoardDiceBoxOverlay._notationForToken] '
-      'label="$label" kind="$kind"',
-    );
+    _trace('notation fallback label="$label" kind="$kind"');
 
     if (kind == 'manual' || kind == 'custom' || kind == 'formula') {
       final notation = _diceNotationFromLabel(label) ?? '1d20';
-      debugPrint(
-        '[BattleBoardDiceBoxOverlay._notationForToken] '
-        'Using parsed notation for manual/custom/formula label "$label": '
-        '"$notation"',
+      _trace(
+        'using parsed notation for manual/custom/formula '
+        'label="$label": "$notation"',
       );
       return notation;
     }
 
     if (_looksLikeDiceNotation(label)) {
       final notation = _diceNotationFromLabel(label) ?? label;
-      debugPrint(
-        '[BattleBoardDiceBoxOverlay._notationForToken] '
-        'Using parsed notation from label "$label": "$notation"',
-      );
+      _trace('using parsed notation from label "$label": "$notation"');
       return notation;
     }
 
@@ -650,10 +641,7 @@ class _BattleBoardDiceBoxOverlayState extends State<BattleBoardDiceBoxOverlay> {
       notation = '1d20';
     }
 
-    debugPrint(
-      '[BattleBoardDiceBoxOverlay._notationForToken] '
-      'Using default notation for kind "$kind": "$notation"',
-    );
+    _trace('using default notation for kind "$kind": "$notation"');
     return notation;
   }
 
@@ -691,7 +679,7 @@ class _BattleBoardDiceBoxOverlayState extends State<BattleBoardDiceBoxOverlay> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.token == null || widget.token!.lastEventLabel.isEmpty) {
+    if (!_hasRollToken) {
       return const SizedBox.shrink();
     }
 
@@ -703,6 +691,36 @@ class _BattleBoardDiceBoxOverlayState extends State<BattleBoardDiceBoxOverlay> {
   }
 }
 
+T _jsCall<T extends JSAny?>(
+  JSObject target,
+  String method,
+  List<JSAny?> arguments,
+) {
+  return target.callMethodVarArgs<T>(method.toJS, arguments);
+}
+
+JSAny? _jsGetRaw(JSObject raw, Object property) {
+  final jsProperty = property is int ? property.toJS : property.toString().toJS;
+  return raw.getProperty<JSAny?>(jsProperty);
+}
+
+Object? _jsGet(Object? raw, Object property) {
+  if (raw == null) return null;
+  if (raw is Map) return raw[property];
+  if (raw is List) {
+    if (property == 'length') return raw.length;
+    if (property is int && property >= 0 && property < raw.length) {
+      return raw[property];
+    }
+    return null;
+  }
+  try {
+    return _jsGetRaw(raw as JSObject, property)?.dartify();
+  } catch (_) {
+    return null;
+  }
+}
+
 BoardDiceRollOutcome? _outcomeFromJsResult(Object? raw) {
   if (raw == null) return null;
   final total = _jsInt(raw, 'total');
@@ -710,11 +728,11 @@ BoardDiceRollOutcome? _outcomeFromJsResult(Object? raw) {
   if (total == null || diceTotal == null) return null;
 
   final values = <int>[];
-  final valuesRaw = js_util.getProperty<Object?>(raw, 'values');
+  final valuesRaw = _jsGet(raw, 'values');
   if (valuesRaw != null) {
     final length = _jsInt(valuesRaw, 'length') ?? 0;
     for (var index = 0; index < length; index++) {
-      final value = js_util.getProperty<Object?>(valuesRaw, index);
+      final value = _jsGet(valuesRaw, index);
       if (value is num) {
         values.add(value.toInt());
       } else {
@@ -724,10 +742,8 @@ BoardDiceRollOutcome? _outcomeFromJsResult(Object? raw) {
     }
   }
 
-  final label =
-      js_util.getProperty<Object?>(raw, 'label')?.toString().trim() ?? '';
-  final detail =
-      js_util.getProperty<Object?>(raw, 'detail')?.toString().trim() ?? '';
+  final label = _jsGet(raw, 'label')?.toString().trim() ?? '';
+  final detail = _jsGet(raw, 'detail')?.toString().trim() ?? '';
 
   return BoardDiceRollOutcome(
     total: total,
@@ -739,21 +755,21 @@ BoardDiceRollOutcome? _outcomeFromJsResult(Object? raw) {
 }
 
 int? _jsInt(Object raw, Object property) {
-  final value = js_util.getProperty<Object?>(raw, property);
+  final value = _jsGet(raw, property);
   if (value is num) return value.toInt();
   return int.tryParse(value?.toString() ?? '');
 }
 
 double? _jsNum(Object? raw, Object property) {
   if (raw == null) return null;
-  final value = js_util.getProperty<Object?>(raw, property);
+  final value = _jsGet(raw, property);
   if (value is num) return value.toDouble();
   return double.tryParse(value?.toString() ?? '');
 }
 
 bool? _jsBool(Object? raw, Object property) {
   if (raw == null) return null;
-  final value = js_util.getProperty<Object?>(raw, property);
+  final value = _jsGet(raw, property);
   if (value is bool) return value;
   return switch (value?.toString().toLowerCase()) {
     'true' => true,
@@ -764,7 +780,7 @@ bool? _jsBool(Object? raw, Object property) {
 
 String? _jsString(Object? raw, Object property) {
   if (raw == null) return null;
-  final value = js_util.getProperty<Object?>(raw, property);
+  final value = _jsGet(raw, property);
   final text = value?.toString().trim() ?? '';
   return text.isEmpty ? null : text;
 }

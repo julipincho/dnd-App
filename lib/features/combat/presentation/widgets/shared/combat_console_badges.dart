@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../../theme.dart';
 
-const _consolePaper = Color(0xFFF2D8B5);
+const _consolePaper = StitchCodexPalette.textPrimary;
 
 class CombatConsoleValueBadge extends StatelessWidget {
   final String label;
@@ -24,7 +24,7 @@ class CombatConsoleValueBadge extends StatelessWidget {
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.13),
-        borderRadius: BorderRadius.circular(7),
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(color: color.withValues(alpha: 0.34)),
       ),
       child: Column(
@@ -34,6 +34,7 @@ class CombatConsoleValueBadge extends StatelessWidget {
             label,
             style: TextStyle(
               color: color,
+              fontFamily: StitchTypography.data,
               fontSize: 9,
               fontWeight: FontWeight.w900,
               height: 1,
@@ -44,6 +45,7 @@ class CombatConsoleValueBadge extends StatelessWidget {
             value,
             style: const TextStyle(
               color: _consolePaper,
+              fontFamily: StitchTypography.data,
               fontSize: 15,
               fontWeight: FontWeight.w900,
               height: 1,
@@ -74,7 +76,7 @@ class CombatConsoleInfoPill extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(7),
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(color: color.withValues(alpha: 0.26)),
       ),
       child: Row(
@@ -89,6 +91,7 @@ class CombatConsoleInfoPill extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 color: _consolePaper,
+                fontFamily: StitchTypography.data,
                 fontSize: 10,
                 fontWeight: FontWeight.w900,
                 height: 1,
@@ -125,6 +128,7 @@ class CombatConsoleMetricBlock extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: context.stitch.textSecondary,
+              fontFamily: StitchTypography.data,
               fontSize: 8.5,
               fontWeight: FontWeight.w900,
               height: 1,
@@ -138,6 +142,7 @@ class CombatConsoleMetricBlock extends StatelessWidget {
             textAlign: TextAlign.end,
             style: const TextStyle(
               color: _consolePaper,
+              fontFamily: StitchTypography.data,
               fontSize: 12,
               fontWeight: FontWeight.w900,
               height: 1,
@@ -165,7 +170,7 @@ class CombatConsoleStateChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(color: color.withValues(alpha: 0.32)),
       ),
       child: Text(
@@ -174,6 +179,7 @@ class CombatConsoleStateChip extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
           color: color,
+          fontFamily: StitchTypography.data,
           fontSize: 8,
           fontWeight: FontWeight.w900,
           height: 1,
@@ -198,8 +204,8 @@ class CombatConsoleLockState extends StatelessWidget {
       alignment: Alignment.center,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.24),
-        borderRadius: BorderRadius.circular(8),
+        color: StitchCodexPalette.surface,
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(color: tokens.textMuted.withValues(alpha: 0.20)),
       ),
       child: Column(
@@ -218,6 +224,7 @@ class CombatConsoleLockState extends StatelessWidget {
             textAlign: TextAlign.center,
             style: TextStyle(
               color: tokens.textSecondary,
+              fontFamily: StitchTypography.body,
               fontSize: 12,
               fontWeight: FontWeight.w800,
             ),
@@ -237,8 +244,8 @@ class CombatConsoleEmptyTargets extends StatelessWidget {
       alignment: Alignment.center,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.24),
-        borderRadius: BorderRadius.circular(8),
+        color: StitchCodexPalette.surface,
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(
           color: const Color(0xFF9C7140).withValues(alpha: 0.18),
         ),
@@ -248,6 +255,7 @@ class CombatConsoleEmptyTargets extends StatelessWidget {
         textAlign: TextAlign.center,
         style: TextStyle(
           color: _consolePaper,
+          fontFamily: StitchTypography.display,
           fontSize: 12,
           fontWeight: FontWeight.w900,
         ),

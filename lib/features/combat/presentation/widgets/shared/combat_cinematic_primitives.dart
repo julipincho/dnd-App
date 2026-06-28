@@ -2,14 +2,15 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../../../../theme.dart';
 import '../combat_arena_backdrop.dart';
 
 class CombatCinematicColors {
-  static const gold = Color(0xFF9C7140);
-  static const goldBright = Color(0xFFE5B46C);
-  static const paper = Color(0xFFF2D8B5);
-  static const actionTextMuted = Color(0xFFC3A57E);
-  static const blood = Color(0xFF8F1E19);
+  static const gold = StitchCodexPalette.bronzeMuted;
+  static const goldBright = StitchCodexPalette.bronzeBright;
+  static const paper = StitchCodexPalette.textPrimary;
+  static const actionTextMuted = StitchCodexPalette.textSecondary;
+  static const blood = StitchCodexPalette.crimson;
 }
 
 class CombatCinematicDungeonBackdrop extends StatelessWidget {
@@ -46,6 +47,31 @@ class CombatCinematicDungeonBackdrop extends StatelessWidget {
             ),
           ),
         ),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: RadialGradient(
+              center: const Alignment(-0.82, -0.28),
+              radius: 0.82,
+              colors: [
+                StitchCodexPalette.bronze.withValues(alpha: 0.16),
+                Colors.transparent,
+              ],
+            ),
+          ),
+        ),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: RadialGradient(
+              center: const Alignment(0.86, -0.18),
+              radius: 0.76,
+              colors: [
+                StitchCodexPalette.crimson.withValues(alpha: 0.13),
+                Colors.transparent,
+              ],
+            ),
+          ),
+        ),
+        const IgnorePointer(child: CombatTacticalGridOverlay()),
         DecoratedBox(
           decoration: BoxDecoration(
             gradient: LinearGradient(
@@ -86,18 +112,16 @@ class CombatCinematicPanelFrame extends StatelessWidget {
         clipBehavior: Clip.hardEdge,
         padding: padding,
         decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: backgroundAlpha),
-          borderRadius: BorderRadius.circular(8),
+          color: StitchCodexPalette.surfaceMuted.withValues(
+            alpha: math.max(backgroundAlpha, 0.76),
+          ),
+          borderRadius: BorderRadius.circular(2),
           border: Border.all(color: borderColor.withValues(alpha: 0.38)),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.30),
-              blurRadius: 14,
-              offset: const Offset(0, 8),
-            ),
-            BoxShadow(
-              color: borderColor.withValues(alpha: 0.08),
-              blurRadius: 12,
+              blurRadius: 8,
+              offset: const Offset(0, 4),
             ),
           ],
         ),
@@ -122,8 +146,8 @@ class CombatCinematicTinyPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.28),
-        borderRadius: BorderRadius.circular(999),
+        color: StitchCodexPalette.ground.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(color: color.withValues(alpha: 0.20)),
       ),
       child: Text(
@@ -189,7 +213,7 @@ class CombatCinematicEconomyPill extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
       decoration: BoxDecoration(
         color: color.withValues(alpha: spent ? 0.10 : 0.14),
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(color: color.withValues(alpha: 0.28)),
       ),
       child: Row(
@@ -242,7 +266,7 @@ class CombatCinematicToolbarButton extends StatelessWidget {
         message: tooltip,
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(2),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
             margin: const EdgeInsets.symmetric(horizontal: 2),
@@ -250,7 +274,7 @@ class CombatCinematicToolbarButton extends StatelessWidget {
               color: selected
                   ? CombatCinematicColors.gold.withValues(alpha: 0.18)
                   : Colors.white.withValues(alpha: 0.035),
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: BorderRadius.circular(2),
               border: Border.all(
                 color: color.withValues(alpha: selected ? 0.42 : 0.13),
               ),
@@ -285,7 +309,7 @@ class CombatCinematicQueueChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
         color: CombatCinematicColors.gold.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(7),
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(
           color: CombatCinematicColors.gold.withValues(alpha: 0.30),
         ),
@@ -341,7 +365,7 @@ class CombatCinematicRollModeSegment extends StatelessWidget {
       message: tooltip,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(5),
+        borderRadius: BorderRadius.circular(2),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 140),
           alignment: Alignment.center,
@@ -349,7 +373,7 @@ class CombatCinematicRollModeSegment extends StatelessWidget {
             color: selected
                 ? CombatCinematicColors.gold.withValues(alpha: 0.20)
                 : Colors.transparent,
-            borderRadius: BorderRadius.circular(5),
+            borderRadius: BorderRadius.circular(2),
             border: Border.all(
               color: color.withValues(alpha: selected ? 0.36 : 0.10),
             ),

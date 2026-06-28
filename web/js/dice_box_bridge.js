@@ -5,18 +5,39 @@ const overlays = new Map();
 let globalOverlay = null;
 const MAX_CREATE_ATTEMPTS = 6;
 const AUTO_CLEAR_MS = 15000;
-const POPUP_HIDE_MS = 11000;
+const POPUP_HIDE_MS = 6500;
 const DEFAULT_THEME_COLOR = '#7DD3FC';
 const DICE_INIT_TIMEOUT_MS = 10000;
 const DICE_ROLL_TIMEOUT_MS = 18000;
-const DICE_RESULT_POLL_MS = 250;
+const DICE_RESULT_POLL_MS = 400;
 const DICE_DEBUG_LOG_KEY = 'stitch.diceDebugLog.v1';
+const DICE_DEBUG_FLAG_KEY = 'stitch.diceDebug.enabled';
 const DICE_DEBUG_LOG_LIMIT = 1500;
 const GLOBAL_ROOT_ID = 'stitch-dice-box-global-root';
 const GLOBAL_TARGET_ID = 'stitch-dice-box-global-target';
 const GLOBAL_POPUP_ID = 'stitch-dice-box-global-result';
+const DICE_BOX_QUALITY = window.devicePixelRatio > 1.5 ? 'medium' : 'high';
+const DICE_BOX_SCALE = window.innerWidth < 900 ? 8.5 : 10.0;
 
-console.log('[dice_box_bridge] loaded');
+function isDiceDebugEnabled() {
+  try {
+    return new URLSearchParams(window.location.search).has('diceDebug') ||
+      window.localStorage.getItem(DICE_DEBUG_FLAG_KEY) === 'true' ||
+      window.STITCH_DICE_DEBUG === true;
+  } catch (_) {
+    return window.STITCH_DICE_DEBUG === true;
+  }
+}
+
+function diceLog(...args) {
+  if (isDiceDebugEnabled()) console.debug(...args);
+}
+
+function diceWarn(...args) {
+  if (isDiceDebugEnabled()) console.warn(...args);
+}
+
+diceLog('[dice_box_bridge] loaded');
 
 function sanitizeForLog(value, depth = 0, seen = new WeakSet()) {
   if (value == null) return value;
@@ -69,11 +90,12 @@ function persistDiceDebugLog() {
       JSON.stringify(loadDiceDebugLog())
     );
   } catch (error) {
-    console.warn('[dice_debug] localStorage persist failed', error);
+    diceWarn('[dice_debug] localStorage persist failed', error);
   }
 }
 
 function appendDiceDebugLog(source, stage, data = {}) {
+  if (!isDiceDebugEnabled()) return false;
   const log = loadDiceDebugLog();
   const entry = {
     ts: new Date().toISOString(),
@@ -89,7 +111,7 @@ function appendDiceDebugLog(source, stage, data = {}) {
     log.shift();
   }
   persistDiceDebugLog();
-  console.debug('[dice_debug]', entry);
+  diceLog('[dice_debug]', entry);
   return true;
 }
 
@@ -191,7 +213,7 @@ function getContainer(containerId) {
 }
 
 function createDiceOverlay(containerId, attempt = 0) {
-  console.log('[dice_box_bridge] createDiceOverlay', containerId, attempt);
+  diceLog('[dice_box_bridge] createDiceOverlay', containerId, attempt);
   appendDiceDebugLog('js', 'create-overlay-start', {
     containerId,
     attempt,
@@ -199,7 +221,7 @@ function createDiceOverlay(containerId, attempt = 0) {
   });
   const container = getContainer(containerId);
   if (!container) {
-    console.warn('[dice_box_bridge] container not found:', containerId, 'attempt', attempt);
+    diceWarn('[dice_box_bridge] container not found:', containerId, 'attempt', attempt);
     appendDiceDebugLog('js', 'create-overlay-container-missing', {
       containerId,
       attempt,
@@ -216,7 +238,7 @@ function createDiceOverlay(containerId, attempt = 0) {
 
   const containerRect = container.getBoundingClientRect();
   const containerStyle = window.getComputedStyle(container);
-  console.log('[dice_box_bridge] container size:', {
+  diceLog('[dice_box_bridge] container size:', {
     width: containerRect.width,
     height: containerRect.height,
     id: containerId,
@@ -235,7 +257,7 @@ function createDiceOverlay(containerId, attempt = 0) {
 
   if ((containerRect.width < 100 || containerRect.height < 100) &&
       attempt < MAX_CREATE_ATTEMPTS) {
-    console.warn('[dice_box_bridge] container not ready:', containerId, 'attempt', attempt);
+    diceWarn('[dice_box_bridge] container not ready:', containerId, 'attempt', attempt);
     appendDiceDebugLog('js', 'create-overlay-container-not-ready', {
       containerId,
       attempt,
@@ -253,7 +275,7 @@ function createDiceOverlay(containerId, attempt = 0) {
   }
 
   if (overlays.has(containerId)) {
-    console.log('[dice_box_bridge] overlay already exists, updating size');
+    diceLog('[dice_box_bridge] overlay already exists, updating size');
     updateOverlaySize(containerId);
     appendDiceDebugLog('js', 'create-overlay-existing', {
       containerId,
@@ -304,6 +326,7 @@ function createDiceOverlay(containerId, attempt = 0) {
     root.style.pointerEvents = 'none';
     root.style.userSelect = 'none';
     root.style.zIndex = '2147482000';
+    root.style.contain = 'layout paint size style';
     document.body.appendChild(root);
   }
 
@@ -319,8 +342,9 @@ function createDiceOverlay(containerId, attempt = 0) {
     target.style.pointerEvents = 'none';
     target.style.userSelect = 'none';
     target.style.zIndex = '9999';
+    target.style.contain = 'layout paint size style';
     root.appendChild(target);
-    console.log('[dice_box_bridge] global target div created');
+    diceLog('[dice_box_bridge] global target div created');
     appendDiceDebugLog('js', 'target-created', {
       containerId,
       targetId: GLOBAL_TARGET_ID,
@@ -333,21 +357,23 @@ function createDiceOverlay(containerId, attempt = 0) {
     popup = document.createElement('div');
     popup.id = GLOBAL_POPUP_ID;
     popup.style.position = 'absolute';
-    popup.style.top = '12px';
-    popup.style.left = '50%';
-    popup.style.transform = 'translateX(-50%) translateY(-6px)';
+    popup.style.top = '52px';
+    popup.style.right = '12px';
+    popup.style.left = 'auto';
+    popup.style.transform = 'translateY(-4px)';
     popup.style.zIndex = '10001';
     popup.style.pointerEvents = 'none';
     popup.style.display = 'flex';
-    popup.style.justifyContent = 'center';
-    popup.style.width = '100%';
-    popup.style.padding = '0 12px';
+    popup.style.justifyContent = 'flex-end';
+    popup.style.width = 'auto';
+    popup.style.maxWidth = '230px';
+    popup.style.padding = '0';
     popup.style.transition = 'opacity 240ms ease, transform 240ms ease';
     popup.style.opacity = '0';
     root.appendChild(popup);
   }
 
-  console.log('[dice_box_bridge] creating DiceBox with selector:', `#${GLOBAL_TARGET_ID}`);
+  diceLog('[dice_box_bridge] creating DiceBox with selector:', `#${GLOBAL_TARGET_ID}`);
   appendDiceDebugLog('js', 'dicebox-constructing', {
     containerId,
     targetId: GLOBAL_TARGET_ID,
@@ -359,8 +385,8 @@ function createDiceOverlay(containerId, attempt = 0) {
     selector: `#${GLOBAL_TARGET_ID}`,
     assetPath: DICE_BOX_ASSET_PATH,
     origin: '',
-    scale: 4,
-    quality: 'high',
+    scale: DICE_BOX_SCALE,
+    quality: DICE_BOX_QUALITY,
     theme: 'default',
     themeColor: DEFAULT_THEME_COLOR,
   });
@@ -388,7 +414,7 @@ function createDiceOverlay(containerId, attempt = 0) {
       activeRollKey: overlay.activeRollKey,
       rollResult,
     });
-    console.log('[dice_box_bridge] onRollComplete', {
+    diceLog('[dice_box_bridge] onRollComplete', {
       containerId,
       activeRollKey: overlay.activeRollKey,
       rollResult,
@@ -413,6 +439,7 @@ function createDiceOverlay(containerId, attempt = 0) {
     popup,
     sourceContainerId: containerId,
     resizeObserver: null,
+    resizeFrame: null,
     clearTimer: null,
     popupHideTimer: null,
     activeRollPromise: null,
@@ -426,6 +453,7 @@ function createDiceOverlay(containerId, attempt = 0) {
     lastError: '',
     lastRollSource: '',
     lastRollCompleteResult: null,
+    lastLayoutSignature: '',
   });
   globalOverlay = overlays.get(containerId);
 
@@ -471,12 +499,18 @@ function createDiceOverlay(containerId, attempt = 0) {
       // Observar cambios de tamaño para mantener el canvas escalado
       if (!overlay.resizeObserver) {
         overlay.resizeObserver = new ResizeObserver(() => {
-          updateOverlaySize(containerId);
+          if (overlay.resizeFrame != null) {
+            window.cancelAnimationFrame(overlay.resizeFrame);
+          }
+          overlay.resizeFrame = window.requestAnimationFrame(() => {
+            overlay.resizeFrame = null;
+            updateOverlaySize(containerId);
+          });
         });
         overlay.resizeObserver.observe(target);
       }
 
-      console.log('[dice_box_bridge] init complete for', containerId, 'dpr:', window.devicePixelRatio);
+      diceLog('[dice_box_bridge] init complete for', containerId, 'dpr:', window.devicePixelRatio);
     })
     .catch((e) => {
       const overlay = overlays.get(containerId) ?? globalOverlay;
@@ -488,7 +522,7 @@ function createDiceOverlay(containerId, attempt = 0) {
         containerId,
         error: e,
       });
-      console.error('[dice_box_bridge] init failed', e);
+      diceWarn('[dice_box_bridge] init failed', e);
     });
 
   appendDiceDebugLog('js', 'create-overlay-created', {
@@ -528,6 +562,17 @@ function updateOverlaySize(containerId) {
   const rect = source?.getBoundingClientRect?.() ?? overlay.root.getBoundingClientRect();
   const width = Math.max(rect.width, 100);
   const height = Math.max(rect.height, 100);
+  const layoutSignature = [
+    Math.round(width),
+    Math.round(height),
+    Math.round(rect.top),
+    Math.round(rect.left),
+  ].join('x');
+
+  if (overlay.lastLayoutSignature === layoutSignature) {
+    return;
+  }
+  overlay.lastLayoutSignature = layoutSignature;
 
   overlay.sourceContainerId = containerId || overlay.sourceContainerId;
   overlay.root.style.position = 'fixed';
@@ -563,7 +608,7 @@ function updateOverlaySize(containerId) {
         containerId,
         error: e,
       });
-      console.warn('[dice_box_bridge] resizeWorld failed:', e);
+      diceWarn('[dice_box_bridge] resizeWorld failed:', e);
     }
   }
   return;
@@ -580,7 +625,7 @@ function updateOverlaySize(containerId) {
       
       // Solo cambiar si realmente cambió el tamaño
       if (canvas.width !== newWidth || canvas.height !== newHeight) {
-        console.log('[dice_box_bridge.updateOverlaySize] attempting to resize canvas', {
+        diceLog('[dice_box_bridge.updateOverlaySize] attempting to resize canvas', {
           oldWidth: canvas.width,
           oldHeight: canvas.height,
           newWidth,
@@ -602,7 +647,7 @@ function updateOverlaySize(containerId) {
       containerId,
       error: e,
     });
-    console.warn('[dice_box_bridge.updateOverlaySize] cannot resize canvas.width/height (may be locked):', e.message);
+    diceWarn('[dice_box_bridge.updateOverlaySize] cannot resize canvas.width/height (may be locked):', e.message);
   }
 
   // Siempre actualizar el estilo CSS
@@ -617,7 +662,7 @@ function updateOverlaySize(containerId) {
         containerId,
         error: e,
       });
-      console.warn('[dice_box_bridge] resizeWorld failed:', e);
+      diceWarn('[dice_box_bridge] resizeWorld failed:', e);
     }
   }
 }
@@ -631,14 +676,21 @@ function showRollResult(containerId, label, detail) {
     detail,
   });
   const popup = overlay.popup;
+  popup.style.top = '52px';
+  popup.style.right = '12px';
+  popup.style.left = 'auto';
+  popup.style.width = 'auto';
+  popup.style.maxWidth = '230px';
+  popup.style.padding = '0';
+  popup.style.justifyContent = 'flex-end';
   popup.innerHTML = `
-    <div style="max-width: 420px; width: 100%; background: rgba(0,0,0,0.78); border: 1px solid rgba(255,255,255,0.16); border-radius: 18px; padding: 14px 18px; color: #ffffff; backdrop-filter: blur(12px); box-shadow: 0 12px 28px rgba(0,0,0,0.4); font-family: sans-serif;">
-      <div style="font-size: 18px; font-weight: 700; margin-bottom: 6px;">${label}</div>
-      <div style="font-size: 13px; color: rgba(255,255,255,0.78); line-height: 1.35;">${detail}</div>
+    <div style="max-width: 220px; min-width: 150px; background: rgba(10,5,1,0.82); border: 1px solid rgba(193,126,28,0.58); border-radius: 4px; padding: 8px 10px; color: #f7ead2; backdrop-filter: blur(8px); box-shadow: 0 10px 24px rgba(0,0,0,0.32); font-family: Cinzel, Georgia, serif;">
+      <div style="font-size: 12px; font-weight: 800; letter-spacing: 0.06em; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${label}</div>
+      <div style="font-size: 10px; color: rgba(247,234,210,0.72); line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${detail}</div>
     </div>
   `;
   popup.style.opacity = '1';
-  popup.style.transform = 'translateX(-50%) translateY(0)';
+  popup.style.transform = 'translateY(0)';
 
   if (overlay.popupHideTimer) {
     window.clearTimeout(overlay.popupHideTimer);
@@ -646,14 +698,14 @@ function showRollResult(containerId, label, detail) {
   overlay.popupHideTimer = window.setTimeout(() => {
     if (!overlay || !overlay.popup) return;
     overlay.popup.style.opacity = '0';
-    overlay.popup.style.transform = 'translateX(-50%) translateY(-6px)';
+    overlay.popup.style.transform = 'translateY(-4px)';
   }, POPUP_HIDE_MS);
 }
 
 function hideRollResult(overlay) {
   if (!overlay || !overlay.popup) return;
   overlay.popup.style.opacity = '0';
-  overlay.popup.style.transform = 'translateX(-50%) translateY(-6px)';
+  overlay.popup.style.transform = 'translateY(-4px)';
 
   if (overlay.popupHideTimer) {
     window.clearTimeout(overlay.popupHideTimer);
@@ -714,7 +766,7 @@ function clearDice(containerId) {
     return;
   }
 
-  console.log('[dice_box_bridge] clearDice for', containerId);
+  diceLog('[dice_box_bridge] clearDice for', containerId);
   appendDiceDebugLog('js', 'clear-dice', {
     containerId,
     activeRollKey: overlay.activeRollKey,
@@ -733,7 +785,7 @@ function clearDice(containerId) {
       containerId,
       error: e,
     });
-    console.warn('[dice_box_bridge] clearDice error:', e);
+    diceWarn('[dice_box_bridge] clearDice error:', e);
   }
 
   if (overlay.clearTimer) {
@@ -858,7 +910,7 @@ function getRollResultsSafely(overlay) {
     return overlay.box.getRollResults();
   } catch (error) {
     overlay.lastError = error?.message ?? `${error}`;
-    console.warn('[dice_box_bridge.rollDice] getRollResults failed', error);
+    diceWarn('[dice_box_bridge.rollDice] getRollResults failed', error);
     return null;
   }
 }
@@ -996,7 +1048,7 @@ function rollDetailText(notation, parsed) {
 }
 
 async function rollDice(containerId, notation = '1d20', options = {}) {
-  console.log(
+  diceLog(
     '[dice_box_bridge.rollDice] START',
     { containerId, notation, options, time: new Date().toISOString() }
   );
@@ -1013,7 +1065,7 @@ async function rollDice(containerId, notation = '1d20', options = {}) {
     overlay = overlays.get(containerId) ?? globalOverlay;
   }
   if (!overlay) {
-    console.warn('[dice_box_bridge.rollDice] ERROR: overlay not found', containerId);
+    diceWarn('[dice_box_bridge.rollDice] ERROR: overlay not found', containerId);
     appendDiceDebugLog('js', 'rollDice-no-overlay', {
       containerId,
       notation,
@@ -1022,7 +1074,7 @@ async function rollDice(containerId, notation = '1d20', options = {}) {
   }
 
   if (document.visibilityState === 'hidden') {
-    console.warn('[dice_box_bridge.rollDice] page is hidden, skipping roll ownership', {
+    diceWarn('[dice_box_bridge.rollDice] page is hidden, skipping roll ownership', {
       containerId,
       notation,
     });
@@ -1048,7 +1100,7 @@ async function rollDice(containerId, notation = '1d20', options = {}) {
       });
       return { error: 'roll-in-progress' };
     }
-    console.warn('[dice_box_bridge.rollDice] roll already in flight, reusing active roll', {
+    diceWarn('[dice_box_bridge.rollDice] roll already in flight, reusing active roll', {
       containerId,
       notation,
       activeRollKey: overlay.activeRollKey,
@@ -1062,7 +1114,7 @@ async function rollDice(containerId, notation = '1d20', options = {}) {
     return overlay.activeRollPromise;
   }
 
-  console.log('[dice_box_bridge.rollDice] Overlay found, clearing previous timer...');
+  diceLog('[dice_box_bridge.rollDice] Overlay found, clearing previous timer...');
 
   // Cancelar cualquier timer de limpieza anterior
   if (overlay.clearTimer) {
@@ -1088,7 +1140,7 @@ async function rollDice(containerId, notation = '1d20', options = {}) {
     rollKey,
   });
   overlay.activeRollPromise = (async () => {
-    console.log('[dice_box_bridge.rollDice] Waiting for DiceBox init...');
+    diceLog('[dice_box_bridge.rollDice] Waiting for DiceBox init...');
     appendDiceDebugLog('js', 'rollDice-wait-init', {
       containerId,
       rollKey,
@@ -1112,7 +1164,7 @@ async function rollDice(containerId, notation = '1d20', options = {}) {
     }
     
     if (!overlay.box || typeof overlay.box.roll !== 'function') {
-      console.warn(
+      diceWarn(
         '[dice_box_bridge.rollDice] ERROR: overlay box not ready',
         { containerId, hasBox: !!overlay.box, hasRoll: overlay.box?.roll ? 'yes' : 'no' }
       );
@@ -1125,7 +1177,7 @@ async function rollDice(containerId, notation = '1d20', options = {}) {
       return { error: 'box-not-ready' };
     }
 
-    console.log('[dice_box_bridge.rollDice] Overlay ready');
+    diceLog('[dice_box_bridge.rollDice] Overlay ready');
     updateOverlaySize(containerId);
     appendDiceDebugLog('js', 'rollDice-overlay-ready', {
       containerId,
@@ -1153,7 +1205,7 @@ async function rollDice(containerId, notation = '1d20', options = {}) {
 
     const rollNotation = normalizeRollNotation(notation);
     const expectedDiceCount = expectedDiceCountFromNotation(rollNotation);
-    console.log('[dice_box_bridge.rollDice] Calling overlay.box.roll() with notation:', {
+    diceLog('[dice_box_bridge.rollDice] Calling overlay.box.roll() with notation:', {
       rollNotation,
       expectedDiceCount,
     });
@@ -1200,7 +1252,7 @@ async function rollDice(containerId, notation = '1d20', options = {}) {
               rollKey,
               error,
             });
-            console.warn('[dice_box_bridge.rollDice] roll promise rejected', error);
+            diceWarn('[dice_box_bridge.rollDice] roll promise rejected', error);
           });
       } else if (rollReturn != null && typeof overlay.activeRollResolve === 'function') {
         overlay.activeRollResolve({
@@ -1219,7 +1271,7 @@ async function rollDice(containerId, notation = '1d20', options = {}) {
 
     const completedRoll = await completion;
     const result = completedRoll.result;
-    console.log(
+    diceLog(
       '[dice_box_bridge.rollDice] Roll completed',
       {
         containerId,
@@ -1238,7 +1290,7 @@ async function rollDice(containerId, notation = '1d20', options = {}) {
     });
 
     const parsed = formatDiceResult(result);
-    console.log(
+    diceLog(
       '[dice_box_bridge.rollDice] Parsed result',
       { values: parsed.values, total: parsed.total }
     );
@@ -1249,11 +1301,11 @@ async function rollDice(containerId, notation = '1d20', options = {}) {
 
     // Programar la limpieza automática después de que termine la animación
     overlay.clearTimer = window.setTimeout(() => {
-      console.log('[dice_box_bridge.rollDice] auto-clearing dice for', containerId);
+      diceLog('[dice_box_bridge.rollDice] auto-clearing dice for', containerId);
       clearDice(containerId);
     }, AUTO_CLEAR_MS);
 
-    console.log('[dice_box_bridge.rollDice] SUCCESS - Roll completed and auto-clear scheduled');
+    diceLog('[dice_box_bridge.rollDice] SUCCESS - Roll completed and auto-clear scheduled');
     appendDiceDebugLog('js', 'rollDice-success', {
       containerId,
       rollKey,
@@ -1281,7 +1333,7 @@ async function rollDice(containerId, notation = '1d20', options = {}) {
         activeRollKey: overlay.activeRollKey,
         error,
       });
-      console.error(
+      diceWarn(
         '[dice_box_bridge.rollDice] ERROR in overlay.box.roll()',
         { error: error.message, stack: error.stack, notation }
       );

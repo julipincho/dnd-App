@@ -36,8 +36,11 @@ import '../features/combat/presentation/class_widgets/monk/monk_combat_flow_mode
 import '../features/combat/presentation/widgets/combat_arena_backdrop.dart';
 import '../features/combat/presentation/widgets/combat_log/combat_feed_window.dart';
 import '../features/combat/presentation/widgets/combat_mode_debug_banner.dart';
+import '../features/combat/presentation/widgets/player_panel/combat_player_panel.dart';
 import '../features/combat/presentation/widgets/setup/combat_setup_primitives.dart';
 import '../features/combat/presentation/widgets/setup/combat_setup_view.dart';
+import '../features/combat/presentation/widgets/targeting/combat_target_strip.dart';
+import '../features/combat/presentation/widgets/turn_header/combat_active_header.dart';
 import '../features/combat/presentation/widgets/shared/combat_accent_colors.dart';
 import '../features/combat/presentation/widgets/shared/combat_cinematic_buttons.dart';
 import '../features/combat/presentation/widgets/shared/combat_cinematic_primitives.dart';
@@ -5608,47 +5611,13 @@ class _CombatModeScreenState extends State<CombatModeScreen> {
     required BoardToken candidateToken,
     BoardToken? actorToken,
   }) {
-    final shape = action.areaShape.toLowerCase().trim();
-    final areaFeet = action.areaFeet;
-    if (areaFeet <= 0) return false;
-
-    if (shape == 'line') {
-      final origin = actorToken;
-      if (origin == null) {
-        return _tokenCenterDistanceFeet(originToken, candidateToken) <=
-            areaFeet;
-      }
-      return _tokenIsInLineArea(
-        actorToken: origin,
-        targetToken: originToken,
-        candidateToken: candidateToken,
-        lengthFeet: areaFeet,
-      );
-    }
-
-    if (shape == 'cone') {
-      final origin = actorToken;
-      if (origin == null) {
-        return _tokenCenterDistanceFeet(originToken, candidateToken) <=
-            areaFeet;
-      }
-      return _tokenIsInConeArea(
-        actorToken: origin,
-        targetToken: originToken,
-        candidateToken: candidateToken,
-        lengthFeet: areaFeet,
-      );
-    }
-
-    if (shape == 'cube') {
-      final origin = _tokenCenterFeet(originToken);
-      final candidate = _tokenCenterFeet(candidateToken);
-      final halfSideFeet = math.max(5.0, areaFeet / 2);
-      return (candidate.dx - origin.dx).abs() <= halfSideFeet &&
-          (candidate.dy - origin.dy).abs() <= halfSideFeet;
-    }
-
-    return _tokenCenterDistanceFeet(originToken, candidateToken) <= areaFeet;
+    return CombatBoardGeometry.areaAffectsToken(
+      shape: action.areaShape,
+      areaFeet: action.areaFeet,
+      originToken: originToken,
+      candidateToken: candidateToken,
+      actorToken: actorToken,
+    );
   }
 
   bool _tokenIsInLineArea({
@@ -12081,10 +12050,6 @@ class _CinematicCombatDesktop extends StatelessWidget {
     final tokens = context.stitch;
     final enemies = _indexedTeam(combatants, CombatTeam.enemy);
     final party = _indexedTeam(combatants, CombatTeam.party);
-    final aliveEnemies = enemies
-        .where((entry) => entry.combatant.hp > 0)
-        .map((entry) => entry.combatant.name)
-        .toList(growable: false);
 
     return Padding(
       padding: const EdgeInsets.all(10),
@@ -12108,7 +12073,7 @@ class _CinematicCombatDesktop extends StatelessWidget {
                 );
           final stageInsets = EdgeInsets.fromLTRB(
             12,
-            boardControllerActive ? 86 : 92,
+            132,
             12,
             bottomHeight + 18,
           );
@@ -12166,40 +12131,23 @@ class _CinematicCombatDesktop extends StatelessWidget {
                   ),
                 Positioned(
                   left: 10,
-                  top: 14,
-                  width: compact ? 292 : 328,
-                  height: 62,
-                  child: _CinematicTurnHeaderPanel(
+                  right: 10,
+                  top: 10,
+                  height: 112,
+                  child: CombatActiveHeader(
                     round: round,
-                    activeCombatant: activeCombatant,
+                    combatants: combatants,
+                    activeIndex: activeIndex,
                     economy: activeEconomy,
                     showEnemyHp: showEnemyHp,
+                    workspace: workspace,
                     onBack: onBack,
                     onNextTurn: onNextTurn,
-                  ),
-                ),
-                Positioned(
-                  top: 10,
-                  left: compact ? 316 : 352,
-                  right: 390,
-                  height: 68,
-                  child: _CinematicObjectiveBanner(
-                    aliveEnemies: aliveEnemies,
-                    selectedTarget: selectedTarget,
-                  ),
-                ),
-                Positioned(
-                  right: 10,
-                  top: 14,
-                  width: 368,
-                  height: 58,
-                  child: _CinematicToolbar(
-                    workspace: workspace,
-                    showEnemyHp: showEnemyHp,
                     onRequestInitiative: onRequestInitiative,
                     onRollInitiative: onRollInitiative,
                     onToggleDmView: onToggleDmView,
                     onRunDemo: onRunDemo,
+                    onSelectCombatant: onSelectFocusedCombatant,
                     onSelectWorkspace: onSelectWorkspace,
                   ),
                 ),
@@ -12225,6 +12173,9 @@ class _CinematicCombatDesktop extends StatelessWidget {
                   bottom: 10,
                   height: bottomHeight,
                   child: _CinematicActionDeck(
+                    combatants: combatants,
+                    activeIndex: activeIndex,
+                    targetIndex: targetIndex,
                     activeCombatant: activeCombatant,
                     selectedTarget: selectedTarget,
                     actions: actions,
@@ -12246,9 +12197,11 @@ class _CinematicCombatDesktop extends StatelessWidget {
                     selectedTiming: selectedCommandTiming,
                     resourcePool: resourcePool,
                     rollMode: rollMode,
+                    showEnemyHp: showEnemyHp,
                     canControlActive: canControlActive,
                     controlBlockedMessage: controlBlockedMessage,
                     onSelectTiming: onSelectCommandTiming,
+                    onSelectTarget: onSelectTarget,
                     onSelectRollMode: onSelectRollMode,
                     onUseReaction: onUseReaction,
                     onReadyAction: onReadyAction,
@@ -14258,6 +14211,9 @@ class _CinematicBattleToken extends StatelessWidget {
 }
 
 class _CinematicActionDeck extends StatelessWidget {
+  final List<Combatant> combatants;
+  final int activeIndex;
+  final int targetIndex;
   final Combatant activeCombatant;
   final Combatant selectedTarget;
   final List<CombatAction> actions;
@@ -14277,9 +14233,11 @@ class _CinematicActionDeck extends StatelessWidget {
   final String selectedTiming;
   final Map<String, int> resourcePool;
   final CombatRollMode rollMode;
+  final bool showEnemyHp;
   final bool canControlActive;
   final String controlBlockedMessage;
   final ValueChanged<String> onSelectTiming;
+  final ValueChanged<int> onSelectTarget;
   final ValueChanged<CombatRollMode> onSelectRollMode;
   final void Function(int actorIndex, CombatAction action) onUseReaction;
   final ValueChanged<CombatAction> onReadyAction;
@@ -14294,6 +14252,9 @@ class _CinematicActionDeck extends StatelessWidget {
   final VoidCallback onNextTurn;
 
   const _CinematicActionDeck({
+    required this.combatants,
+    required this.activeIndex,
+    required this.targetIndex,
     required this.activeCombatant,
     required this.selectedTarget,
     required this.actions,
@@ -14313,9 +14274,11 @@ class _CinematicActionDeck extends StatelessWidget {
     required this.selectedTiming,
     required this.resourcePool,
     required this.rollMode,
+    required this.showEnemyHp,
     required this.canControlActive,
     required this.controlBlockedMessage,
     required this.onSelectTiming,
+    required this.onSelectTarget,
     required this.onSelectRollMode,
     required this.onUseReaction,
     required this.onReadyAction,
@@ -14493,6 +14456,14 @@ class _CinematicActionDeck extends StatelessWidget {
           backgroundAlpha: 0.78,
           child: Column(
             children: [
+              CombatTargetStrip(
+                combatants: combatants,
+                activeIndex: activeIndex,
+                targetIndex: targetIndex,
+                showEnemyHp: showEnemyHp,
+                onSelectTarget: onSelectTarget,
+              ),
+              const SizedBox(height: 6),
               Row(
                 children: [
                   Expanded(
@@ -15413,7 +15384,7 @@ class _CinematicTimingTab extends StatelessWidget {
 
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(6),
+      borderRadius: BorderRadius.circular(2),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
         height: 36,
@@ -15421,8 +15392,8 @@ class _CinematicTimingTab extends StatelessWidget {
         decoration: BoxDecoration(
           color: selected
               ? CombatCinematicColors.gold.withValues(alpha: 0.15)
-              : Colors.black.withValues(alpha: 0.20),
-          borderRadius: BorderRadius.circular(6),
+              : StitchCodexPalette.surface.withValues(alpha: 0.72),
+          borderRadius: BorderRadius.circular(2),
           border: Border.all(color: color.withValues(alpha: 0.40)),
         ),
         child: Row(
@@ -15437,6 +15408,7 @@ class _CinematicTimingTab extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: CombatCinematicColors.paper,
+                  fontFamily: StitchTypography.display,
                   fontSize: 11,
                   fontWeight: FontWeight.w900,
                 ),
@@ -15451,6 +15423,7 @@ class _CinematicTimingTab extends StatelessWidget {
                       : '$count',
               style: TextStyle(
                 color: color,
+                fontFamily: StitchTypography.data,
                 fontSize: 10,
                 fontWeight: FontWeight.w900,
               ),
@@ -16958,7 +16931,7 @@ class _CinematicFeaturedActionCard extends StatelessWidget {
                               : 42,
                       decoration: BoxDecoration(
                         color: accent.withValues(alpha: 0.16),
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(2),
                         border:
                             Border.all(color: accent.withValues(alpha: 0.30)),
                       ),
@@ -18645,27 +18618,37 @@ class _CombatUnifiedControllerView extends StatelessWidget {
             Positioned.fill(
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final compact = constraints.maxWidth < 760;
+                  final compact = constraints.maxWidth < 1000 &&
+                      constraints.maxHeight >= 620;
                   final leftWidth = math
-                      .min(286.0, math.max(232.0, constraints.maxWidth * 0.27))
+                      .min(320.0, math.max(260.0, constraints.maxWidth * 0.26))
                       .toDouble();
                   final rightWidth = math
-                      .min(270.0, math.max(224.0, constraints.maxWidth * 0.25))
+                      .min(300.0, math.max(250.0, constraints.maxWidth * 0.24))
                       .toDouble();
 
-                  final actorPanel = _ConsoleActorMovePanel(
+                  final actorPanel = CombatPlayerPanel(
                     round: round,
                     activeCombatant: activeCombatant,
                     selectedTarget: selectedTarget,
+                    actions: actions,
+                    selectedTiming: selectedCommandTiming,
                     economy: activeEconomy,
                     showEnemyHp: showEnemyHp,
-                    activeToken: activeToken,
-                    targetToken: selectedTargetToken,
-                    distanceFeet: distanceFeet,
                     canControlActive: canControlActive,
+                    boardLinked: activeToken != null,
+                    targetInRange: selectedTargetToken?.isTargetInRange ?? true,
+                    speedFeet: activeToken?.speedFeet ?? activeCombatant.speed,
+                    movementRemainingFeet: activeToken?.remainingMovementFeet ??
+                        math.max(0, activeEconomy.movementAvailable),
+                    gridX: activeToken?.x,
+                    gridY: activeToken?.y,
+                    distanceFeet: distanceFeet,
                     onBack: onBack,
                     onNextTurn: onNextTurn,
                     onEditHp: () => onEditHp(activeIndex),
+                    onSelectTiming: onSelectCommandTiming,
+                    onFocusAction: onFocusAction,
                     onMove: (dx, dy) => unawaited(
                       onMoveBoardToken(activeCombatant.id, dx, dy),
                     ),
@@ -19488,28 +19471,30 @@ class _ConsoleActionListPanel extends StatelessWidget {
 
     return CombatCinematicPanelFrame(
       borderColor: CombatCinematicColors.gold,
-      padding: const EdgeInsets.fromLTRB(9, 9, 9, 10),
-      backgroundAlpha: 0.84,
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+      backgroundAlpha: 0.90,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
               const Icon(
-                Icons.auto_fix_high_outlined,
+                Icons.sports_mma_outlined,
                 color: CombatCinematicColors.goldBright,
-                size: 19,
+                size: 17,
               ),
               const SizedBox(width: 8),
               const Expanded(
                 child: Text(
-                  'Acciones',
+                  'ACCIONES DEL TURNO',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: CombatCinematicColors.paper,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w900,
+                    fontFamily: StitchTypography.display,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.7,
                     height: 1,
                   ),
                 ),
@@ -19518,13 +19503,14 @@ class _ConsoleActionListPanel extends StatelessWidget {
                 '${visibleActions.length}/${actions.length}',
                 style: TextStyle(
                   color: tokens.textSecondary,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w900,
+                  fontFamily: StitchTypography.data,
+                  fontSize: 8,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 9),
+          const SizedBox(height: 8),
           _CinematicTimingTabs(
             actions: actions,
             selectedTiming: selectedTiming,
@@ -19533,13 +19519,13 @@ class _ConsoleActionListPanel extends StatelessWidget {
             preparedActions: preparedActions,
             onSelectTiming: onSelectTiming,
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 7),
           CombatModeDebugBanner(
             location: 'ConsoleActionListPanel',
             detail: debugDetail,
           ),
           if (selectedTiming == 'Action' && monkFlow != null) ...[
-            const SizedBox(height: 8),
+            const SizedBox(height: 7),
             _MonkCombatFlowPanel(
               state: monkFlow,
               onRollAction: rollInFlight ? (_, __) {} : onRollAction,
@@ -19548,7 +19534,7 @@ class _ConsoleActionListPanel extends StatelessWidget {
             ),
           ],
           if (selected != null) ...[
-            const SizedBox(height: 8),
+            const SizedBox(height: 7),
             _ConsoleSelectedActionBanner(
               action: selected,
               prepared: selectedPrepared,
@@ -19560,7 +19546,7 @@ class _ConsoleActionListPanel extends StatelessWidget {
               ),
             ),
           ],
-          const SizedBox(height: 8),
+          const SizedBox(height: 7),
           Expanded(
             child: !canControlActive
                 ? CombatConsoleLockState(message: controlBlockedMessage)
@@ -19568,7 +19554,7 @@ class _ConsoleActionListPanel extends StatelessWidget {
                     ? CombatActionListEmpty(selectedTiming: selectedTiming)
                     : ListView.separated(
                         itemCount: visibleActions.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        separatorBuilder: (_, __) => const SizedBox(height: 6),
                         itemBuilder: (context, index) {
                           final action = visibleActions[index];
                           final key = _actionCardKey(action);
@@ -19592,7 +19578,7 @@ class _ConsoleActionListPanel extends StatelessWidget {
                         },
                       ),
           ),
-          const SizedBox(height: 9),
+          const SizedBox(height: 8),
           Row(
             children: [
               Expanded(
@@ -19680,44 +19666,70 @@ class _ConsoleSelectedActionBanner extends StatelessWidget {
     final resource = _actionResourceText(action, resourceRemaining);
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.13),
-        borderRadius: BorderRadius.circular(7),
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(color: color.withValues(alpha: 0.30)),
       ),
-      child: Row(
-        children: [
-          Icon(action.icon, color: color, size: 19),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              action.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: CombatCinematicColors.paper,
-                fontSize: 13,
-                fontWeight: FontWeight.w900,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 430;
+          return Row(
+            children: [
+              Icon(action.icon, color: color, size: 19),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      action.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: CombatCinematicColors.paper,
+                        fontFamily: StitchTypography.display,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    if (compact) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        '${_actionRangeText(action)} - ${resource ?? _actionImpactText(action)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: StitchCodexPalette.textMuted,
+                          fontFamily: StitchTypography.data,
+                          fontSize: 7,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          CombatConsoleMetricBlock(
-            label: 'Rango',
-            value: _actionRangeText(action),
-          ),
-          const SizedBox(width: 6),
-          CombatConsoleMetricBlock(
-            label: action.requiresSavingThrow ? 'TS' : 'Bonus',
-            value: _consoleRollBonusText(action),
-          ),
-          const SizedBox(width: 6),
-          CombatConsoleMetricBlock(
-            label: 'Impacto',
-            value: resource ?? _actionImpactText(action),
-          ),
-        ],
+              if (!compact) ...[
+                const SizedBox(width: 8),
+                CombatConsoleMetricBlock(
+                  label: 'Rango',
+                  value: _actionRangeText(action),
+                ),
+                const SizedBox(width: 6),
+                CombatConsoleMetricBlock(
+                  label: action.requiresSavingThrow ? 'TS' : 'Bonus',
+                  value: _consoleRollBonusText(action),
+                ),
+                const SizedBox(width: 6),
+                CombatConsoleMetricBlock(
+                  label: 'Impacto',
+                  value: resource ?? _actionImpactText(action),
+                ),
+              ],
+            ],
+          );
+        },
       ),
     );
   }
@@ -19763,89 +19775,100 @@ class _ConsoleActionRow extends StatelessWidget {
 
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(2),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 160),
-        constraints: const BoxConstraints(minHeight: 72),
-        padding: const EdgeInsets.all(8),
+        constraints: const BoxConstraints(minHeight: 62),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
         decoration: BoxDecoration(
           color: selected
               ? color.withValues(alpha: 0.18)
-              : Colors.black.withValues(alpha: 0.30),
-          borderRadius: BorderRadius.circular(8),
+              : StitchCodexPalette.card.withValues(alpha: 0.90),
+          borderRadius: BorderRadius.circular(2),
           border: Border.all(
             color: color.withValues(alpha: selected ? 0.62 : 0.24),
             width: selected ? 1.6 : 1,
           ),
         ),
-        child: Row(
-          children: [
-            Container(
-              width: 44,
-              height: 44,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.16),
-                borderRadius: BorderRadius.circular(7),
-                border: Border.all(color: color.withValues(alpha: 0.30)),
-              ),
-              child: Icon(action.icon, color: color, size: 23),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Row(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxWidth < 430;
+            return Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(2),
+                    border: Border.all(color: color.withValues(alpha: 0.30)),
+                  ),
+                  child: Icon(action.icon, color: color, size: 20),
+                ),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Expanded(
-                        child: Text(
-                          action.name.toUpperCase(),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: CombatCinematicColors.paper,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w900,
-                            height: 1,
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              action.name.toUpperCase(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: CombatCinematicColors.paper,
+                                fontFamily: StitchTypography.display,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                height: 1,
+                              ),
+                            ),
                           ),
+                          if (prepared || pendingDamage || spent || blocked)
+                            CombatConsoleStateChip(label: state, color: color),
+                        ],
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        compact
+                            ? '${_actionRoleLine(action)} - ${resource ?? _actionImpactText(action)}'
+                            : _actionRoleLine(action),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: tokens.textSecondary,
+                          fontFamily: StitchTypography.body,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                      if (prepared || pendingDamage || spent || blocked)
-                        CombatConsoleStateChip(label: state, color: color),
                     ],
                   ),
-                  const SizedBox(height: 5),
-                  Text(
-                    _actionRoleLine(action),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: tokens.textSecondary,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                    ),
+                ),
+                if (!compact) ...[
+                  const SizedBox(width: 8),
+                  CombatConsoleMetricBlock(
+                    label: 'Rango',
+                    value: _actionRangeText(action),
+                  ),
+                  const SizedBox(width: 6),
+                  CombatConsoleMetricBlock(
+                    label: action.requiresSavingThrow ? 'TS' : 'Bonus',
+                    value: _consoleRollBonusText(action),
+                  ),
+                  const SizedBox(width: 6),
+                  CombatConsoleMetricBlock(
+                    label: 'Dano',
+                    value: resource ?? _actionImpactText(action),
                   ),
                 ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            CombatConsoleMetricBlock(
-              label: 'Rango',
-              value: _actionRangeText(action),
-            ),
-            const SizedBox(width: 6),
-            CombatConsoleMetricBlock(
-              label: action.requiresSavingThrow ? 'TS' : 'Bonus',
-              value: _consoleRollBonusText(action),
-            ),
-            const SizedBox(width: 6),
-            CombatConsoleMetricBlock(
-              label: 'Dano',
-              value: resource ?? _actionImpactText(action),
-            ),
-          ],
+              ],
+            );
+          },
         ),
       ),
     );
@@ -19946,8 +19969,8 @@ class _ConsoleTargetPanel extends StatelessWidget {
 
     return CombatCinematicPanelFrame(
       borderColor: CombatCinematicColors.gold,
-      padding: const EdgeInsets.fromLTRB(8, 8, 8, 9),
-      backgroundAlpha: 0.84,
+      padding: const EdgeInsets.fromLTRB(9, 9, 9, 9),
+      backgroundAlpha: 0.90,
       child: LayoutBuilder(
         builder: (context, constraints) {
           final tiny = constraints.maxHeight < 220;
@@ -19959,20 +19982,22 @@ class _ConsoleTargetPanel extends StatelessWidget {
               Row(
                 children: [
                   const Icon(
-                    Icons.crisis_alert_outlined,
+                    Icons.center_focus_strong_outlined,
                     color: CombatCinematicColors.goldBright,
-                    size: 18,
+                    size: 16,
                   ),
                   const SizedBox(width: 7),
                   Expanded(
                     child: Text(
-                      'Objetivos',
+                      'OBJETIVOS Y CONTROL',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: CombatCinematicColors.paper,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
+                        fontFamily: StitchTypography.display,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.6,
                       ),
                     ),
                   ),
@@ -19980,8 +20005,9 @@ class _ConsoleTargetPanel extends StatelessWidget {
                     '${activeIndex + 1}/${combatants.length}',
                     style: TextStyle(
                       color: tokens.textSecondary,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w900,
+                      fontFamily: StitchTypography.data,
+                      fontSize: 8,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                   const SizedBox(width: 6),
@@ -20035,7 +20061,7 @@ class _ConsoleTargetPanel extends StatelessWidget {
                     ? const CombatConsoleEmptyTargets()
                     : ListView.separated(
                         itemCount: targetEntries.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 7),
+                        separatorBuilder: (_, __) => const SizedBox(height: 5),
                         itemBuilder: (context, index) {
                           final entry = targetEntries[index];
                           final token = CombatBoardTokenLookup.byRef(
@@ -20215,14 +20241,14 @@ class _ConsoleQuickToolButton extends StatelessWidget {
       opacity: enabled ? 1 : 0.48,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(7),
+        borderRadius: BorderRadius.circular(2),
         child: Container(
           width: width,
           height: 34,
           padding: const EdgeInsets.symmetric(horizontal: 7),
           decoration: BoxDecoration(
             color: color.withValues(alpha: 0.14),
-            borderRadius: BorderRadius.circular(7),
+            borderRadius: BorderRadius.circular(2),
             border: Border.all(color: color.withValues(alpha: 0.30)),
           ),
           child: Row(
@@ -20238,8 +20264,9 @@ class _ConsoleQuickToolButton extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: CombatCinematicColors.paper,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w900,
+                      fontFamily: StitchTypography.data,
+                      fontSize: 8,
+                      fontWeight: FontWeight.w700,
                       height: 1,
                     ),
                   ),
@@ -20293,16 +20320,16 @@ class _ConsoleTargetTile extends StatelessWidget {
       opacity: enabled ? 1 : 0.64,
       child: InkWell(
         onTap: onSelect,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(2),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
-          height: 58,
-          padding: const EdgeInsets.all(7),
+          height: 61,
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
           decoration: BoxDecoration(
             color: selected
                 ? color.withValues(alpha: 0.18)
-                : Colors.black.withValues(alpha: 0.28),
-            borderRadius: BorderRadius.circular(8),
+                : StitchCodexPalette.card.withValues(alpha: 0.90),
+            borderRadius: BorderRadius.circular(2),
             border: Border.all(
               color: selected
                   ? CombatCinematicColors.goldBright.withValues(alpha: 0.68)
@@ -20313,12 +20340,12 @@ class _ConsoleTargetTile extends StatelessWidget {
           child: Row(
             children: [
               SizedBox(
-                width: 42,
-                height: 42,
+                width: 38,
+                height: 38,
                 child: CombatCinematicPortraitBox(
                   combatant: combatant,
                   color: color,
-                  iconSize: 25,
+                  iconSize: 21,
                 ),
               ),
               const SizedBox(width: 8),
@@ -20333,8 +20360,9 @@ class _ConsoleTargetTile extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: CombatCinematicColors.paper,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w900,
+                        fontFamily: StitchTypography.display,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
                         height: 1,
                       ),
                     ),
@@ -20350,8 +20378,9 @@ class _ConsoleTargetTile extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               color: tokens.textSecondary,
-                              fontSize: 10,
-                              fontWeight: FontWeight.w800,
+                              fontFamily: StitchTypography.body,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w600,
                               height: 1,
                             ),
                           ),
@@ -20363,12 +20392,29 @@ class _ConsoleTargetTile extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: rangeColor,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w900,
+                            fontFamily: StitchTypography.data,
+                            fontSize: 8,
+                            fontWeight: FontWeight.w700,
                             height: 1,
                           ),
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 4),
+                    Container(
+                      height: 3,
+                      color: StitchCodexPalette.textFaint,
+                      alignment: Alignment.centerLeft,
+                      child: FractionallySizedBox(
+                        widthFactor: hpVisible ? combatant.hpRatio : 1,
+                        child: ColoredBox(
+                          color: hpVisible
+                              ? combatant.hpRatio <= 0.30
+                                  ? StitchCodexPalette.crimsonBright
+                                  : color
+                              : StitchCodexPalette.textMuted,
+                        ),
+                      ),
                     ),
                   ],
                 ),

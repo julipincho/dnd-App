@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
-const _frameActionSurface = Color(0xFF16110D);
-const _frameActionSurfaceRaised = Color(0xFF221812);
-const _frameGoldBright = Color(0xFFE5B46C);
+import '../../../../../theme.dart';
+
+const _frameActionSurface = StitchCodexPalette.card;
+const _frameActionSurfaceRaised = StitchCodexPalette.surfaceRaised;
+const _frameGoldBright = StitchCodexPalette.bronzeBright;
 
 class CombatActionCardFrame extends StatelessWidget {
   final Widget child;
@@ -27,54 +29,25 @@ class CombatActionCardFrame extends StatelessWidget {
       clipBehavior: Clip.hardEdge,
       padding: EdgeInsets.all(dense ? 8 : 10),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: blocked
-              ? [
-                  const Color(0xFF4A211F),
-                  const Color(0xFF20110F),
-                  const Color(0xFF090605),
-                ]
-              : [
-                  Color.lerp(Colors.black, color, 0.36)!,
-                  _frameActionSurfaceRaised,
-                  _frameActionSurface,
-                ],
-          stops: const [0, 0.56, 1],
-        ),
-        borderRadius: BorderRadius.circular(8),
+        color: blocked
+            ? StitchCodexPalette.crimson.withValues(alpha: 0.13)
+            : prepared
+                ? _frameActionSurfaceRaised
+                : _frameActionSurface,
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(
           color: prepared ? _frameGoldBright : color.withValues(alpha: 0.52),
-          width: prepared ? 2 : 1.2,
+          width: prepared ? 1.5 : 1,
         ),
         boxShadow: [
           BoxShadow(
-            color: color.withValues(alpha: prepared ? 0.34 : 0.22),
-            blurRadius: prepared ? 20 : 14,
-            offset: const Offset(0, 10),
-          ),
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.32),
-            blurRadius: 14,
-            offset: const Offset(0, 8),
+            color: Colors.black.withValues(alpha: 0.24),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
-      child: Stack(
-        children: [
-          Positioned(
-            left: -18,
-            top: -18,
-            child: Icon(
-              Icons.hexagon_outlined,
-              color: color.withValues(alpha: 0.08),
-              size: dense ? 82 : 118,
-            ),
-          ),
-          Positioned.fill(child: child),
-        ],
-      ),
+      child: child,
     );
   }
 }
@@ -99,7 +72,7 @@ class CombatActionTapRegion extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(2),
           child: child,
         ),
       ),
@@ -132,7 +105,7 @@ class CombatActionStateBadge extends StatelessWidget {
       ),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(2),
         border: Border.all(color: color.withValues(alpha: 0.44)),
       ),
       child: Text(
@@ -142,6 +115,7 @@ class CombatActionStateBadge extends StatelessWidget {
         textAlign: TextAlign.center,
         style: TextStyle(
           color: color,
+          fontFamily: StitchTypography.data,
           fontSize: compact ? 7.5 : 8.5,
           fontWeight: FontWeight.w900,
           height: 1,

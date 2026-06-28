@@ -33,11 +33,12 @@ class CombatMovementBudgetBar extends StatelessWidget {
             ),
             const SizedBox(width: 6),
             Text(
-              '$remaining ft left',
+              '$remaining FT DISPONIBLES',
               style: const TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-                fontWeight: FontWeight.w900,
+                color: StitchCodexPalette.textPrimary,
+                fontFamily: StitchTypography.data,
+                fontSize: 9,
+                fontWeight: FontWeight.w700,
               ),
             ),
             const Spacer(),
@@ -45,21 +46,22 @@ class CombatMovementBudgetBar extends StatelessWidget {
               '$used/$speed',
               style: TextStyle(
                 color: theme.textSecondary,
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
+                fontFamily: StitchTypography.data,
+                fontSize: 8,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ],
         ),
         const SizedBox(height: 6),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(999),
-          child: LinearProgressIndicator(
-            minHeight: 7,
-            value: ratio,
-            backgroundColor: Colors.white.withValues(alpha: 0.10),
-            valueColor: AlwaysStoppedAnimation<Color>(
-              remaining >= 5 ? theme.accentSuccess : theme.accentAction,
+        Container(
+          height: 6,
+          color: StitchCodexPalette.textFaint,
+          alignment: Alignment.centerLeft,
+          child: FractionallySizedBox(
+            widthFactor: ratio,
+            child: ColoredBox(
+              color: remaining >= 5 ? theme.accentSuccess : theme.accentAction,
             ),
           ),
         ),
@@ -170,9 +172,24 @@ class _CombatMoveButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return IconButton.filledTonal(
-      onPressed: enabled ? onPressed : null,
-      icon: Icon(icon),
+    final color = enabled
+        ? StitchCodexPalette.bronzeBright
+        : StitchCodexPalette.textMuted;
+    return Padding(
+      padding: const EdgeInsets.all(2),
+      child: InkWell(
+        onTap: enabled ? onPressed : null,
+        child: Container(
+          width: 34,
+          height: 34,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: enabled ? 0.10 : 0.04),
+            border: Border.all(color: color.withValues(alpha: 0.32)),
+          ),
+          child: Icon(icon, color: color, size: 20),
+        ),
+      ),
     );
   }
 }

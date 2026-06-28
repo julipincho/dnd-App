@@ -38,53 +38,44 @@ class _CombatArenaBackdropPainter extends CustomPainter {
     final rect = Offset.zero & size;
     final basePaint = Paint()
       ..shader = LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
         colors: [
-          tokens.pageTop,
-          const Color(0xFF111A25),
-          tokens.pageBottom,
+          StitchCodexPalette.ground,
+          StitchCodexPalette.surfaceMuted,
+          const Color(0xFF090604),
         ],
       ).createShader(rect);
     canvas.drawRect(rect, basePaint);
 
     _drawGlow(
       canvas,
-      center: Offset(size.width * 0.18, size.height * 0.18),
-      radius: size.shortestSide * 0.62,
-      color: tokens.accentRead,
-      alpha: 0.16,
+      center: Offset(size.width * 0.12, size.height * 0.30),
+      radius: size.shortestSide * 0.54,
+      color: StitchCodexPalette.bronze,
+      alpha: 0.14,
     );
     _drawGlow(
       canvas,
-      center: Offset(size.width * 0.82, size.height * 0.22),
-      radius: size.shortestSide * 0.54,
-      color: tokens.accentAction,
-      alpha: 0.15,
+      center: Offset(size.width * 0.88, size.height * 0.28),
+      radius: size.shortestSide * 0.48,
+      color: StitchCodexPalette.crimson,
+      alpha: 0.12,
     );
     _drawGlow(
       canvas,
       center: Offset(size.width * 0.52, size.height * 0.88),
       radius: size.shortestSide * 0.48,
-      color: tokens.accentMagic,
-      alpha: 0.10,
+      color: StitchCodexPalette.bronzeMuted,
+      alpha: 0.07,
     );
 
-    final gridPaint = Paint()
-      ..color = tokens.accentRead.withValues(alpha: 0.055)
-      ..strokeWidth = 1;
-    const grid = 54.0;
-    for (var x = -grid; x < size.width + grid; x += grid) {
-      canvas.drawLine(Offset(x, 0), Offset(x + 80, size.height), gridPaint);
-    }
-    for (var y = 28.0; y < size.height; y += grid) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y + 20), gridPaint);
-    }
+    _paintTacticalGrid(canvas, size, alpha: 0.075);
 
     final runePaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.2
-      ..color = tokens.accentInfo.withValues(alpha: 0.10);
+      ..color = StitchCodexPalette.bronze.withValues(alpha: 0.07);
     final center = Offset(size.width * 0.50, size.height * 0.42);
     final pulse = math.sin(round * 0.7) * 4;
     for (final radius in [96.0, 148.0, 206.0]) {
@@ -94,7 +85,7 @@ class _CombatArenaBackdropPainter extends CustomPainter {
         math.pi * 0.12,
         math.pi * 0.38,
         false,
-        runePaint..color = tokens.accentAction.withValues(alpha: 0.09),
+        runePaint..color = StitchCodexPalette.crimson.withValues(alpha: 0.07),
       );
     }
 
@@ -129,5 +120,67 @@ class _CombatArenaBackdropPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _CombatArenaBackdropPainter oldDelegate) {
     return oldDelegate.round != round || oldDelegate.tokens != tokens;
+  }
+}
+
+class CombatTacticalGridOverlay extends StatelessWidget {
+  const CombatTacticalGridOverlay({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      painter: const _CombatTacticalGridPainter(),
+      child: const SizedBox.expand(),
+    );
+  }
+}
+
+class _CombatTacticalGridPainter extends CustomPainter {
+  const _CombatTacticalGridPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    _paintTacticalGrid(canvas, size, alpha: 0.12);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+void _paintTacticalGrid(
+  Canvas canvas,
+  Size size, {
+  required double alpha,
+}) {
+  final gridRect = Rect.fromLTWH(
+    size.width * 0.035,
+    size.height * 0.05,
+    size.width * 0.93,
+    size.height * 0.90,
+  );
+  final gridPaint = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 0.8
+    ..color = StitchCodexPalette.bronzeMuted.withValues(alpha: alpha);
+  final majorPaint = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1.2
+    ..color = StitchCodexPalette.bronze.withValues(alpha: alpha * 1.35);
+
+  for (var column = 0; column <= 12; column++) {
+    final x = gridRect.left + (gridRect.width * column / 12);
+    canvas.drawLine(
+      Offset(x, gridRect.top),
+      Offset(x, gridRect.bottom),
+      column == 0 || column == 12 ? majorPaint : gridPaint,
+    );
+  }
+  for (var row = 0; row <= 8; row++) {
+    final y = gridRect.top + (gridRect.height * row / 8);
+    canvas.drawLine(
+      Offset(gridRect.left, y),
+      Offset(gridRect.right, y),
+      row == 0 || row == 8 ? majorPaint : gridPaint,
+    );
   }
 }

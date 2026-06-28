@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/battle_scene.dart';
 import '../models/board_token.dart';
+import '../theme.dart';
 import '../widgets/battle_board_view.dart';
 import '../widgets/stitch_navigation.dart';
 
@@ -47,6 +48,9 @@ class _BattleBoardDemoScreenState extends State<BattleBoardDemoScreen> {
         y: 5,
         currentHp: 174,
         maxHp: 174,
+        initiative: 18,
+        speedFeet: 30,
+        isActive: true,
         conditions: const ['Blessed'],
       ),
       BoardToken.create(
@@ -60,6 +64,8 @@ class _BattleBoardDemoScreenState extends State<BattleBoardDemoScreen> {
         y: 8,
         currentHp: 32,
         maxHp: 38,
+        initiative: 15,
+        speedFeet: 30,
         conditions: const ['Concentrating'],
       ),
       BoardToken.create(
@@ -73,6 +79,11 @@ class _BattleBoardDemoScreenState extends State<BattleBoardDemoScreen> {
         y: 5,
         currentHp: 48,
         maxHp: 65,
+        initiative: 14,
+        speedFeet: 30,
+        isTargeted: true,
+        targetDistanceFeet: 65,
+        isTargetInRange: true,
       ),
       BoardToken.create(
         id: 'demo-goblin',
@@ -85,6 +96,8 @@ class _BattleBoardDemoScreenState extends State<BattleBoardDemoScreen> {
         y: 9,
         currentHp: 11,
         maxHp: 17,
+        initiative: 11,
+        speedFeet: 30,
       ),
     ];
   }
@@ -92,10 +105,19 @@ class _BattleBoardDemoScreenState extends State<BattleBoardDemoScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF070A0F),
+      backgroundColor: StitchCodexPalette.ground,
       appBar: StitchAppBar(
-        title: const Text('Battle Board Demo'),
-        backgroundColor: const Color(0xFF070A0F),
+        title: const Text(
+          'TABLERO DE COMBATE',
+          style: TextStyle(
+            color: StitchCodexPalette.textPrimary,
+            fontFamily: StitchTypography.display,
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.8,
+          ),
+        ),
+        backgroundColor: StitchCodexPalette.ground,
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 8),
@@ -135,9 +157,10 @@ class _BattleBoardDemoScreenState extends State<BattleBoardDemoScreen> {
             bottom: 16,
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.68),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                color: StitchCodexPalette.surfaceMuted.withValues(alpha: 0.92),
+                border: Border.all(
+                  color: StitchCodexPalette.bronzeMuted.withValues(alpha: 0.48),
+                ),
               ),
               child: Padding(
                 padding:
@@ -147,7 +170,9 @@ class _BattleBoardDemoScreenState extends State<BattleBoardDemoScreen> {
                       ? 'Display local: /board-demo?mode=display'
                       : 'Demo local: selecciona una ficha y toca una casilla',
                   style: const TextStyle(
-                    color: Colors.white,
+                    color: StitchCodexPalette.textPrimary,
+                    fontFamily: StitchTypography.data,
+                    fontSize: 10,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
